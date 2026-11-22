@@ -6,3 +6,4 @@ data/out/
 *.Zone.Identifier
 *:Zone.Identifier
 .env*
+__pycache__/
