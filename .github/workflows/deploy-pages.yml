@@ -1,0 +1,51 @@
+name: Deploy site (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/**", "packages/schema/**", "packages/data-client/**", "pnpm-lock.yaml", ".github/workflows/deploy-pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Require the public data URL
+        run: |
+          if [ -z "${{ vars.DATA_BASE_URL }}" ]; then
+            echo "::error::Set the repository variable DATA_BASE_URL (e.g. https://data.example.org/) before deploying."
+            exit 1
+          fi
+      - run: pnpm --filter @tw-election/web build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_DATA_BASE_URL: ${{ vars.DATA_BASE_URL }}
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
