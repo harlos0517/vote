@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { join } from "node:path";
-import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { execFileSync } from "node:child_process";
 import type { RawSource } from "../config/sources.ts";
@@ -23,10 +22,10 @@ export async function ensureRaw(rawDir: string, s: RawSource, log = console.log)
   if (!existsSync(dest)) {
     mkdirSync(join(rawDir, s.id), { recursive: true });
     log(`download ${s.url}`);
-    const res = await fetch(s.url);
-    if (!res.ok || !res.body) throw new Error(`download failed: ${res.status} ${s.url}`);
+    // curl, not fetch(): www.land.moi.gov.tw sends an obs-folded multi-line header
+    // that Node's undici rejects ("Unexpected whitespace after header value").
     const tmp = `${dest}.part`;
-    await pipeline(Readable.fromWeb(res.body as never), createWriteStream(tmp));
+    execFileSync("curl", ["-fsSL", "--retry", "3", "--retry-delay", "5", "-o", tmp, s.url], { stdio: "inherit" });
     await rename(tmp, dest);
   }
   const got = await sha256File(dest);
