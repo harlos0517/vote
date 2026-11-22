@@ -1,0 +1,64 @@
+name: Publish data release (R2)
+
+# Manual only. Builds from pinned, checksum-verified official sources, refuses to
+# publish if any validation check fails, and never overwrites a published file.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and validate only; list uploads without writing to R2"
+        type: boolean
+        default: true
+      mirror_raw:
+        description: "Also copy raw inputs to the private raw bucket"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-data
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    # Configure required reviewers on this environment so publishing needs approval.
+    environment: data-release
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache pinned raw sources
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: raw-${{ hashFiles('packages/etl/src/config/sources.ts') }}
+      - name: Build and validate
+        run: pnpm etl build
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etl-report
+          path: data/out/reports/
+      - name: Publish to R2
+        run: pnpm etl publish ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      - name: Mirror raw inputs (private bucket)
+        if: inputs.mirror_raw
+        run: pnpm etl mirror-raw ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_RAW_BUCKET: ${{ secrets.R2_RAW_BUCKET }}
