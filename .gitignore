@@ -1,0 +1,8 @@
+node_modules/
+dist/
+# Raw downloads are large and re-fetchable; provenance lives in sources/catalog.json
+data/raw/
+data/out/
+*.Zone.Identifier
+*:Zone.Identifier
+.env*
