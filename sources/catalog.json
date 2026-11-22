@@ -1,0 +1,170 @@
+{
+  "$comment": "Phase 0 source catalog. retrievedAt is when Phase 0 downloaded the file; re-download and compare sha256 before any ETL run.",
+  "sources": [
+    {
+      "id": "cec-votedata",
+      "publisher": "中央選舉委員會",
+      "title": "選舉資料庫（votedata.zip）",
+      "indexUrl": "https://data.cec.gov.tw/?dir=選舉資料庫",
+      "url": "https://data.cec.gov.tw/選舉資料庫/votedata.zip",
+      "datasetUrl": "https://data.gov.tw/dataset/13119",
+      "license": "政府資料開放授權條款-第1版（data.gov.tw dataset 13119「選舉資料庫(含選舉區資料)」license id 1，指向 voteData.csv → votedata.zip）",
+      "files": [
+        {
+          "path": "votedata.zip",
+          "bytes": 110316470,
+          "sha256": "84740535b1f4a9a8fec8ebfe8f7577889837b7639cd7f5e40ef8826c6ab2f69a",
+          "upstreamLastModified": "Mon, 26 Jan 2026 06:54:52 GMT",
+          "listingUpdateDate": "20250124",
+          "retrievedAt": "2026-11-23"
+        }
+      ],
+      "formatSpecs": [
+        "votedata/voteData/選舉資料庫格式.odt（選舉資料庫轉檔格式說明，民國101年4月，v4）",
+        "votedata/2018_2021公投_2022修憲複決/公民投票結果檔案格式說明_v1.0.pdf",
+        "votedata/voteData/2022-111年地方公職人員選舉/選舉種類代碼.xlsx"
+      ]
+    },
+    {
+      "id": "cec-referendum-summary",
+      "publisher": "中央選舉委員會",
+      "title": "全國性公民投票計票結果（referendum_result.csv）",
+      "url": "https://data.cec.gov.tw/全國性公民投票計票結果/referendum_result.csv",
+      "license": "UNVERIFIED",
+      "note": "僅含 2018 第7–16案全國總數，無案由文字；第17–20案無對應摘要檔。需 cookie jar 才能下載（否則 308 自我重導）。"
+    },
+    {
+      "id": "nlsc-county",
+      "publisher": "內政部國土測繪中心",
+      "title": "直轄市、縣市界線(TWD97經緯度)",
+      "datasetUrl": "https://data.gov.tw/dataset/7442",
+      "url": "https://www.tgos.tw/tgos/VirtualDir/Product/1cd4f4c9-6b01-4cf9-bf6c-23a73aa17d24/直轄市、縣(市)界線1140318.zip",
+      "license": "政府資料開放授權條款-第1版（data.gov.tw license id 1）",
+      "files": [
+        {
+          "path": "county.zip",
+          "sha256": "9ff4d337e03a711d7e17caaf4d0c46a0fe2c6bd3660b321a2e35123030d8491c",
+          "bytes": 3762381,
+          "boundaryVersion": "1140318",
+          "retrievedAt": "2026-11-23"
+        }
+      ]
+    },
+    {
+      "id": "nlsc-town",
+      "publisher": "內政部國土測繪中心",
+      "title": "鄉鎮市區界線(TWD97經緯度)",
+      "datasetUrl": "https://data.gov.tw/dataset/7441",
+      "url": "https://www.tgos.tw/tgos/VirtualDir/Product/3fe61d4a-ca23-4f45-8aca-4a536f40f290/鄉(鎮、市、區)界線1140318.zip",
+      "license": "政府資料開放授權條款-第1版（data.gov.tw license id 1）",
+      "files": [
+        {
+          "path": "town.zip",
+          "sha256": "c5dc6c0f9a8cc1aad6758a0a6fb81b203718b37f42c5aa8e684262ca24a7d9dd",
+          "bytes": 12801023,
+          "boundaryVersion": "1140318",
+          "retrievedAt": "2026-11-23"
+        }
+      ]
+    },
+    {
+      "id": "nlsc-village",
+      "publisher": "內政部國土測繪中心",
+      "title": "村里界圖(TWD97經緯度)",
+      "datasetUrl": "https://data.gov.tw/dataset/7438",
+      "url": "https://www.tgos.tw/tgos/VirtualDir/Product/a04697c8-64db-450a-a105-3eb471c45abd/村(里)界(TWD97經緯度).zip",
+      "license": "政府資料開放授權條款-第1版（data.gov.tw license id 1）",
+      "files": [
+        {
+          "path": "village.zip",
+          "sha256": "c6cc09589cfdc073df6ca85b84be5f76a92c268774a44744fda341766479ef62",
+          "bytes": 21618481,
+          "boundaryVersion": "1150817",
+          "retrievedAt": "2026-11-23"
+        }
+      ]
+    },
+    {
+      "id": "nlsc-village-history",
+      "publisher": "內政部國土測繪中心",
+      "title": "村里界歷史圖資(TWD97經緯度)",
+      "datasetUrl": "https://data.gov.tw/dataset/130549",
+      "license": "政府資料開放授權條款-第1版（data.gov.tw license id 1）",
+      "note": "每年一個版次；下載檔名固定為下載當日日期（Content-Disposition），內含一層巢狀 zip。版次以 DBF 檔名為準。",
+      "files": [
+        {
+          "path": "v106.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=45LJJ7&gdid=525",
+          "boundaryVersion": "1070205",
+          "bytes": 18888896,
+          "sha256": "7460c65674f62369103dcd0e49f278ef4906bd0fa7fbbac873624556b1d85ff6",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v107.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=J9S5L3&gdid=526",
+          "boundaryVersion": "1071130",
+          "bytes": 21901677,
+          "sha256": "cea1d519597b818ace2d48c505193158b6e890b1f3c761791cada05cff8900f2",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v108.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=7DD6BC&gdid=527",
+          "boundaryVersion": "1081121",
+          "bytes": 21971124,
+          "sha256": "0a43d3ef677ef368a2161b425ef9b1cb3fc5504b32a1f8bbf3e2eb763cc42a56",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v109.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=T62AK6&gdid=528",
+          "boundaryVersion": "1091030",
+          "bytes": 21984505,
+          "sha256": "ef62662180d7e34014a2929d0fb02b9821f9ebed4a7e10410b2d1eb2a74905e5",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v110.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=SNTL3W&gdid=529",
+          "boundaryVersion": "1101214",
+          "bytes": 22507419,
+          "sha256": "016014f1e5cad4ef019ab3fc644dade5d092c4cd833598f990b0f880eb5edf04",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v111.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=TWMT3E&gdid=530",
+          "boundaryVersion": "1111118",
+          "bytes": 23043468,
+          "sha256": "eb681318cf3905f2814929ee21f03ae97d08ec831239593dc3b73541e2a5dad5",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v112.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=Z2371J&gdid=531",
+          "boundaryVersion": "1120928",
+          "bytes": 22164184,
+          "sha256": "b4e265fe6e7ae868915c1a1f0a231296104a29c688fdbb8c9c4af9c33d37bbb0",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v113.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=BFYEW2&gdid=532",
+          "boundaryVersion": "1131128",
+          "bytes": 22238163,
+          "sha256": "3e9aaab531d77f632e87d78ed832645902c8189aead1f226eb27ce32261c1ab6",
+          "retrievedAt": "2026-11-23"
+        },
+        {
+          "path": "v114.bin",
+          "url": "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=PY9YAR&gdid=533",
+          "boundaryVersion": "11401031",
+          "bytes": 22171681,
+          "sha256": "3de4ac9b88e57754fd1d5b28ab6317486f87b9bc1cff38580ce01708a901d236",
+          "retrievedAt": "2026-11-23"
+        }
+      ]
+    }
+  ]
+}
