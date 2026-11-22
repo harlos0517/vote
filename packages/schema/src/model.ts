@@ -282,6 +282,10 @@ export const Manifest = z.object({
   ),
 });
 
+export type DataSource = z.infer<typeof DataSource>;
+export type SourceFile = z.infer<typeof SourceFile>;
+export type ReportingLevel = z.infer<typeof ReportingLevel>;
+export type ReviewedMapping = z.infer<typeof ReviewedMapping>;
 export type Election = z.infer<typeof Election>;
 export type Contest = z.infer<typeof Contest>;
 export type Party = z.infer<typeof Party>;
