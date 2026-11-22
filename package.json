@@ -1,0 +1,19 @@
+{
+  "name": "taiwan-election-map",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "phase0:validate": "tsx scripts/phase0/validate-samples.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "@tw-election/schema": "workspace:*"
+  }
+}
