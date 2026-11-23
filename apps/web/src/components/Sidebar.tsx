@@ -1,5 +1,6 @@
 import { Badge, Button, Divider, Group, Stack, Table, Text, Title } from "@mantine/core";
 import type { ContestMetadataFile } from "@tw-election/schema";
+import { ABSTAIN_COLOR, INVALID_COLOR } from "../lib/colors.ts";
 import { fmtInt, fmtPct, turnout, type UnitView } from "../lib/results.ts";
 import { abstained, choiceColors, denominatorLabel, denominatorOf, type Denominator } from "../lib/views.ts";
 import { Swatch } from "./Legend.tsx";
@@ -97,8 +98,8 @@ export function Sidebar({ meta, unit, level, status, parentName, currentView, de
               </Table.Tr>
             );
           })}
-          {den.invalid && <ExtraRow label="無效票" color="#a6a6a6" n={s.invalid} d={d} />}
-          {den.abstain && <ExtraRow label="未投票" color="#dedede" n={abst} d={d} />}
+          {den.invalid && <ExtraRow label="無效票" color={INVALID_COLOR} n={s.invalid} d={d} />}
+          {den.abstain && <ExtraRow label="未投票" color={ABSTAIN_COLOR} n={abst} d={d} />}
         </Table.Tbody>
       </Table>
       <Text size="xs" c="dimmed">「當選」指整場選舉的結果，不是該地區的得票排名。</Text>
