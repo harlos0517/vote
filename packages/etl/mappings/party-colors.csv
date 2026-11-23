@@ -1,9 +1,9 @@
 cec_party_code,party,color,source,status,note
-1,中國國民黨,#000099,https://en.wikipedia.org/wiki/Module:Political_party/K (Kuomintang; retrieved 2026-11-23),unreviewed,Wikipedia community value; not the party's own brand guide
-16,民主進步黨,#1B9431,https://en.wikipedia.org/wiki/Module:Political_party/D (Democratic Progressive Party; retrieved 2026-11-23),unreviewed,Wikipedia community value; not the party's own brand guide
-350,台灣民眾黨,#28C7C7,https://en.wikipedia.org/wiki/Module:Political_party/T (Taiwan People's Party; retrieved 2026-11-23),unreviewed,Wikipedia community value; not the party's own brand guide
-90,親民黨,#FF6310,https://en.wikipedia.org/wiki/Module:Political_party/P (People First Party (Taiwan); retrieved 2026-11-23),unreviewed,Wikipedia community value
-74,新黨,#FFD700,https://en.wikipedia.org/wiki/Module:Political_party/N (New Party (Taiwan); retrieved 2026-11-23),unreviewed,Wikipedia community value; close to 時代力量 yellow
-267,時代力量,#FFE31A,https://en.wikipedia.org/wiki/Module:Political_party/N (New Power Party; retrieved 2026-11-23),unreviewed,Wikipedia community value; close to 新黨 yellow
-303,台灣基進,#A73F24,https://en.wikipedia.org/wiki/Module:Political_party/T (Taiwan Statebuilding Party; retrieved 2026-11-23),unreviewed,Wikipedia community value
-95,台灣團結聯盟,#C69E6A,https://en.wikipedia.org/wiki/Module:Political_party/T (Taiwan Solidarity Union; retrieved 2026-11-23),unreviewed,Wikipedia community value
+1,中國國民黨,#000099,https://en.wikipedia.org/wiki/Module:Political_party/K (Kuomintang; retrieved 2026-11-23),reviewed,Wikipedia community value; not the party's own brand guide
+16,民主進步黨,#1B9431,https://en.wikipedia.org/wiki/Module:Political_party/D (Democratic Progressive Party; retrieved 2026-11-23),reviewed,Wikipedia community value; not the party's own brand guide
+350,台灣民眾黨,#28C7C7,https://en.wikipedia.org/wiki/Module:Political_party/T (Taiwan People's Party; retrieved 2026-11-23),reviewed,Wikipedia community value; not the party's own brand guide
+90,親民黨,#FF6310,https://en.wikipedia.org/wiki/Module:Political_party/P (People First Party (Taiwan); retrieved 2026-11-23),reviewed,Wikipedia community value
+74,新黨,#FFD700,https://en.wikipedia.org/wiki/Module:Political_party/N (New Party (Taiwan); retrieved 2026-11-23),reviewed,Wikipedia community value; close to 時代力量 yellow
+267,時代力量,#FFE31A,https://en.wikipedia.org/wiki/Module:Political_party/N (New Power Party; retrieved 2026-11-23),reviewed,Wikipedia community value; close to 新黨 yellow
+303,台灣基進,#A73F24,https://en.wikipedia.org/wiki/Module:Political_party/T (Taiwan Statebuilding Party; retrieved 2026-11-23),reviewed,Wikipedia community value
+95,台灣團結聯盟,#C69E6A,https://en.wikipedia.org/wiki/Module:Political_party/T (Taiwan Solidarity Union; retrieved 2026-11-23),reviewed,Wikipedia community value
