@@ -28,8 +28,8 @@ export function SourceNotes({ meta, levelLabel }: { meta: GroupMetadataFile; lev
       </Text>
       {(warn.length > 0 || meta.group.warnings.length > 0) && (
         <List size="xs" spacing={2} style={{ overflowWrap: "anywhere" }}>
-          {warn.map((w) => <List.Item key={w.id}>{w.detail}</List.Item>)}
-          {meta.group.warnings.map((w) => <List.Item key={w}>{w}</List.Item>)}
+          {warn.map((w, i) => <List.Item key={`c${i}-${w.id}`}>{w.detail}</List.Item>)}
+          {meta.group.warnings.map((w, i) => <List.Item key={`w${i}-${w}`}>{w}</List.Item>)}
         </List>
       )}
     </Stack>

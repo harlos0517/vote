@@ -94,8 +94,8 @@ export function Sidebar(p: SidebarProps) {
       {notes.length + (contest?.warnings.length ?? 0) > 0 && (
         <>
           <Text size="sm" fw={600}>註記</Text>
-          {[...(contest?.warnings ?? []), ...notes.map((n) => n.note)].map((n) => (
-            <Text key={n} size="xs" c="orange.8">⚠ {n}</Text>
+          {[...(contest?.warnings ?? []), ...notes.map((n) => n.note)].map((n, i) => (
+            <Text key={`${i}-${n}`} size="xs" c="orange.8">⚠ {n}</Text>
           ))}
         </>
       )}

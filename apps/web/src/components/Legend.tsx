@@ -65,11 +65,11 @@ function HorizontalLegend({ model }: { model: LegendModel }) {
       )}
       {spec?.type === "stepped" && (
         <Group gap="6px 12px">
-          {[...spec.items].reverse().map((it) => <Item key={it.label} {...it} />)}
+          {[...spec.items].reverse().map((it, i) => <Item key={`${i}-${it.label}`} {...it} />)}
         </Group>
       )}
       <Group gap="6px 12px">
-        {extras.map((it) => <Item key={it.label} {...it} />)}
+        {extras.map((it, i) => <Item key={`${i}-${it.label}`} {...it} />)}
       </Group>
       {model.note && <Text size="xs" c="dimmed">{model.note}</Text>}
     </Stack>
@@ -82,8 +82,8 @@ function VerticalLegend({ model }: { model: LegendModel }) {
     <Stack gap={4} maw={240}>
       <Text size="xs" fw={600}>{model.title}</Text>
       {spec?.type === "stepped" &&
-        spec.items.map((it) => (
-          <Group key={it.label} gap={6} wrap="nowrap">
+        spec.items.map((it, i) => (
+          <Group key={`${i}-${it.label}`} gap={6} wrap="nowrap">
             <Swatch color={it.color} />
             <Text size="xs">{it.label}</Text>
           </Group>
@@ -106,11 +106,11 @@ function VerticalLegend({ model }: { model: LegendModel }) {
           <Text size="xs">{spec.zero.label}</Text>
         </Group>
       )}
-      {model.groups?.map((g) => (
-        <Stack key={g.title} gap={2}>
+      {model.groups?.map((g, gi) => (
+        <Stack key={`${gi}-${g.title}`} gap={2}>
           <Text size="xs" c="dimmed">{g.title}</Text>
-          {g.items.map((it) => (
-            <Group key={it.label} gap={6} wrap="nowrap">
+          {g.items.map((it, i) => (
+            <Group key={`${i}-${it.label}`} gap={6} wrap="nowrap">
               <Swatch color={it.color} hatched={it.hatched} />
               <Text size="xs">{it.label}</Text>
             </Group>
