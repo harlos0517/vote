@@ -4,12 +4,12 @@
  * switching between the two never changes the range the colours cover.
  */
 import { interpolateLab } from "d3-interpolate";
-import { interpolateViridis } from "d3-scale-chromatic";
+import { interpolatePlasma } from "d3-scale-chromatic";
 
-export const NO_DATA = "#c9c9c9";
-export const NEUTRAL = "#8c8c8c"; // independents / parties without a recorded colour
-export const INVALID_COLOR = "#a6a6a6";
-export const ABSTAIN_COLOR = "#dedede";
+export const NO_DATA = "#444444";
+export const NEUTRAL = "#aaaaaa"; // independents / parties without a recorded colour
+export const INVALID_COLOR = "#888888";
+export const ABSTAIN_COLOR = "#666666";
 /** Fallback hues by ballot order for choices without a party colour (avoid blue/green). */
 export const FALLBACK_PALETTE = ["#CC79A7", "#E69F00", "#6F6F6F", "#D55E00", "#F0E442", "#882255", "#AA7744"];
 /** Generic ends for the two-party map if a party has no recorded colour. */
@@ -146,7 +146,7 @@ export function divergingScale(
   return { color: (v) => interp(t(v)), t, legend };
 }
 
-export const viridis = (t: number) => interpolateViridis(0.95 - 0.85 * t); // darker = higher
+export const viridis = (t: number) => interpolatePlasma(0.1 + 0.85 * t); // lighter = higher
 export const blackTo = (c: string) => (t: number) => interpolateLab("#000000", c)(t);
 /** Shade a colour by strength t∈[0,1]: weak → pale, strong → full colour. */
 export const shade = (c: string, t: number) => interpolateLab("#f2f2f2", c)(0.2 + 0.8 * t);
