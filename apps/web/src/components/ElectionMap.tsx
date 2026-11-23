@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre 6 looks for its worker next to its own module URL, which breaks once Vite
+// pre-bundles (dev) or bundles (build) the library. Ship the worker as a URL asset instead.
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+
+maplibregl.setWorkerUrl(workerUrl);
 import type { FeatureCollection } from "@tw-election/data-client";
 import { NO_DATA } from "../lib/colors.ts";
 
@@ -75,6 +80,7 @@ export function ElectionMap({ geo, colors, selected, background, tooltip, onSele
       cb.current.onSelect(f ? String(f.id) : null);
     });
     mapRef.current = map;
+    if (import.meta.env.DEV) (window as unknown as { __map?: maplibregl.Map }).__map = map; // dev diagnostics
     return () => {
       popup.remove();
       map.remove();
