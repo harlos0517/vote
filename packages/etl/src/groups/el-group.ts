@@ -17,7 +17,7 @@ import type {
   ReportingLevel,
   ValidationCheck,
 } from "@tw-election/schema";
-import { type ElDataset, type ElKey, type ElUnit, countyCode, keyString, townCode } from "../adapters/cec-el.ts";
+import { type ElDataset, type ElKey, type ElPartyList, type ElUnit, countyCode, keyString, townCode } from "../adapters/cec-el.ts";
 import { PUA_RE } from "../lib/csv.ts";
 import { checkPartyColors, type PartyColor } from "../lib/party-colors.ts";
 import { checkElDataset } from "../validate/el-checks.ts";
@@ -40,7 +40,10 @@ export interface ElGroupDef {
   archiveDir: string;
   /** "single": one nationwide contest. "district": one contest per (county, 選區). */
   contests: "single" | "district";
-  choiceKind: "ticket" | "candidate";
+  /** "party": 不分區政黨票 — the ballot lists parties; list members come from elrepm.csv. */
+  choiceKind: "ticket" | "candidate" | "party";
+  /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
+  seats?: number;
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */
   layout: string;
   warnings: string[];
@@ -83,8 +86,32 @@ export interface BuiltGroup {
   checks: ValidationCheck[];
 }
 
-export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, PartyColor>): BuiltGroup {
+/** 憲法增修條文第4條: party-list seats go to parties with at least 5% of the party vote. */
+export const PARTY_LIST_THRESHOLD = { pct: 5, basis: "中華民國憲法增修條文第4條" };
+
+/**
+ * Largest-remainder allocation among parties at or above the threshold; used only to
+ * cross-check CEC's published seats (CEC's numbers are what we publish).
+ */
+export function largestRemainder(votes: Map<number, number>, seats: number, thresholdPct: number): Map<number, number> {
+  const total = [...votes.values()].reduce((a, b) => a + b, 0);
+  const q = [...votes].filter(([, v]) => total > 0 && (v / total) * 100 >= thresholdPct);
+  const qTotal = q.reduce((a, [, v]) => a + v, 0);
+  const out = new Map<number, number>(q.map(([p]) => [p, 0]));
+  if (!qTotal) return out;
+  const quotas = q.map(([p, v]) => ({ p, exact: (v * seats) / qTotal }));
+  let left = seats;
+  for (const x of quotas) { out.set(x.p, Math.floor(x.exact)); left -= Math.floor(x.exact); }
+  quotas.sort((a, b) => (b.exact - Math.floor(b.exact)) - (a.exact - Math.floor(a.exact)));
+  for (const x of quotas.slice(0, left)) out.set(x.p, out.get(x.p)! + 1);
+  return out;
+}
+
+export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, PartyColor>, list?: ElPartyList): BuiltGroup {
   const gid = groupId(d);
+  const seats = d.seats ?? 1;
+  const isList = d.choiceKind === "party";
+  if (isList && !list) throw new Error(`${gid}: party-list group needs elrepm/elretks`);
   const multi = d.contests === "district";
   const contestKeyOf = (k: ElKey): string | null => (multi ? (k.dist === "00" ? null : `${countyCode(k)}-${k.dist}`) : "main");
 
@@ -134,6 +161,33 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       const mate = cands.find((c) => c.ballotNumber === n && c.isRunningMate);
       if (!principal) throw new Error(`${ci.id}: ballot ${n} has no principal candidate`);
       if (d.choiceKind === "ticket" && !mate) throw new Error(`${ci.id}: ticket ${n} has no running mate`);
+      if (isList) {
+        // The ballot row is the party itself; its people are the list members.
+        if (!partyByCode.has(principal.partyCode)) throw new Error(`unknown party code ${principal.partyCode}`);
+        const members = list!.members.filter((m) => m.partyCode === principal.partyCode).sort((a, b) => a.rank - b.rank);
+        const ids: string[] = [];
+        for (const m of members) {
+          const pid = `${ci.id}.p${principal.partyCode}.r${m.rank}`;
+          persons.push({ id: pid, nameZh: m.name, identity: "single-candidacy" });
+          ids.push(`${pid}.candidacy`);
+          candidacies.push({
+            id: `${pid}.candidacy`,
+            contestId: ci.id,
+            personId: pid,
+            role: "list-member",
+            listRank: m.rank,
+            ballotNumber: n,
+            partyId: partyId(m.partyCode),
+            gender: m.gender,
+            birthYearROC: m.birthYearROC,
+            incumbent: m.incumbent,
+            elected: m.electedMark === "*" || m.electedMark === "!",
+            electedNote: m.electedMark === "!" ? "women-quota" : m.electedMark === "-" ? "displaced-by-women-quota" : null,
+          });
+        }
+        choices.push({ id: choiceId(ci, n), contestId: ci.id, kind: "party", ballotNumber: n, candidacyIds: ids, partyId: partyId(principal.partyCode), labelZh: principal.name });
+        continue;
+      }
       for (const c of [principal, ...(mate ? [mate] : [])]) {
         if (!partyByCode.has(c.partyCode)) throw new Error(`unknown party code ${c.partyCode}`);
         const pid = `${ci.id}.n${n}.${c.isRunningMate ? "vp" : "p"}`;
@@ -144,6 +198,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
           contestId: ci.id,
           personId: pid,
           role: c.isRunningMate ? "running-mate" : "principal",
+          listRank: null,
           ballotNumber: n,
           partyId: partyId(c.partyCode),
           gender: c.gender,
@@ -166,22 +221,31 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     }
   }
 
-  // ---- winners (single-seat contests): the marked candidate must top the contest's own row
+  // ---- winners: the marked candidates must be the contest's top `seats` (ties fail loudly)
   const topRowOf = (ci: ContestInfo) =>
     ds.units.find((u) => (multi ? u.level === "district" && contestKeyOf(u.key) === ci.key : u.level === "national"));
   const winnerBad: string[] = [];
+  let partyList: Contest["partyList"] = null;
   for (const ci of contestList) {
     const row = topRowOf(ci);
     if (!row) { winnerBad.push(`${ci.id}: no contest-level row`); continue; }
-    const nums = ballotsByContest.get(ci.key)!;
-    const top = nums.reduce((a, b) => ((row.votes.get(b) ?? 0) > (row.votes.get(a) ?? 0) ? b : a));
-    const marked = candidacies.filter((c) => c.contestId === ci.id && c.elected).map((c) => c.ballotNumber);
-    if (marked.length !== 1 || marked[0] !== top) winnerBad.push(`${ci.id}: marked ${marked.join(",") || "none"} vs top #${top}`);
+    if (isList) {
+      partyList = checkPartyList(ci, row, list!, candidacies, seats, ballotsByContest.get(ci.key)!, ds, winnerBad);
+      continue;
+    }
+    const nums = [...ballotsByContest.get(ci.key)!].sort((a, b) => (row.votes.get(b) ?? 0) - (row.votes.get(a) ?? 0));
+    const cut = row.votes.get(nums[seats - 1]!) ?? 0;
+    if (nums.length > seats && (row.votes.get(nums[seats]!) ?? 0) === cut) winnerBad.push(`${ci.id}: tie for the last seat`);
+    const top = nums.slice(0, seats).sort((a, b) => a - b);
+    const marked = candidacies.filter((c) => c.contestId === ci.id && c.elected).map((c) => c.ballotNumber).sort((a, b) => a - b);
+    if (marked.join(",") !== top.join(",")) winnerBad.push(`${ci.id}: marked ${marked.join(",") || "none"} vs top ${top.map((n) => `#${n}`).join(",")}`);
   }
   checks.push(
     winnerBad.length
       ? { id: "winner-consistent", status: "fail", detail: winnerBad.slice(0, 5).join("; ") }
-      : { id: "winner-consistent", status: "pass", detail: `${contestList.length} contests: the elected candidate has the most votes` },
+      : isList
+        ? { id: "winner-consistent", status: "pass", detail: `${seats} seats: CEC's per-party seats match the elected list members, the ${PARTY_LIST_THRESHOLD.pct}% threshold and a largest-remainder recount; published vote shares reproduce` }
+        : { id: "winner-consistent", status: "pass", detail: `${contestList.length} contests: the ${seats === 1 ? "elected candidate has" : `${seats} elected candidates have`} the most votes` },
   );
 
   // ---- units and results per level
@@ -294,11 +358,12 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     cecTypeCode: null,
     nameZh: multi ? (districtName.get(ci.key) ?? `${countyName.get(ci.county!) ?? ""}第${ci.dist}選區`) : d.nameZh,
     electorate: d.electorate,
-    seats: 1,
+    seats,
     choiceKind: d.choiceKind,
     districtId: multi ? `${ci.county}-${ci.dist}` : null,
     scope: multi ? { level: "district", districtId: `${ci.county}-${ci.dist}` } : { level: "national" },
     availableLevels: levels,
+    partyList: isList ? partyList : null,
     referendum: null,
     warnings: [],
   }));
@@ -320,5 +385,52 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     results,
     townParts,
     checks,
+  };
+}
+
+/** Cross-check CEC's party-list allocation against the votes and the elected list members. */
+function checkPartyList(
+  ci: ContestInfo,
+  row: ElUnit,
+  list: ElPartyList,
+  candidacies: Candidacy[],
+  seats: number,
+  ballots: number[],
+  ds: ElDataset,
+  bad: string[],
+): NonNullable<Contest["partyList"]> {
+  const codeOfBallot = new Map(ds.candidates.map((c) => [c.ballotNumber, c.partyCode]));
+  const votes = new Map(ballots.map((n) => [codeOfBallot.get(n)!, row.votes.get(n) ?? 0]));
+  const total = [...votes.values()].reduce((a, b) => a + b, 0);
+  const published = new Map(list.results.map((r) => [r.partyCode, r]));
+  const recount = largestRemainder(votes, seats, PARTY_LIST_THRESHOLD.pct);
+  let seatSum = 0;
+  for (const [code, v] of votes) {
+    const r = published.get(code);
+    if (!r) { bad.push(`${ci.id}: party ${code} missing from elretks`); continue; }
+    seatSum += r.seats;
+    const share = total ? (v / total) * 100 : 0;
+    if (Math.abs(share - r.voteSharePct) > 0.00006) bad.push(`${ci.id}: party ${code} share ${share.toFixed(4)} vs published ${r.voteSharePct}`);
+    if ((recount.get(code) ?? 0) !== r.seats) bad.push(`${ci.id}: party ${code} seats ${r.seats} vs recount ${recount.get(code) ?? 0}`);
+    const elected = candidacies.filter((c) => c.partyId === partyId(code) && c.elected).length;
+    if (elected !== r.seats) bad.push(`${ci.id}: party ${code} has ${elected} elected list members vs ${r.seats} seats`);
+    const nominated = list.members.filter((m) => m.partyCode === code).length;
+    if (nominated !== r.nominated) bad.push(`${ci.id}: party ${code} lists ${nominated} members vs ${r.nominated} published`);
+  }
+  if (seatSum !== seats) bad.push(`${ci.id}: published seats sum to ${seatSum}, expected ${seats}`);
+  if (published.size !== votes.size) bad.push(`${ci.id}: elretks has ${published.size} parties, ballot has ${votes.size}`);
+  return {
+    thresholdPct: PARTY_LIST_THRESHOLD.pct,
+    thresholdBasis: PARTY_LIST_THRESHOLD.basis,
+    allocation: [...votes.keys()].map((code) => {
+      const r = published.get(code)!;
+      return {
+        partyId: partyId(code),
+        voteSharePct: r.voteSharePct,
+        qualifiedSharePct: r.voteSharePct >= PARTY_LIST_THRESHOLD.pct ? r.qualifiedSharePct : null,
+        nominated: r.nominated,
+        seats: r.seats,
+      };
+    }),
   };
 }

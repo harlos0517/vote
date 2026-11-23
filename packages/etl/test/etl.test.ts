@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { parseCecCsv, PUA_RE } from "../src/lib/csv.ts";
-import { levelOf, readElDir } from "../src/adapters/cec-el.ts";
+import { levelOf, readElDir, readElPartyList } from "../src/adapters/cec-el.ts";
 import { checkElDataset } from "../src/validate/el-checks.ts";
-import { buildElGroup, type ElGroupDef } from "../src/groups/el-group.ts";
+import { buildElGroup, largestRemainder, type ElGroupDef } from "../src/groups/el-group.ts";
 import { releaseIdFor } from "../src/emit/release.ts";
 
 const FIX = join(import.meta.dirname, "fixtures/el-mini");
@@ -11,6 +11,8 @@ const FIX_LY = join(import.meta.dirname, "fixtures/el-mini-ly");
 const E = { id: "2024-01-13-test", date: "2024-01-13", nameZh: "測試", kinds: ["president" as const] };
 const PRES: ElGroupDef = { election: E, local: "president", nameZh: "總統", office: "president", electorate: "general", archiveDir: "", contests: "single", choiceKind: "ticket", layout: "admin", warnings: [] };
 const LY: ElGroupDef = { ...PRES, local: "legislator-district", nameZh: "區域立委", office: "legislator-district", contests: "district", choiceKind: "candidate", layout: "ly" };
+const FIX_LIST = join(import.meta.dirname, "fixtures/el-mini-list");
+const LIST: ElGroupDef = { ...PRES, local: "legislator-party-list", nameZh: "不分區", office: "legislator-party-list", choiceKind: "party", seats: 3 };
 const all = () => [1, 2];
 
 describe("parseCecCsv", () => {
@@ -100,6 +102,33 @@ describe("multi-contest group (區域立委)", () => {
     d1.votes.set(1, 31);
     const failed = buildElGroup(LY, ds, new Map()).checks.filter((c) => c.status === "fail").map((c) => c.id);
     expect(failed).toContain("hierarchy-sums");
+  });
+});
+
+describe("multi-seat and party-list groups", () => {
+  it("requires the marked candidates to be the top `seats`", () => {
+    const b = buildElGroup({ ...LY, contests: "single", local: "x", seats: 2 }, readElDir(FIX), new Map());
+    expect(b.checks.find((c) => c.id === "winner-consistent")).toMatchObject({ status: "fail" });
+    expect(b.contests[0]!.seats).toBe(2);
+  });
+  it("recounts 2024's 34 seats by largest remainder over the 5% threshold", () => {
+    // Published 2024 shares (‱): KMT 34.5842, DPP 36.1629, TPP 22.0706, NPP 2.5653, others below 5%.
+    const v = new Map([[1, 345842], [16, 361629], [350, 220706], [267, 25653], [79, 8514], [999, 38656]]);
+    expect(Object.fromEntries(largestRemainder(v, 34, 5))).toEqual({ 1: 13, 16: 13, 350: 8 });
+  });
+  it("builds parties as choices with list members, and checks CEC's allocation", () => {
+    const b = buildElGroup(LIST, readElDir(FIX_LIST), new Map(), readElPartyList(FIX_LIST));
+    expect(b.checks.filter((c) => c.status === "fail")).toEqual([]);
+    expect(b.choices.map((c) => [c.kind, c.labelZh, c.candidacyIds.length])).toEqual([["party", "甲黨", 3], ["party", "乙黨", 2]]);
+    expect(b.candidacies.filter((c) => c.elected).map((c) => [c.partyId, c.listRank])).toEqual([["cec-1", 1], ["cec-1", 2], ["cec-16", 1]]);
+    expect(b.contests[0]!.partyList!.allocation.map((a) => [a.partyId, a.seats])).toEqual([["cec-1", 2], ["cec-16", 1]]);
+  });
+  it("fails when published seats disagree with the recount", () => {
+    const list = readElPartyList(FIX_LIST);
+    list.results[0]!.seats = 3;
+    list.results[1]!.seats = 0;
+    const b = buildElGroup(LIST, readElDir(FIX_LIST), new Map(), list);
+    expect(b.checks.find((c) => c.id === "winner-consistent")!.status).toBe("fail");
   });
 });
 
