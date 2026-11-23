@@ -19,6 +19,7 @@ import {
   partyShare,
   partyVotes,
   seatsByParty,
+  showsSeats,
   twoPartyDiff,
   type Denominator,
   type GroupContext,
@@ -98,11 +99,11 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
   if (v.mode === "top") {
     // Single-contest units: local top candidate (hatched if not elected).
     // Units spanning several contests (縣市, 全國 of 區域立委): party with the most seats won.
-    const multi = units.some(isMultiContest);
+    const multi = units.some((u) => showsSeats(u, ctx));
     const strengths: { code: string; color: string; s: number | null }[] = [];
     const legendTop = new Map<string, { elected: boolean; unelected: boolean }>(); // partyId → seen
     for (const u of units) {
-      if (isMultiContest(u)) {
+      if (showsSeats(u, ctx)) {
         const r = seatsByParty(u, ctx);
         if (!r.partyId) { colors.set(u.code, NO_DATA); continue; }
         strengths.push({ code: u.code, color: ctx.partyColor.get(r.partyId) ?? NEUTRAL, s: r.total ? (r.seats.get(r.partyId) ?? 0) / r.total : null });
@@ -132,7 +133,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
       colors,
       hatched,
       legend: {
-        title: multi ? "各縣市當選席次最多的政黨" : ctx.partyList ? "各地區得票最多的政黨" : "各地區得票最多的候選人（依政黨著色）",
+        title: multi ? "當選席次最多的政黨" : ctx.partyList ? "各地區得票最多的政黨" : "各地區得票最多的候選人（依政黨著色）",
         groups,
         note: [
           v.shadeTop ? (multi ? "顏色越深，該黨席次占比越高。" : `顏色越深，${ctx.partyList ? "該黨" : "該候選人"}得票率越高（分母：${denLabel}）。`) : "",
@@ -140,7 +141,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
         ].filter(Boolean).join("") || undefined,
       },
       describe: (u) => {
-        if (isMultiContest(u)) {
+        if (showsSeats(u, ctx)) {
           const r = seatsByParty(u, ctx);
           const list = ctx.partiesByVote.filter((p) => r.seats.get(p.id)).map((p) => `${p.nameZh} ${r.seats.get(p.id)}`).join("、");
           return `當選席次（共 ${r.total} 席）：${list || "無"}`;

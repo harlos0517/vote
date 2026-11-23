@@ -37,6 +37,8 @@ export function Sidebar(p: SidebarProps) {
   const notes = meta.boundary.notes.filter((n) => n.unit === unit.id);
   const multi = isMultiContest(unit);
   const contestName = !multi && !ctx.singleContest ? (ctx.contestName.get(unit.contestIds[0]!) ?? null) : null;
+  const contest = !multi ? ctx.contest.get(unit.contestIds[0]!) : undefined;
+  const seats = contest?.seats ?? 1;
 
   return (
     <Stack gap="sm">
@@ -58,9 +60,9 @@ export function Sidebar(p: SidebarProps) {
           {ctx.singleContest && meta.contests[0]!.scope.level === "national" && (
             <KV k="選區" v={`全國（單一選區${(meta.contests[0]!.seats ?? 1) > 1 ? `，選出 ${meta.contests[0]!.seats} 席` : ""}）`} />
           )}
-          {contestName && <KV k="選區" v={contestName} />}
-          {multi && !ctx.singleContest && <KV k="選區" v={`${unit.contestIds.length} 個選區，各選 1 席`} />}
-          <KV k="投票日期" v={meta.election.date} />
+          {contestName && <KV k={contest?.scope.level === "district" ? "選區" : "選舉"} v={seats > 1 && !ctx.singleContest ? `${contestName}（應選 ${seats} 席）` : contestName} />}
+          {multi && !ctx.singleContest && <KV k="涵蓋" v={multiLabel(ctx, unit)} />}
+          <KV k="投票日期" v={contest?.date ?? meta.election.date} />
         </Table.Tbody>
       </Table>
 
@@ -81,11 +83,11 @@ export function Sidebar(p: SidebarProps) {
         </Table.Tbody>
       </Table>
 
-      {notes.length > 0 && (
+      {notes.length + (contest?.warnings.length ?? 0) > 0 && (
         <>
           <Text size="sm" fw={600}>註記</Text>
-          {notes.map((n) => (
-            <Text key={n.note} size="xs" c="orange.8">⚠ {n.note}</Text>
+          {[...(contest?.warnings ?? []), ...notes.map((n) => n.note)].map((n) => (
+            <Text key={n} size="xs" c="orange.8">⚠ {n}</Text>
           ))}
         </>
       )}
@@ -187,7 +189,7 @@ function PartyTable({ ctx, unit, den, d, abst }: TableProps) {
           {den.abstain && <ExtraRow label="未投票" color={ABSTAIN_COLOR} n={abst} d={d} />}
         </Table.Tbody>
       </Table>
-      <Text size="xs" c="dimmed">此層級跨多個選區：票數為各黨候選人合計，席次為各選區當選結果加總。點選或切換到選區、鄉鎮層級可查看候選人。</Text>
+      <Text size="xs" c="dimmed">此層級涵蓋多場選舉：票數為各黨候選人合計，席次為各場當選結果加總。點選或切換到較細的層級可查看候選人。</Text>
     </>
   );
 }
@@ -286,6 +288,14 @@ function PartyListTable({ ctx, unit, den, d, abst }: TableProps) {
       )}
     </>
   );
+}
+
+/** "73 個選區，各選 1 席" / "22 個縣市" / "12 個選區，共 65 席". */
+function multiLabel(ctx: GroupContext, unit: UnitView): string {
+  const cs = unit.contestIds.map((id) => ctx.contest.get(id));
+  const seats = cs.reduce((a, c) => a + (c?.seats ?? 1), 0);
+  const kind = cs[0]?.scope.level === "county" ? "縣市" : "選區";
+  return seats === cs.length ? `${cs.length} 個${kind}，各選 1 席` : `${cs.length} 個${kind}，共 ${seats} 席`;
 }
 
 const KV = ({ k, v }: { k: string; v: string }) => (

@@ -28,8 +28,10 @@ export interface GroupContext {
   singleContest: boolean;
   /** 不分區政黨票: the ballot lists parties; seats come from the national allocation. */
   partyList: NonNullable<Contest["partyList"]> | null;
-  /** Some party has several candidates in one contest (原住民立委), so candidates can be picked separately. */
+  /** Some party has several candidates in the group's one contest (原住民立委), so candidates can be picked separately. */
   candidatesPickable: boolean;
+  /** Contest id → contest. */
+  contest: Map<string, Contest>;
 }
 
 export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<string, number>): GroupContext {
@@ -54,7 +56,8 @@ export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<str
     partiesByVote,
     singleContest: meta.contests.length === 1,
     partyList: meta.contests.find((c) => c.partyList)?.partyList ?? null,
-    candidatesPickable: meta.contests.some((ct) => {
+    contest: new Map(meta.contests.map((c) => [c.id, c])),
+    candidatesPickable: meta.contests.length === 1 && meta.contests.some((ct) => {
       const ps = meta.choices.filter((c) => c.contestId === ct.id && c.partyId && !party.get(c.partyId)?.isIndependent).map((c) => c.partyId);
       return new Set(ps).size < ps.length;
     }),
@@ -178,6 +181,15 @@ export function seatsByParty(u: UnitView, ctx: GroupContext): SeatsResult {
 export const listSeats = (ctx: GroupContext, partyId: string) => ctx.partyList?.allocation.find((a) => a.partyId === partyId)?.seats ?? 0;
 
 export const isMultiContest = (u: UnitView) => u.contestIds.length > 1;
+
+/** Seats of a single-contest unit's contest (1 when unknown). */
+export const seatsOf = (u: UnitView, ctx: GroupContext) => (u.contestIds.length === 1 ? (ctx.contest.get(u.contestIds[0]!)?.seats ?? 1) : 1);
+
+/**
+ * Whether the 當選 view shows seats won by party instead of the local top candidate: units spanning
+ * several contests, and multi-seat districts themselves (議員: up to 13 seats; their top is always elected).
+ */
+export const showsSeats = (u: UnitView, ctx: GroupContext) => isMultiContest(u) || (u.id.startsWith("dist:") && seatsOf(u, ctx) > 1);
 
 /** Label for a party; in single-contest groups add the candidate(s), e.g. "民主進步黨（賴清德／蕭美琴）". */
 export function partyLabel(ctx: GroupContext, partyId: string): string {

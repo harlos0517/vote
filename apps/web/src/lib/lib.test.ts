@@ -3,7 +3,7 @@ import type { GroupMetadataFile, GroupResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
 import { NEUTRAL, NO_CANDIDATE, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
-import { abstained, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, twoPartyDiff } from "./views.ts";
+import { abstained, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
 import { buildMapView, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
 
 // --- fixtures -----------------------------------------------------------------
@@ -193,6 +193,24 @@ describe("multi-seat and party-list groups", () => {
     expect(v.describe(a)).toContain("全國未獲席次");
     expect(v.describe(b)).toContain("全國獲 2 席");
     expect(v.legend.groups!.map((g) => g.title)).toEqual(["獲得席次", "未獲席次（斜線）"]);
+  });
+});
+
+describe("multi-seat districts (議員)", () => {
+  const t1 = groupContext({
+    contests: [{ id: "e.d1", nameZh: "第01選區", scope: { level: "district" }, seats: 2 }, { id: "e.d2", nameZh: "第02選區", scope: { level: "district" }, seats: 1 }],
+    choices: [choice("d1.n1", "e.d1", 1, "cec-1", "甲"), choice("d1.n2", "e.d1", 2, "cec-1", "乙"), choice("d1.n3", "e.d1", 3, "cec-16", "丙"), choice("d2.n1", "e.d2", 1, "cec-16", "丁")],
+    candidacies: [{ id: "d1.n1.c", elected: true }, { id: "d1.n2.c", elected: true }, { id: "d1.n3.c", elected: false }, { id: "d2.n1.c", elected: true }],
+    parties: [party("cec-1", "中國國民黨", "#000099"), party("cec-16", "民主進步黨", "#1B9431")],
+  } as unknown as GroupMetadataFile);
+  const dist = (id: string, votes: Record<string, number>, c: string): UnitView => ({ ...unit(id, votes, [c]), id: `dist:${id}` });
+  it("colours a multi-seat district by seats won, a single-seat one and towns by the local top", () => {
+    const d1 = dist("63000-01", { "d1.n1": 10, "d1.n2": 5, "d1.n3": 30 }, "e.d1");
+    const d2 = dist("63000-02", { "d2.n1": 10 }, "e.d2");
+    expect([showsSeats(d1, t1), showsSeats(d2, t1), showsSeats(unit("T", { "d1.n1": 1 }, ["e.d1"]), t1)]).toEqual([true, false, false]);
+    const v = buildMapView(t1, [d1], { ...DEFAULT_VIEW, mode: "top" });
+    expect(v.describe(d1)).toBe("當選席次（共 2 席）：中國國民黨 2");
+    expect(t1.candidatesPickable).toBe(false);
   });
 });
 
