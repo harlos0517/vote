@@ -21,6 +21,7 @@ import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries } f
 import { loadPartyColors } from "./lib/party-colors.ts";
 import { applyPuaNames, loadPuaNames } from "./lib/pua-names.ts";
 import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
+import { buildTimelines, loadElectionGroups } from "./lib/timelines.ts";
 import { type RfDataset, readRfDir } from "./adapters/cec-rf.ts";
 import { buildRfGroup } from "./groups/rf-group.ts";
 import { RELEASE_TOKEN, json, writeRelease, type PendingFile } from "./emit/release.ts";
@@ -121,6 +122,13 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     outputs.push({ def, built, geo, checks, sources, notes });
   }
 
+  const tl = buildTimelines(
+    GROUPS.map((g) => ({ id: groupId(g), office: g.office, date: g.election.date })),
+    loadElectionGroups(o.repoRoot),
+  );
+  for (const c of tl.checks) log(`[${c.status}] ${c.id}: ${c.detail}`);
+  allChecks.push(...tl.checks);
+
   if (allChecks.some((c) => c.status === "fail")) {
     writeReport(o.outDir, "failed", allChecks);
     return { ok: false, checks: allChecks };
@@ -183,6 +191,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
           nameZh: e.nameZh,
           groups: outputs.filter((x) => x.def.election.id === e.id).map((x) => ({ id: x.built.group.id, nameZh: x.built.group.nameZh, office: x.built.group.office, levels: x.built.group.levels })),
         })),
+        timelines: tl.timelines,
       }),
     ),
   });

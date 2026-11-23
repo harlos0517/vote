@@ -5,6 +5,7 @@ import { levelOf, mergeElDatasets, readElDir, readElPartyList } from "../src/ada
 import { sameVillageName } from "../src/adapters/cec-wide-chiayi.ts";
 import { readRfDir } from "../src/adapters/cec-rf.ts";
 import { buildRfGroup } from "../src/groups/rf-group.ts";
+import { buildTimelines, proposeSlots } from "../src/lib/timelines.ts";
 import { checkElDataset } from "../src/validate/el-checks.ts";
 import { buildElGroup, largestRemainder, type ElGroupDef } from "../src/groups/el-group.ts";
 import { releaseIdFor } from "../src/emit/release.ts";
@@ -187,6 +188,29 @@ describe("referendum (rf*)", () => {
     const ds = readRfDir(FIX_RF);
     ds.nationalResult = "Y";
     expect(buildRfGroup(REF, ds, undefined).checks.find((c) => c.id === "referendum-outcome")!.status).toBe("fail");
+  });
+});
+
+describe("year-slider timelines", () => {
+  const gs = [
+    { id: "a.mayor", office: "mayor-or-magistrate" as const, date: "2022-11-26" },
+    { id: "b.mayor", office: "mayor-or-magistrate" as const, date: "2022-12-18" },
+    { id: "c.mayor", office: "mayor-or-magistrate" as const, date: "2018-11-24" },
+    { id: "d.pres", office: "president" as const, date: "2024-01-13" },
+  ];
+  it("groups elections less than 12 months apart into one slot per office", () => {
+    expect(Object.fromEntries(proposeSlots(gs))).toEqual({ "c.mayor": "2018", "a.mayor": "2022", "b.mayor": "2022", "d.pres": "2024" });
+  });
+  it("follows the fixed record, warning where it differs or is unreviewed", () => {
+    const rec = new Map([
+      ["a.mayor", { slot: "2022", reviewed: true }],
+      ["b.mayor", { slot: "2023", reviewed: true }],
+      ["c.mayor", { slot: "2018", reviewed: false }],
+    ]);
+    const { timelines, checks } = buildTimelines(gs, rec);
+    expect(timelines.find((t) => t.office === "mayor-or-magistrate")!.slots.map((x) => [x.label, x.groupIds])).toEqual([["2018", ["c.mayor"]], ["2022", ["a.mayor"]], ["2023", ["b.mayor"]]]);
+    expect(checks.map((c) => [c.id, c.status])).toEqual([["election-groups", "warn"], ["election-groups-rule", "warn"]]);
+    expect(checks[0]!.detail).toContain("d.pres,president,2024,unreviewed");
   });
 });
 
