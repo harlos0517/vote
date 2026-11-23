@@ -32,14 +32,27 @@ export async function ensureRaw(rawDir: string, s: RawSource, log = console.log)
     for (const url of urls) {
       log(`download ${url}`);
       try {
-        execFileSync("curl", ["-fsSL", "--retry", "3", "--retry-delay", "5", "-o", tmp, url], { stdio: "inherit" });
+        // Fail fast on unreachable hosts (some government sites drop non-Taiwan IPs,
+        // which otherwise hangs ~2 min per attempt); allow slow but live transfers.
+        execFileSync(
+          "curl",
+          ["-fsSL", "--connect-timeout", "20", "--max-time", "1200", "--retry", "2", "--retry-delay", "5", "-o", tmp, url],
+          { stdio: "inherit" },
+        );
         lastErr = undefined;
         break;
       } catch (e) {
         lastErr = e;
       }
     }
-    if (lastErr) throw lastErr;
+    if (lastErr) {
+      throw new Error(
+        `could not download ${s.id}/${s.file} from any of:\n  ${urls.join("\n  ")}\n` +
+          `If the upstream host is unreachable from this network (e.g. CI outside Taiwan), seed the public mirror ` +
+          `from a machine that can reach it: see docs/deployment.md "Seeding the raw mirror".`,
+        { cause: lastErr },
+      );
+    }
     await rename(tmp, dest);
   }
   const got = await sha256File(dest);
