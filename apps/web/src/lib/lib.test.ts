@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GroupMetadataFile, GroupResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
-import { NEUTRAL, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
+import { NEUTRAL, NO_CANDIDATE, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, twoPartyDiff } from "./views.ts";
 import { buildMapView, ringSlices, selectedParty } from "./mapView.ts";
@@ -131,6 +131,16 @@ describe("party share and ring", () => {
     expect(partyShare(cty, L, "cec-16", d0)).toBeCloseTo(90 / 200);
     expect(partyLabel(P, "cec-16")).toBe("民主進步黨（乙）");
     expect(partyLabel(L, "cec-999")).toBe("無黨籍及未經政黨推薦（合計）");
+  });
+  it("greys out units where the party ran no candidate, keeping them out of the scale", () => {
+    const d1 = unit("63000-01", { "d1.n1": 60, "d1.n2": 40 }, ["e.d1"]);
+    const d2 = unit("63000-02", { "d2.n1": 30, "d2.n2": 50, "d2.n3": 20 }, ["e.d2"]);
+    const v = buildMapView(L, [d1, d2], { ...DEFAULT_VIEW, mode: "share", choice: "cec-999" });
+    expect(v.colors.get(d1.code)).toBe(NO_CANDIDATE);
+    expect(v.colors.get(d2.code)).not.toBe(NO_CANDIDATE);
+    expect(v.describe(d1)).toContain("無候選人");
+    expect(v.legend.groups?.[0]?.items[0]?.label).toBe("該黨無候選人");
+    expect(buildMapView(L, [d1, d2], { ...DEFAULT_VIEW, mode: "share", choice: "cec-16" }).legend.groups).toBeUndefined();
   });
   it("rings show candidates for one contest, parties (small ones as 其他) for several", () => {
     expect(ringSlices(unit("1", { n2: 5, n1: 3, n3: 2 }), P, d0).map((s) => s.key)).toEqual(["n1", "n2", "n3"]);

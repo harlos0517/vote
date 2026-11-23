@@ -92,6 +92,12 @@ export function partyVotes(u: UnitView, ctx: GroupContext, partyId: string): num
   return sum;
 }
 
+/** Whether the party had a candidate in any of the unit's contests. */
+export function partyRan(u: UnitView, ctx: GroupContext, partyId: string): boolean {
+  const contests = new Set(u.contestIds);
+  return ctx.meta.choices.some((c) => c.partyId === partyId && contests.has(c.contestId));
+}
+
 export const partyShare = (u: UnitView, ctx: GroupContext, partyId: string, d: Denominator): number | null => {
   const den = denominatorOf(u.summary, d);
   return den === null ? null : partyVotes(u, ctx, partyId) / den;

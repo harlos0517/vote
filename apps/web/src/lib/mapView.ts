@@ -2,7 +2,7 @@
  * ViewState + group + units → what the map, legend and ring draw.
  * Pure (no React) so every mode can be unit-tested.
  */
-import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_DATA, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
+import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
 import { fmtPct, type UnitView } from "./results.ts";
 import type { ViewState } from "./viewState.ts";
 import {
@@ -13,6 +13,7 @@ import {
   isMultiContest,
   localTop,
   partyLabel,
+  partyRan,
   partyShare,
   partyVotes,
   seatsByParty,
@@ -142,14 +143,27 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
   const pid = selectedParty(ctx, v);
   const label = partyLabel(ctx, pid);
   const interp = v.palette === "party" ? blackTo(ctx.partyColor.get(pid) ?? NEUTRAL) : viridis;
-  const values = new Map(units.map((u) => [u.code, partyShare(u, ctx, pid, den)]));
+  // Units where the party ran no candidate are 無候選人, not 0%, and stay out of the scale's range.
+  const ran = new Set(units.filter((u) => partyRan(u, ctx, pid)).map((u) => u.code));
+  const values = new Map(units.filter((u) => ran.has(u.code)).map((u) => [u.code, partyShare(u, ctx, pid, den)]));
   const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale);
-  for (const [code, s] of values) colors.set(code, s === null ? NO_DATA : scale.color(s));
+  for (const u of units) {
+    const s = values.get(u.code);
+    colors.set(u.code, !ran.has(u.code) ? NO_CANDIDATE : s === null || s === undefined ? NO_DATA : scale.color(s));
+  }
+  const absent = ran.size < units.length;
   return {
     colors,
     hatched,
-    legend: { title: `${label} 得票率（分母：${denLabel}）`, spec: scale.legend },
-    describe: (u) => `${label} 得票率 ${fmtPct(partyShare(u, ctx, pid, den))}（${partyVotes(u, ctx, pid).toLocaleString("zh-TW")} 票，分母為${denLabel}）`,
+    legend: {
+      title: `${label} 得票率（分母：${denLabel}）`,
+      spec: scale.legend,
+      groups: absent ? [{ title: "其他", items: [{ label: "該黨無候選人", color: NO_CANDIDATE }] }] : undefined,
+    },
+    describe: (u) =>
+      partyRan(u, ctx, pid)
+        ? `${label} 得票率 ${fmtPct(partyShare(u, ctx, pid, den))}（${partyVotes(u, ctx, pid).toLocaleString("zh-TW")} 票，分母為${denLabel}）`
+        : `${label} 在此地區無候選人`,
   };
 }
 

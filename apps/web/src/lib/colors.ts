@@ -7,6 +7,7 @@ import { interpolateLab } from "d3-interpolate";
 import { interpolatePlasma } from "d3-scale-chromatic";
 
 export const NO_DATA = "#444444";
+export const NO_CANDIDATE = "#cccccc"; // share view: the party ran no candidate here
 export const NEUTRAL = "#aaaaaa"; // independents / parties without a recorded colour
 export const INVALID_COLOR = "#888888";
 export const ABSTAIN_COLOR = "#666666";
