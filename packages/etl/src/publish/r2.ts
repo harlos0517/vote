@@ -9,14 +9,13 @@
  *
  * Credentials come only from the environment (GitHub Actions secrets):
  *   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET   (public data bucket)
- *   R2_RAW_BUCKET                                                     (private raw mirror)
  */
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3";
 import { Manifest, type ValidationCheck } from "@tw-election/schema";
-import { RAW_SOURCES } from "../config/sources.ts";
+import { DATA_SOURCES, RAW_SOURCES } from "../config/sources.ts";
 import { rawPath, sha256File } from "../lib/raw.ts";
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
@@ -107,18 +106,79 @@ export async function publishRelease(outDir: string, opts: { dryRun: boolean; lo
   log(`manifest now points to ${releaseId} (${releases.length} releases listed)`);
 }
 
-/** Mirror pinned raw inputs to a PRIVATE bucket so old upstream versions stay rebuildable. */
+/**
+ * Mirror the pinned raw inputs PUBLICLY under raw/ in the data bucket, so anyone can
+ * rebuild a release even after an upstream file is replaced.
+ *
+ * Both sources are released under 政府資料開放授權條款-第1版 (OGDL-Taiwan 1.0), which
+ * permits redistribution provided the providing agency and the license are credited.
+ * Each mirrored file is listed in raw/index.json with its publisher, original URL,
+ * license and checksum, and raw/NOTICE.md carries the attribution in prose.
+ */
 export async function mirrorRaw(rawDir: string, opts: { dryRun: boolean; log?: (s: string) => void }) {
   const log = opts.log ?? console.log;
   const s3 = opts.dryRun ? null : client();
-  const bucket = opts.dryRun ? "(dry-run)" : env("R2_RAW_BUCKET");
+  const bucket = opts.dryRun ? "(dry-run)" : env("R2_BUCKET");
+  const sourceMeta = new Map<string, (typeof DATA_SOURCES)[keyof typeof DATA_SOURCES]>(Object.values(DATA_SOURCES).map((d) => [d.id, d]));
+  const entries = [];
   for (const s of Object.values(RAW_SOURCES)) {
+    const meta = sourceMeta.get(s.id);
+    if (!meta) throw new Error(`no license/attribution metadata for raw source ${s.id}; refusing to mirror`);
     const p = rawPath(rawDir, s);
     if ((await sha256File(p)) !== s.sha256) throw new Error(`sha256 mismatch for ${p}`);
     const key = `raw/${s.id}/${s.sha256}/${s.file}`;
+    entries.push({
+      path: key,
+      bytes: s.bytes,
+      sha256: s.sha256,
+      originalUrl: s.url,
+      retrievedAt: s.retrievedAt,
+      publisher: meta.publisher,
+      title: meta.title,
+      datasetUrl: meta.url,
+      license: meta.license,
+      licenseUrl: "https://data.gov.tw/license",
+      attribution: meta.attribution,
+    });
     if (!s3) { log(`  would mirror ${p} → ${bucket}/${key}`); continue; }
     if ((await headEtag(s3, bucket, key)) !== null) { log(`  = ${key}`); continue; }
-    await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: readFileSync(p), ContentType: "application/octet-stream", Metadata: { sha256: s.sha256, source: s.url } }));
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket, Key: key, Body: readFileSync(p),
+      ContentType: s.file.endsWith(".zip") ? "application/zip" : "application/octet-stream",
+      ContentDisposition: `attachment; filename="${s.id}-${s.file}"`,
+      CacheControl: IMMUTABLE,
+      Metadata: { sha256: s.sha256, source: s.url },
+    }));
     log(`  + ${key}`);
   }
+  const index = JSON.stringify({ description: "Unmodified copies of the official inputs used to build the data releases.", files: entries }, null, 2);
+  const notice = rawNotice(entries);
+  if (!s3) { log("  would write raw/index.json and raw/NOTICE.md"); return; }
+  for (const [Key, Body, ContentType] of [["raw/index.json", index, "application/json; charset=utf-8"], ["raw/NOTICE.md", notice, "text/markdown; charset=utf-8"]] as const) {
+    await s3.send(new PutObjectCommand({ Bucket: bucket, Key, Body, ContentType, CacheControl: MANIFEST_CACHE }));
+    log(`  + ${Key}`);
+  }
+}
+
+export function rawNotice(entries: { path: string; publisher: string; title: string; datasetUrl: string; license: string; originalUrl: string; sha256: string }[]): string {
+  return [
+    "# 原始資料鏡像 / Raw data mirror",
+    "",
+    "本目錄保存建置本網站資料所用的官方原始檔，內容未經修改。",
+    "These are unmodified copies of the official source files used to build this site's data.",
+    "",
+    "各檔案依「政府資料開放授權條款－第1版」（https://data.gov.tw/license）提供；",
+    "利用時請標示資料提供機關及上述授權條款。本鏡像與資料提供機關無隸屬或背書關係。",
+    "",
+    ...entries.flatMap((e) => [
+      `## ${e.publisher}〈${e.title}〉`,
+      "",
+      `- 檔案：\`${e.path}\``,
+      `- 資料集：${e.datasetUrl}`,
+      `- 原始下載網址：${e.originalUrl}`,
+      `- 授權：${e.license}`,
+      `- SHA-256：\`${e.sha256}\``,
+      "",
+    ]),
+  ].join("\n");
 }
