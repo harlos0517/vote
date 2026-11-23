@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, MapGeoJSONFeature } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -7,11 +7,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import type { FeatureCollection } from "@tw-election/data-client";
 import { NO_DATA } from "../lib/colors.ts";
+import { LOCK_BOUNDS, VIEW_BOUNDS, applyInsets, insetFrames } from "../lib/insets.ts";
 
 maplibregl.setWorkerUrl(workerUrl);
 
-/** Taiwan, Penghu, Kinmen and Matsu. Pratas and Taiping lie outside this default view. */
-const TAIWAN_BOUNDS: [[number, number], [number, number]] = [[118.1, 21.85], [122.05, 26.4]];
 const SRC = "units";
 const DSRC = "districts";
 
@@ -51,6 +50,9 @@ function hatchImage(): { width: number; height: number; data: Uint8Array } {
 }
 
 export function ElectionMap(p: ElectionMapProps) {
+  // Island rings moved into their insets (drawing only; codes, colours and events are unchanged).
+  const shapes = useMemo(() => applyInsets(p.geo), [p.geo]);
+  const districtShapes = useMemo(() => (p.districts ? applyInsets(p.districts) : undefined), [p.districts]);
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
@@ -66,8 +68,10 @@ export function ElectionMap(p: ElectionMapProps) {
         sources: {},
         layers: [{ id: "bg", type: "background", paint: { "background-color": p.background } }],
       },
-      bounds: TAIWAN_BOUNDS,
+      bounds: VIEW_BOUNDS,
       fitBoundsOptions: { padding: 12 },
+      // Zoom in freely, but never pan or zoom out beyond Taiwan and the island insets.
+      maxBounds: LOCK_BOUNDS,
       attributionControl: { compact: true, customAttribution: "圖資：內政部國土測繪中心（政府資料開放授權條款第1版）" },
       dragRotate: false,
       pitchWithRotate: false,
@@ -76,6 +80,26 @@ export function ElectionMap(p: ElectionMapProps) {
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.on("load", () => {
       map.addImage("hatch", hatchImage(), { pixelRatio: 1 });
+      // Frames and names of the island insets (the style has no glyphs, so names are DOM markers).
+      const frames = insetFrames();
+      map.addSource("insets", {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: frames.map(({ box: [x0, y0, x1, y1] }) => ({
+            type: "Feature",
+            properties: {},
+            geometry: { type: "LineString", coordinates: [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]] },
+          })),
+        },
+      });
+      map.addLayer({ id: "insets-frame", type: "line", source: "insets", paint: { "line-color": "#8a8f98", "line-width": 1, "line-dasharray": [3, 2] } });
+      for (const { name, box } of frames) {
+        const el = document.createElement("div");
+        el.textContent = name;
+        el.style.cssText = "font-size:10px;color:#6b7078;pointer-events:none;white-space:nowrap;transform:translateY(-100%);padding-bottom:1px";
+        new maplibregl.Marker({ element: el, anchor: "bottom-left" }).setLngLat([box[0], box[3]]).addTo(map);
+      }
       setReady(true);
     });
     let hovered: string | null = null;
@@ -121,10 +145,10 @@ export function ElectionMap(p: ElectionMapProps) {
     if (!ready || !map) return;
     const src = map.getSource(SRC) as GeoJSONSource | undefined;
     if (src) {
-      src.setData(p.geo as never);
+      src.setData(shapes as never);
       return;
     }
-    map.addSource(SRC, { type: "geojson", data: p.geo as never, promoteId: "code" });
+    map.addSource(SRC, { type: "geojson", data: shapes as never, promoteId: "code" });
     map.addLayer({
       id: "units-fill",
       type: "fill",
@@ -152,7 +176,7 @@ export function ElectionMap(p: ElectionMapProps) {
       filter: ["==", ["get", "code"], ""],
       paint: { "line-color": "#ff3d7f", "line-width": 2.5 },
     });
-  }, [ready, p.geo]);
+  }, [ready, shapes]);
 
   // colours (feature-state; re-applied when geometry changes)
   useEffect(() => {
@@ -181,18 +205,18 @@ export function ElectionMap(p: ElectionMapProps) {
     const map = mapRef.current;
     if (!ready || !map) return;
     const src = map.getSource(DSRC) as GeoJSONSource | undefined;
-    if (!p.districts) {
+    if (!districtShapes) {
       for (const id of ["districts-line", "districts-hl"]) if (map.getLayer(id)) map.removeLayer(id);
       if (src) map.removeSource(DSRC);
       return;
     }
-    if (src) src.setData(p.districts as never);
+    if (src) src.setData(districtShapes as never);
     else {
-      map.addSource(DSRC, { type: "geojson", data: p.districts as never });
+      map.addSource(DSRC, { type: "geojson", data: districtShapes as never });
       map.addLayer({ id: "districts-line", type: "line", source: DSRC, paint: { "line-color": "#1a1a1a", "line-width": 1.1, "line-opacity": 0.7 } }, "units-hover");
       map.addLayer({ id: "districts-hl", type: "line", source: DSRC, filter: ["in", ["get", "code"], ["literal", []]], paint: { "line-color": "#ffd400", "line-width": 3 } }, "units-hover");
     }
-  }, [ready, p.districts, p.geo]);
+  }, [ready, districtShapes, p.geo]);
 
   useEffect(() => {
     const map = mapRef.current;
