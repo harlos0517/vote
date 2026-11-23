@@ -1,26 +1,28 @@
 import { useState } from "react";
 import { useMediaQuery } from "@mantine/hooks";
 import { Button, Collapse, SegmentedControl, Select, Stack, Switch, Text } from "@mantine/core";
-import type { ContestMetadataFile } from "@tw-election/schema";
+import { selectedParty } from "../lib/mapView.ts";
 import type { MapLevel, ViewState } from "../lib/viewState.ts";
+import { partyLabel, type GroupContext } from "../lib/views.ts";
 
-const LEVEL_LABEL: Record<MapLevel, string> = { county: "縣市", town: "鄉鎮市區" };
+export const LEVEL_LABEL: Record<MapLevel, string> = { county: "縣市", district: "選區", town: "鄉鎮市區" };
 
 export function Controls({
-  meta,
+  ctx,
   view,
   level,
+  levels,
   setView,
 }: {
-  meta: ContestMetadataFile;
+  ctx: GroupContext;
   view: ViewState;
   level: MapLevel;
+  levels: MapLevel[];
   setView: (p: Partial<ViewState>) => void;
 }) {
   // Start collapsed on phones so the options don't cover the map.
   const narrow = useMediaQuery("(max-width: 48em)", false, { getInitialValueInEffect: false });
   const [open, setOpen] = useState(!narrow);
-  const choiceId = view.choice && meta.choices.some((c) => c.id === view.choice) ? view.choice : meta.choices[0]!.id;
   return (
     <Stack gap={6}>
       <Button variant="subtle" size="compact-xs" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -33,7 +35,7 @@ export function Controls({
             aria-label="地圖層級"
             value={level}
             onChange={(v) => setView({ level: v as MapLevel, unit: null })}
-            data={(["county", "town"] as const).filter((l) => meta.contest.availableLevels.includes(l)).map((l) => ({ value: l, label: LEVEL_LABEL[l] }))}
+            data={levels.map((l) => ({ value: l, label: LEVEL_LABEL[l] }))}
           />
           <SegmentedControl
             size="xs"
@@ -43,7 +45,7 @@ export function Controls({
             data={[
               { value: "diff", label: "兩大黨差異" },
               { value: "top", label: "當選候選人" },
-              { value: "share", label: "候選人得票率" },
+              { value: "share", label: "政黨得票率" },
             ]}
           />
           {view.mode === "diff" && (
@@ -68,11 +70,13 @@ export function Controls({
             <>
               <Select
                 size="xs"
-                aria-label="選擇候選人"
-                data={meta.choices.map((c) => ({ value: c.id, label: `${c.ballotNumber} ${c.labelZh}` }))}
-                value={choiceId}
+                aria-label="選擇政黨"
+                data={ctx.partiesByVote.map((p) => ({ value: p.id, label: partyLabel(ctx, p.id) }))}
+                value={selectedParty(ctx, view)}
                 onChange={(v) => setView({ choice: v })}
                 allowDeselect={false}
+                searchable
+                maxDropdownHeight={280}
               />
               <SegmentedControl
                 size="xs"
