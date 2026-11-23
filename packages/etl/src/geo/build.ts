@@ -35,7 +35,7 @@ export interface Boundaries {
 
 const csv = (header: string, rows: string[][]) => [header, ...rows.map((r) => r.join(","))].join("\n") + "\n";
 
-export async function buildBoundaries(villageShp: string, workDir: string, parts: PartAssignment, withDistricts: boolean, simplifyPct = "3%"): Promise<Boundaries> {
+export async function buildBoundaries(villageShp: string, workDir: string, parts: PartAssignment, withDistricts: boolean, simplifyPct = "10%"): Promise<Boundaries> {
   mkdirSync(workDir, { recursive: true });
   const q = (p: string) => JSON.stringify(p);
   const townsCsv = join(workDir, "towns.csv");
