@@ -1,0 +1,4 @@
+original,corrected,context,source,status
+江<U+E018>淵,江聰淵,2022 宜蘭縣長候選人 5 號（C1/city/elcand.csv）,"中央社 2022-03-24〈民進黨徵召選宜縣長 江聰淵〉https://www.cna.com.tw/news/aipl/202203240410.aspx",reviewed
+陳<U+E018>吉,陳聰吉,2022 新北市議員第 03 選區 17 號（T1/prv/elcand.csv）,同一私用區碼 U+E018 在江聰淵中為「聰」；尚未以候選人公報確認,unreviewed
+歐中<U+E036>,歐中慨,2022 澎湖縣議員第 01 選區 10 號（T1/city/elcand.csv）,中選會 2020 澎湖縣立委開票結果有候選人「歐中慨」；尚未以 2022 候選人公報確認,unreviewed
