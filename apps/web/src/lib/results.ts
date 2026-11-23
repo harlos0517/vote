@@ -1,24 +1,30 @@
-import type { ResultsFile, ResultSummary } from "@tw-election/schema";
+import type { GroupResultsFile, ResultSummary } from "@tw-election/schema";
 
 export interface UnitView {
   id: string;
-  code: string; // county / town code used by the boundary features
+  code: string; // boundary feature code: county "63000", district "63000-07", town "63000010" / part "63000010-07"
   name: string;
   parentId: string | null;
+  contestIds: string[];
   summary: ResultSummary;
-  votes: number[];
+  /** choiceId → votes, for every choice of every contest in the unit */
+  votes: Record<string, number>;
 }
 
-export function toUnitViews(rf: ResultsFile): Map<string, UnitView> {
+export const codeOf = (unitId: string) => (unitId.includes(":") ? unitId.slice(unitId.indexOf(":") + 1) : unitId);
+
+export function toUnitViews(rf: GroupResultsFile): Map<string, UnitView> {
   const units = new Map(rf.units.map((u) => [u.id, u]));
   const out = new Map<string, UnitView>();
   for (const row of rf.rows) {
-    const code = row.unit.includes(":") ? row.unit.slice(row.unit.indexOf(":") + 1) : row.unit;
+    const u = units.get(row.unit);
+    const code = codeOf(row.unit);
     out.set(code, {
       id: row.unit,
       code,
-      name: units.get(row.unit)?.nameZh ?? row.unit,
-      parentId: units.get(row.unit)?.parentId ?? null,
+      name: u?.nameZh ?? row.unit,
+      parentId: u?.parentId ?? null,
+      contestIds: u?.contestIds ?? [],
       summary: row.summary,
       votes: row.votes,
     });
