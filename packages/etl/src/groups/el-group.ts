@@ -55,6 +55,8 @@ export interface ElGroupDef {
   boundary: BoundaryDef;
   /** "party": 不分區政黨票 — the ballot lists parties; list members come from elrepm.csv. */
   choiceKind: "ticket" | "candidate" | "party" | "referendum";
+  /** 2018 rf*: el* directories (same day) whose elbase gives each township's registry code by name. */
+  rfTownCodesFrom?: string[];
   /** "rf": a national referendum case in rf* files (built by rf-group.ts); default "el". */
   format?: "el" | "rf";
   referendumCase?: number;
@@ -69,7 +71,7 @@ export interface BoundaryDef {
   /** Published id, e.g. "nlsc-village-1120928". */
   versionId: string;
   /** Key of the raw source in RAW_SOURCES and the shapefile name inside it. */
-  raw: "nlscVillage108" | "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
+  raw: "nlscVillage107" | "nlscVillage108" | "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
   shapefile: RegExp;
 }
 

@@ -22,7 +22,7 @@ import { loadPartyColors } from "./lib/party-colors.ts";
 import { applyPuaNames, loadPuaNames } from "./lib/pua-names.ts";
 import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
 import { buildTimelines, loadElectionGroups } from "./lib/timelines.ts";
-import { type RfDataset, readRfDir } from "./adapters/cec-rf.ts";
+import { type RfDataset, readRfDir, renumberTowns } from "./adapters/cec-rf.ts";
 import { buildRfGroup } from "./groups/rf-group.ts";
 import { RELEASE_TOKEN, json, writeRelease, type PendingFile } from "./emit/release.ts";
 
@@ -76,7 +76,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     const gid = groupId(def);
     log(`group ${gid}`);
     const rf = def.format === "rf";
-    const ds = rf ? readRfDir(join(cecWork, def.archiveDirs[0]!)) : readGroupData(def, cecWork);
+    const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork);
     const puaCheck = applyPuaNames(ds, puaNames);
     const dir = join(cecWork, def.archiveDirs[0]!);
     const built = rf
@@ -278,6 +278,19 @@ function joinCheck(id: string, g: GeoJSON, unitCodes: string[], outside: (code: 
       : { id, status: "pass", detail: `${units.size} units ↔ ${units.size} polygons${outText || ", 1:1"}` },
     extraFeatures: extra,
   };
+}
+
+/** rf* directory, with 2018's CEC township numbers replaced by registry codes (matched by name). */
+function readRfGroup(def: ElGroupDef, cecWork: string): RfDataset {
+  const ds = readRfDir(join(cecWork, def.archiveDirs[0]!));
+  if (def.rfTownCodesFrom) {
+    const towns = new Map<string, string>();
+    for (const a of def.rfTownCodesFrom) {
+      for (const u of readElDir(join(cecWork, a)).units) if (u.level === "town") towns.set(`${countyCode(u.key)}|${u.name}`, u.key.town);
+    }
+    renumberTowns(ds, towns);
+  }
+  return ds;
 }
 
 const RF_FILES = ["rfarea.csv", "rfprof.csv", "rftckt.csv"];
