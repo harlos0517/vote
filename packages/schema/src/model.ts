@@ -276,7 +276,7 @@ export const ReviewedMapping = z.object({
 // ---------------------------------------------------------------- release manifest
 
 export const Manifest = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2), // = files.ts SCHEMA_VERSION; lives under v2/
   currentRelease: Slug,
   releases: z.array(
     z.object({
@@ -289,6 +289,8 @@ export const Manifest = z.object({
   ),
 });
 
+export type Office = z.infer<typeof Office>;
+export type Electorate = z.infer<typeof Electorate>;
 export type DataSource = z.infer<typeof DataSource>;
 export type SourceFile = z.infer<typeof SourceFile>;
 export type ReportingLevel = z.infer<typeof ReportingLevel>;
