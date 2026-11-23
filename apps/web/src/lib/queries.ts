@@ -27,11 +27,11 @@ export const useManifest = () =>
 export const useReleaseIndex = (release: string | undefined) =>
   useQuery({ queryKey: ["index", release], queryFn: () => client.index(release!), enabled: !!release });
 
-export const useContest = (release: string | undefined, contestId: string | null) =>
+export const useGroup = (release: string | undefined, groupId: string | null) =>
   useQuery({
-    queryKey: ["contest", release, contestId],
-    queryFn: () => client.contest(release!, contestId!),
-    enabled: !!release && !!contestId,
+    queryKey: ["group", release, groupId],
+    queryFn: () => client.group(release!, groupId!),
+    enabled: !!release && !!groupId,
   });
 
 export const useResults = (release: string | undefined, path: string | undefined) =>

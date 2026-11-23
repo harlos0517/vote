@@ -1,6 +1,6 @@
 /**
  * Shareable view state lives in the URL hash, e.g.
- *   #/?c=<contest>&lv=town&m=diff&f=pct&sc=step&inv=1&u=town:63000010
+ *   #/?c=<contest group>&lv=town&m=diff&f=pct&sc=step&inv=1&u=town:63000010
  * Hash-based so GitHub Pages needs no SPA fallback for deep links.
  * Hover is NOT stored here (it is transient); only the locked unit (u) is.
  */
@@ -8,7 +8,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { ScaleKind } from "./colors.ts";
 import type { DiffFormula } from "./views.ts";
 
-export type MapLevel = "county" | "town";
+export type MapLevel = "county" | "district" | "town";
 /** diff = 兩大黨差異, top = 當選候選人 (local top), share = 各候選人得票率 */
 export type ViewMode = "diff" | "top" | "share";
 export type SharePalette = "party" | "multi";
@@ -18,6 +18,7 @@ export interface ViewState {
   level: MapLevel;
   mode: ViewMode;
   formula: DiffFormula;
+  /** Share view: the selected party id (e.g. "cec-16"). */
   choice: string | null;
   palette: SharePalette;
   scale: ScaleKind;
@@ -54,7 +55,7 @@ export function parseHash(hash: string): ViewState {
   const legacyMode = q.get("m") === "leader" ? "top" : q.get("m");
   return {
     contest: q.get("c"),
-    level: oneOf(q.get("lv"), ["county", "town"] as const, d.level),
+    level: oneOf(q.get("lv"), ["county", "district", "town"] as const, d.level),
     mode: oneOf(legacyMode, ["diff", "top", "share"] as const, d.mode),
     formula: oneOf(q.get("f"), ["pct", "ratio"] as const, d.formula),
     choice: q.get("ch"),
