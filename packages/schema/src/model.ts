@@ -140,6 +140,8 @@ export const Contest = z.object({
     z.object({ level: z.literal("district"), districtId: Slug }),
   ]),
   availableLevels: z.array(ReportingLevel).min(1),
+  /** Set when the contest was held on another day than its election (2022 嘉義市長: 2022-12-18). */
+  date: z.iso.date().nullable().default(null),
   /** 不分區政黨票: CEC's published allocation (elretks.csv), verbatim. */
   partyList: z
     .object({
