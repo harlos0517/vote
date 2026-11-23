@@ -20,6 +20,9 @@ import { GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries } from "./geo/build.ts";
 import { loadPartyColors } from "./lib/party-colors.ts";
 import { applyPuaNames, loadPuaNames } from "./lib/pua-names.ts";
+import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
+import { type RfDataset, readRfDir } from "./adapters/cec-rf.ts";
+import { buildRfGroup } from "./groups/rf-group.ts";
 import { RELEASE_TOKEN, json, writeRelease, type PendingFile } from "./emit/release.ts";
 
 export interface PipelineOptions {
@@ -63,6 +66,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   }
   const partyColors = loadPartyColors(o.repoRoot);
   const puaNames = loadPuaNames(o.repoRoot);
+  const questions = loadReferendumQuestions(o.repoRoot);
 
   const outputs: GroupOutput[] = [];
   const geoByLayout = new Map<string, Boundaries>();
@@ -70,10 +74,13 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   for (const def of GROUPS) {
     const gid = groupId(def);
     log(`group ${gid}`);
-    const ds = readGroupData(def, cecWork);
+    const rf = def.format === "rf";
+    const ds = rf ? readRfDir(join(cecWork, def.archiveDirs[0]!)) : readGroupData(def, cecWork);
     const puaCheck = applyPuaNames(ds, puaNames);
     const dir = join(cecWork, def.archiveDirs[0]!);
-    const built = buildElGroup(def, ds, partyColors, def.choiceKind === "party" ? readElPartyList(dir) : undefined);
+    const built = rf
+      ? buildRfGroup(def, ds as RfDataset, questions.get(`${def.election.id}#${def.referendumCase}`))
+      : buildElGroup(def, ds, partyColors, def.choiceKind === "party" ? readElPartyList(dir) : undefined);
     const checks = [...built.checks, puaCheck, ...checkOfficialAnnouncements(o.repoRoot, built)];
 
     // Groups sharing a boundary version and layout share its shapes (plain "admin" towns are the same).
@@ -109,7 +116,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     for (const c of checks) log(`  [${c.status}] ${c.id}: ${c.detail}`);
     allChecks.push(...checks.map((c) => ({ ...c, id: `${def.election.date.slice(0, 4)}/${def.local}:${c.id}` })));
     const sources = [];
-    for (const a of def.archiveDirs) sources.push(...(await sourceFiles(join(cecWork, a), a, EL_FILES)));
+    for (const a of def.archiveDirs) sources.push(...(await sourceFiles(join(cecWork, a), a, rf ? RF_FILES : EL_FILES)));
     if (def.extra) sources.push(...(await sourceFiles(join(cecWork, def.extra.archiveDir), def.extra.archiveDir, ["cand.csv", "prof.csv"])));
     outputs.push({ def, built, geo, checks, sources, notes });
   }
@@ -179,7 +186,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     ),
   });
   const allParties = new Map<number, { code: number; name: string }>();
-  for (const g of GROUPS) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a)).parties) allParties.set(p.code, p);
+  for (const g of GROUPS.filter((x) => x.format !== "rf")) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a)).parties) allParties.set(p.code, p);
   files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 2, parties: [...allParties.values()].map((p) => toParty(p, partyColors)) })) });
 
   const warn = allChecks.some((c) => c.status === "warn");
@@ -263,6 +270,7 @@ function joinCheck(id: string, g: GeoJSON, unitCodes: string[], outside: (code: 
   };
 }
 
+const RF_FILES = ["rfarea.csv", "rfprof.csv", "rftckt.csv"];
 const EL_FILES = ["elbase.csv", "elcand.csv", "elctks.csv", "elpaty.csv", "elprof.csv"];
 
 /** All el* directories of a group (merged when there are several), plus any extra adapter. */

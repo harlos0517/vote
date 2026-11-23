@@ -54,7 +54,10 @@ export interface ElGroupDef {
   /** Village-boundary snapshot used for every map level. */
   boundary: BoundaryDef;
   /** "party": 不分區政黨票 — the ballot lists parties; list members come from elrepm.csv. */
-  choiceKind: "ticket" | "candidate" | "party";
+  choiceKind: "ticket" | "candidate" | "party" | "referendum";
+  /** "rf": a national referendum case in rf* files (built by rf-group.ts); default "el". */
+  format?: "el" | "rf";
+  referendumCase?: number;
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
   seats?: number;
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */
@@ -66,7 +69,7 @@ export interface BoundaryDef {
   /** Published id, e.g. "nlsc-village-1120928". */
   versionId: string;
   /** Key of the raw source in RAW_SOURCES and the shapefile name inside it. */
-  raw: "nlscVillage111" | "nlscVillage112";
+  raw: "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
   shapefile: RegExp;
 }
 
@@ -242,7 +245,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       choices.push({
         id: choiceId(ci, n),
         contestId: ci.id,
-        kind: d.choiceKind,
+        kind: d.choiceKind as "ticket" | "candidate",
         ballotNumber: n,
         candidacyIds: [principal, ...(mate ? [mate] : [])].map((c) => `${ci.id}.n${n}.${c.isRunningMate ? "vp" : "p"}.candidacy`),
         partyId: partyId(principal.partyCode),

@@ -2,6 +2,7 @@
 import type { BoundaryDef, ElectionDef, ElGroupDef } from "./el-group.ts";
 
 const B2024: BoundaryDef = { versionId: "nlsc-village-1120928", raw: "nlscVillage112", shapefile: /^VILLAGE_NLSC_1120928\.shp$/ };
+const B2021: BoundaryDef = { versionId: "nlsc-village-1101214", raw: "nlscVillage110", shapefile: /^VILLAGE_MOI_1101214\.shp$/ };
 const B2022: BoundaryDef = { versionId: "nlsc-village-1111118", raw: "nlscVillage111", shapefile: /^VILLAGE_MOI_1111118\.shp$/ };
 
 export const E2024: ElectionDef = {
@@ -17,6 +18,37 @@ export const E2022: ElectionDef = {
   nameZh: "2022年 地方公職人員選舉",
   kinds: ["local"],
 };
+
+export const E2021R: ElectionDef = {
+  id: "2021-12-18-referendum",
+  date: "2021-12-18",
+  nameZh: "2021年 全國性公民投票",
+  kinds: ["referendum"],
+};
+
+const R2021 = "votedata/votedata/2018_2021公投_2022修憲複決/";
+const FULLWIDTH = (n: number) => String(n).replace(/\d/g, (c) => String.fromCharCode(0xff10 + Number(c)));
+
+/** One group per case: the four cases were voted on together but each is its own question. */
+const referendum2021 = (n: number): ElGroupDef => ({
+  election: E2021R,
+  local: `case-${n}`,
+  nameZh: `全國性公民投票案第${n}案`,
+  office: "referendum-national",
+  electorate: "general",
+  format: "rf",
+  referendumCase: n,
+  archiveDirs: [`${R2021}第${FULLWIDTH(n)}案全國性公投/`],
+  boundary: B2021,
+  contests: "single",
+  choiceKind: "referendum",
+  layout: "admin",
+  warnings: [
+    "村里及投開票所層級資料已取得並通過驗證，但目前僅發布至鄉鎮市區層級。",
+    "通過門檻（公民投票法第29條）：有效同意票多於不同意票，且有效同意票達投票權人總額四分之一以上。門檻以全國計算，地方數值僅供參考。",
+    "公投結果檔不含主文；主文另依公投公報登錄並註明出處。",
+  ],
+});
 
 const L2022 = "votedata/votedata/voteData/2022-111年地方公職人員選舉/";
 
@@ -189,4 +221,5 @@ export const GROUPS: ElGroupDef[] = [
       "只有設山地原住民議員選區的縣市才有資料，其他地區顯示為無資料。",
     ],
   },
+  ...[17, 18, 19, 20].map(referendum2021),
 ];
