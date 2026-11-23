@@ -31,15 +31,16 @@ type Ring = number[][];
 const centre = (b: Inset["src"]): [number, number] => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
 const inside = (ring: Ring, b: Inset["src"]) => ring.every(([x, y]) => x! >= b[0] && x! <= b[2] && y! >= b[1] && y! <= b[3]);
 
-function moveRing(ring: Ring): Ring {
+function moveRing(ring: Ring, used?: Set<string>): Ring {
   const inset = INSETS.find((i) => inside(ring, i.src));
   if (!inset) return ring;
+  used?.add(inset.name);
   const [cx, cy] = centre(inset.src);
   return ring.map(([x, y]) => [inset.to[0] + (x! - cx) * inset.k, inset.to[1] + (y! - cy) * inset.k]);
 }
 
-/** Copy of a FeatureCollection with island rings moved into their insets. */
-export function applyInsets(fc: FeatureCollection): FeatureCollection {
+/** Copy of a FeatureCollection with island rings moved into their insets; `used` collects the insets that got shapes. */
+export function applyInsets(fc: FeatureCollection, used?: Set<string>): FeatureCollection {
   return {
     ...fc,
     features: fc.features.map((f) => {
@@ -47,8 +48,8 @@ export function applyInsets(fc: FeatureCollection): FeatureCollection {
       if (!g) return f;
       // A polygon moves as a whole when its outer ring lies inside a source box.
       const poly = (p: Ring[]) => {
-        const moved = moveRing(p[0]!);
-        return moved === p[0] ? p : [moved, ...p.slice(1).map(moveRing)];
+        const moved = moveRing(p[0]!, used);
+        return moved === p[0] ? p : [moved, ...p.slice(1).map((r) => moveRing(r))];
       };
       if (g.type === "Polygon") return { ...f, geometry: { ...g, coordinates: poly(g.coordinates as Ring[]) } };
       if (g.type === "MultiPolygon") return { ...f, geometry: { ...g, coordinates: (g.coordinates as Ring[][]).map(poly) } };
@@ -57,9 +58,9 @@ export function applyInsets(fc: FeatureCollection): FeatureCollection {
   } as FeatureCollection;
 }
 
-/** Frame rectangles (lon/lat) around each inset, with some padding. */
-export function insetFrames(): { name: string; box: [number, number, number, number] }[] {
-  return INSETS.map((i) => {
+/** Frame rectangles (lon/lat) around each inset (only those in `names`, if given), with some padding. */
+export function insetFrames(names?: Set<string>): { name: string; box: [number, number, number, number] }[] {
+  return INSETS.filter((i) => !names || names.has(i.name)).map((i) => {
     const hw = ((i.src[2] - i.src[0]) / 2) * i.k + 0.05;
     const hh = ((i.src[3] - i.src[1]) / 2) * i.k + 0.05;
     return { name: i.name, box: [i.to[0] - hw, i.to[1] - hh, i.to[0] + hw, i.to[1] + hh] };

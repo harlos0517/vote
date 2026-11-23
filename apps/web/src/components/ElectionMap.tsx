@@ -51,7 +51,10 @@ function hatchImage(): { width: number; height: number; data: Uint8Array } {
 
 export function ElectionMap(p: ElectionMapProps) {
   // Island rings moved into their insets (drawing only; codes, colours and events are unchanged).
-  const shapes = useMemo(() => applyInsets(p.geo), [p.geo]);
+  const { shapes, islands } = useMemo(() => {
+    const used = new Set<string>();
+    return { shapes: applyInsets(p.geo, used), islands: [...used].sort().join("|") };
+  }, [p.geo]);
   const districtShapes = useMemo(() => (p.districts ? applyInsets(p.districts) : undefined), [p.districts]);
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -80,26 +83,6 @@ export function ElectionMap(p: ElectionMapProps) {
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.on("load", () => {
       map.addImage("hatch", hatchImage(), { pixelRatio: 1 });
-      // Frames and names of the island insets (the style has no glyphs, so names are DOM markers).
-      const frames = insetFrames();
-      map.addSource("insets", {
-        type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: frames.map(({ box: [x0, y0, x1, y1] }) => ({
-            type: "Feature",
-            properties: {},
-            geometry: { type: "LineString", coordinates: [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]] },
-          })),
-        },
-      });
-      map.addLayer({ id: "insets-frame", type: "line", source: "insets", paint: { "line-color": "#8a8f98", "line-width": 1, "line-dasharray": [3, 2] } });
-      for (const { name, box } of frames) {
-        const el = document.createElement("div");
-        el.textContent = name;
-        el.style.cssText = "font-size:10px;color:#6b7078;pointer-events:none;white-space:nowrap;transform:translateY(-100%);padding-bottom:1px";
-        new maplibregl.Marker({ element: el, anchor: "bottom-left" }).setLngLat([box[0], box[3]]).addTo(map);
-      }
       setReady(true);
     });
     let hovered: string | null = null;
@@ -199,6 +182,35 @@ export function ElectionMap(p: ElectionMapProps) {
     map.setFilter("units-hover", ["==", ["get", "code"], p.hovered ?? ""]);
     map.setFilter("units-locked", ["==", ["get", "code"], p.locked ?? ""]);
   }, [ready, p.geo, p.hovered, p.locked]);
+
+  // Frames and names of the island insets that have shapes in this map (1071130 lacks 東沙島/太平島,
+  // for example). The style has no glyphs, so names are DOM markers.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const frames = insetFrames(new Set(islands.split("|").filter(Boolean)));
+    const data = {
+      type: "FeatureCollection" as const,
+      features: frames.map(({ box: [x0, y0, x1, y1] }) => ({
+        type: "Feature" as const,
+        properties: {},
+        geometry: { type: "LineString" as const, coordinates: [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]] },
+      })),
+    };
+    const src = map.getSource("insets") as GeoJSONSource | undefined;
+    if (src) src.setData(data);
+    else {
+      map.addSource("insets", { type: "geojson", data });
+      map.addLayer({ id: "insets-frame", type: "line", source: "insets", paint: { "line-color": "#8a8f98", "line-width": 1, "line-dasharray": [3, 2] } });
+    }
+    const markers = frames.map(({ name, box }) => {
+      const el = document.createElement("div");
+      el.textContent = name;
+      el.style.cssText = "font-size:10px;color:#6b7078;pointer-events:none;white-space:nowrap;transform:translateY(-100%);padding-bottom:1px";
+      return new maplibregl.Marker({ element: el, anchor: "bottom-left" }).setLngLat([box[0], box[3]]).addTo(map);
+    });
+    return () => markers.forEach((m) => m.remove());
+  }, [ready, islands]);
 
   // district overlay (thin outlines always, strong outline for the highlighted district)
   useEffect(() => {
