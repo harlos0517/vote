@@ -3,7 +3,7 @@
  * Pure functions: no React, no MapLibre. Works for single-contest groups (總統) and
  * multi-contest groups (區域立委, 73 districts) alike.
  */
-import type { BallotChoice, GroupMetadataFile, Party, ResultSummary } from "@tw-election/schema";
+import type { BallotChoice, Contest, GroupMetadataFile, Party, ResultSummary } from "@tw-election/schema";
 import { NEUTRAL } from "./colors.ts";
 import type { UnitView } from "./results.ts";
 
@@ -26,6 +26,10 @@ export interface GroupContext {
   /** Parties with candidates in the group, largest national vote first. */
   partiesByVote: Party[];
   singleContest: boolean;
+  /** 不分區政黨票: the ballot lists parties; seats come from the national allocation. */
+  partyList: NonNullable<Contest["partyList"]> | null;
+  /** Some party has several candidates in one contest (原住民立委), so candidates can be picked separately. */
+  candidatesPickable: boolean;
 }
 
 export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<string, number>): GroupContext {
@@ -49,6 +53,11 @@ export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<str
     contestName: new Map(meta.contests.map((c) => [c.id, c.nameZh])),
     partiesByVote,
     singleContest: meta.contests.length === 1,
+    partyList: meta.contests.find((c) => c.partyList)?.partyList ?? null,
+    candidatesPickable: meta.contests.some((ct) => {
+      const ps = meta.choices.filter((c) => c.contestId === ct.id && c.partyId && !party.get(c.partyId)?.isIndependent).map((c) => c.partyId);
+      return new Set(ps).size < ps.length;
+    }),
   };
 }
 
@@ -165,13 +174,16 @@ export function seatsByParty(u: UnitView, ctx: GroupContext): SeatsResult {
   return { partyId: max > 0 && leaders.length === 1 ? leaders[0]![0] : null, seats, total };
 }
 
+/** Party-list seats won nationally (0 when the party is below the threshold). */
+export const listSeats = (ctx: GroupContext, partyId: string) => ctx.partyList?.allocation.find((a) => a.partyId === partyId)?.seats ?? 0;
+
 export const isMultiContest = (u: UnitView) => u.contestIds.length > 1;
 
 /** Label for a party; in single-contest groups add the candidate(s), e.g. "民主進步黨（賴清德／蕭美琴）". */
 export function partyLabel(ctx: GroupContext, partyId: string): string {
   const p = ctx.party.get(partyId);
   const name = p ? (p.isIndependent ? `${p.nameZh}（合計）` : p.nameZh) : partyId;
-  if (!ctx.singleContest) return name;
+  if (!ctx.singleContest || ctx.partyList) return name;
   const cands = ctx.meta.choices.filter((c) => c.partyId === partyId).map((c) => c.labelZh);
   return cands.length === 1 ? `${name}（${cands[0]}）` : name;
 }

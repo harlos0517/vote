@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMediaQuery } from "@mantine/hooks";
 import { Button, Collapse, SegmentedControl, Select, Stack, Switch, Text } from "@mantine/core";
-import { selectedParty } from "../lib/mapView.ts";
+import { selectedTarget } from "../lib/mapView.ts";
 import type { MapLevel, ViewState } from "../lib/viewState.ts";
 import { partyLabel, type GroupContext } from "../lib/views.ts";
 
@@ -44,8 +44,8 @@ export function Controls({
             onChange={(v) => setView({ mode: v as ViewState["mode"] })}
             data={[
               { value: "diff", label: "兩大黨差異" },
-              { value: "top", label: "當選候選人" },
-              { value: "share", label: "政黨得票率" },
+              { value: "top", label: ctx.partyList ? "得票最多政黨" : "當選候選人" },
+              { value: "share", label: ctx.candidatesPickable ? "得票率" : "政黨得票率" },
             ]}
           />
           {view.mode === "diff" && (
@@ -66,16 +66,16 @@ export function Controls({
           {view.mode === "top" && (
             <>
               <Switch size="xs" label="依得票率調整顏色深淺" checked={view.shadeTop} onChange={(e) => setView({ shadeTop: e.currentTarget.checked })} />
-              <Switch size="xs" label="以斜線標示未當選者" checked={view.hatchUnelected} onChange={(e) => setView({ hatchUnelected: e.currentTarget.checked })} />
+              <Switch size="xs" label={ctx.partyList ? "以斜線標示未獲席次的政黨" : "以斜線標示未當選者"} checked={view.hatchUnelected} onChange={(e) => setView({ hatchUnelected: e.currentTarget.checked })} />
             </>
           )}
           {view.mode === "share" && (
             <>
               <Select
                 size="xs"
-                aria-label="選擇政黨"
-                data={ctx.partiesByVote.map((p) => ({ value: p.id, label: partyLabel(ctx, p.id) }))}
-                value={selectedParty(ctx, view)}
+                aria-label={ctx.candidatesPickable ? "選擇政黨或候選人" : "選擇政黨"}
+                data={shareOptions(ctx)}
+                value={selectedTarget(ctx, view).id}
                 onChange={(v) => setView({ choice: v })}
                 allowDeselect={false}
                 searchable
@@ -114,4 +114,17 @@ export function Controls({
       </Collapse>
     </Stack>
   );
+}
+
+/** Share-view picker: parties, plus each candidate where a party ran several (原住民立委). */
+function shareOptions(ctx: GroupContext) {
+  const parties = ctx.partiesByVote.map((p) => ({ value: p.id, label: partyLabel(ctx, p.id) }));
+  if (!ctx.candidatesPickable) return parties;
+  const cands = [...ctx.choice.values()]
+    .sort((a, b) => (a.ballotNumber ?? 0) - (b.ballotNumber ?? 0))
+    .map((c) => ({ value: c.id, label: `${c.ballotNumber}號 ${c.labelZh}（${c.partyId ? (ctx.party.get(c.partyId)?.nameZh ?? "") : ""}）` }));
+  return [
+    { group: "政黨（候選人合計）", items: parties },
+    { group: "候選人", items: cands },
+  ];
 }

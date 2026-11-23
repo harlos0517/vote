@@ -4,7 +4,7 @@ import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
 import { NEUTRAL, NO_CANDIDATE, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, twoPartyDiff } from "./views.ts";
-import { buildMapView, ringSlices, selectedParty } from "./mapView.ts";
+import { buildMapView, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
 
 // --- fixtures -----------------------------------------------------------------
 const unit = (code: string, votes: Record<string, number>, contestIds = ["e.president"], s: Partial<UnitView["summary"]> = {}): UnitView => {
@@ -150,6 +150,49 @@ describe("party share and ring", () => {
   it("uses party colours, with neutral grey for independents", () => {
     expect(L.choiceColor.get("d2.n3")).toBe(NEUTRAL);
     expect(P.choiceColor.get("n2")).toBe("#1B9431");
+  });
+});
+
+// --- 原住民立委 and 不分區 ---------------------------------------------------------
+describe("multi-seat and party-list groups", () => {
+  /** 原住民立委-like: 3 seats, KMT runs two. */
+  const ind = groupContext({
+    contests: [{ id: "e.h", nameZh: "山地", scope: { level: "national" }, seats: 3, partyList: null }],
+    choices: [choice("n1", "e.h", 1, "cec-1", "甲"), choice("n2", "e.h", 2, "cec-1", "乙"), choice("n3", "e.h", 3, "cec-16", "丙"), choice("n4", "e.h", 4, "cec-999", "丁")],
+    candidacies: [{ id: "n1.c", elected: true }, { id: "n2.c", elected: false }, { id: "n3.c", elected: true }, { id: "n4.c", elected: true }],
+    parties: [party("cec-1", "中國國民黨", "#000099"), party("cec-16", "民主進步黨", "#1B9431"), party("cec-999", "無黨籍及未經政黨推薦", null, true)],
+  } as unknown as GroupMetadataFile);
+  const u = unit("A", { n1: 10, n2: 30, n3: 40, n4: 20 }, ["e.h"]);
+
+  it("offers candidates in the share view only when a party ran several", () => {
+    expect(ind.candidatesPickable).toBe(true);
+    expect(P.candidatesPickable).toBe(false);
+    expect(selectedTarget(ind, { ...DEFAULT_VIEW, choice: "n2" })).toEqual({ kind: "choice", id: "n2" });
+    expect(selectedTarget(P, { ...DEFAULT_VIEW, choice: "n2" }).kind).toBe("party");
+    const v = buildMapView(ind, [u], { ...DEFAULT_VIEW, mode: "share", choice: "n2" });
+    expect(v.describe(u)).toContain("得票率 30.00%");
+    expect(buildMapView(ind, [u], { ...DEFAULT_VIEW, mode: "share", choice: "cec-1" }).describe(u)).toContain("得票率 40.00%");
+  });
+
+  const list = groupContext({
+    contests: [{ id: "e.l", nameZh: "不分區", scope: { level: "national" }, seats: 3, partyList: { thresholdPct: 5, thresholdBasis: "x", allocation: [
+      { partyId: "cec-1", voteSharePct: 60, qualifiedSharePct: 63, nominated: 3, seats: 2 },
+      { partyId: "cec-16", voteSharePct: 35, qualifiedSharePct: 37, nominated: 2, seats: 1 },
+      { partyId: "cec-79", voteSharePct: 5 - 0.01, qualifiedSharePct: null, nominated: 1, seats: 0 },
+    ] } }],
+    choices: [{ ...choice("n1", "e.l", 1, "cec-1", "甲黨"), kind: "party", candidacyIds: ["a1"] }, { ...choice("n2", "e.l", 2, "cec-16", "乙黨"), kind: "party", candidacyIds: ["b1"] }, { ...choice("n3", "e.l", 3, "cec-79", "丙黨"), kind: "party", candidacyIds: ["c1"] }],
+    candidacies: [{ id: "a1", elected: true }, { id: "b1", elected: true }, { id: "c1", elected: false }],
+    parties: [party("cec-1", "甲黨", "#000099"), party("cec-16", "乙黨", "#1B9431"), party("cec-79", "丙黨", null)],
+  } as unknown as GroupMetadataFile, { n1: 60, n2: 35, n3: 5 });
+
+  it("hatches areas topped by a party with no seats, and says so", () => {
+    const a = unit("A", { n1: 10, n2: 20, n3: 70 }, ["e.l"]);
+    const b = unit("B", { n1: 70, n2: 20, n3: 10 }, ["e.l"]);
+    const v = buildMapView(list, [a, b], { ...DEFAULT_VIEW, mode: "top" });
+    expect([...v.hatched]).toEqual(["A"]);
+    expect(v.describe(a)).toContain("全國未獲席次");
+    expect(v.describe(b)).toContain("全國獲 2 席");
+    expect(v.legend.groups!.map((g) => g.title)).toEqual(["獲得席次", "未獲席次（斜線）"]);
   });
 });
 

@@ -12,6 +12,8 @@ import {
   denominatorLabel,
   isMultiContest,
   localTop,
+  choiceShare,
+  listSeats,
   partyLabel,
   partyRan,
   partyShare,
@@ -45,9 +47,18 @@ export interface MapViewModel {
 
 const signedPt = (x: number) => `${x > 0 ? "+" : ""}${(x * 100).toFixed(2)}`;
 
-/** The party picked in the share view: the URL's choice if it is a party here, else the largest. */
+/** The party picked in the share view: the URL's choice if it is a party here, else the largest real party. */
 export function selectedParty(ctx: GroupContext, v: ViewState): string {
-  return v.choice && ctx.party.has(v.choice) ? v.choice : ctx.partiesByVote[0]!.id;
+  if (v.choice && ctx.party.has(v.choice)) return v.choice;
+  return (ctx.partiesByVote.find((p) => !p.isIndependent) ?? ctx.partiesByVote[0]!).id;
+}
+
+/** What the share view shows: a party (its candidates combined) or, where offered, one candidate. */
+export type ShareTarget = { kind: "party"; id: string } | { kind: "choice"; id: string };
+
+export function selectedTarget(ctx: GroupContext, v: ViewState): ShareTarget {
+  if (ctx.candidatesPickable && v.choice && ctx.choice.has(v.choice)) return { kind: "choice", id: v.choice };
+  return { kind: "party", id: selectedParty(ctx, v) };
 }
 
 export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState): MapViewModel {
@@ -114,16 +125,19 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
     const groups = multi
       ? [{ title: "最多席次的政黨", items: parties.map((p) => item(p, false)) }]
       : [
-          { title: "當選", items: parties.filter((p) => legendTop.get(p)!.elected).map((p) => item(p, false)) },
-          { title: v.hatchUnelected ? "未當選（斜線）" : "未當選", items: parties.filter((p) => legendTop.get(p)!.unelected).map((p) => item(p, true)) },
+          { title: ctx.partyList ? "獲得席次" : "當選", items: parties.filter((p) => legendTop.get(p)!.elected).map((p) => item(p, false)) },
+          { title: `${ctx.partyList ? "未獲席次" : "未當選"}${v.hatchUnelected ? "（斜線）" : ""}`, items: parties.filter((p) => legendTop.get(p)!.unelected).map((p) => item(p, true)) },
         ].filter((g) => g.items.length);
     return {
       colors,
       hatched,
       legend: {
-        title: multi ? "各縣市當選席次最多的政黨" : "各地區得票最多的候選人（依政黨著色）",
+        title: multi ? "各縣市當選席次最多的政黨" : ctx.partyList ? "各地區得票最多的政黨" : "各地區得票最多的候選人（依政黨著色）",
         groups,
-        note: v.shadeTop ? (multi ? "顏色越深，該黨席次占比越高。" : `顏色越深，該候選人得票率越高（分母：${denLabel}）。`) : undefined,
+        note: [
+          v.shadeTop ? (multi ? "顏色越深，該黨席次占比越高。" : `顏色越深，${ctx.partyList ? "該黨" : "該候選人"}得票率越高（分母：${denLabel}）。`) : "",
+          ctx.partyList ? `席次依全國得票分配（門檻 ${ctx.partyList.thresholdPct}%），地區得票最多不代表在該地區獲得席次。` : "",
+        ].filter(Boolean).join("") || undefined,
       },
       describe: (u) => {
         if (isMultiContest(u)) {
@@ -134,18 +148,28 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
         const t = localTop(u, ctx, den);
         if (!t.choiceId) return "得票最多：同票或無資料";
         const c = ctx.choice.get(t.choiceId)!;
+        if (ctx.partyList) {
+          const n = c.partyId ? listSeats(ctx, c.partyId) : 0;
+          return `得票最多：${c.labelZh}（${fmtPct(t.share)}，分母為${denLabel}），全國${n ? `獲 ${n} 席` : "未獲席次"}`;
+        }
         return `得票最多：${c.labelZh}（${fmtPct(t.share)}，分母為${denLabel}）${t.elected ? "，當選" : "，未當選"}`;
       },
     };
   }
 
-  // share: one party (its candidates combined)
-  const pid = selectedParty(ctx, v);
-  const label = partyLabel(ctx, pid);
-  const interp = v.palette === "party" ? blackTo(ctx.partyColor.get(pid) ?? NEUTRAL) : viridis;
+  // share: one party (its candidates combined), or one candidate where candidates are pickable
+  const target = selectedTarget(ctx, v);
+  const isChoice = target.kind === "choice";
+  const pc = isChoice ? ctx.choice.get(target.id)! : null;
+  const label = pc ? `${pc.labelZh}（${pc.partyId ? (ctx.party.get(pc.partyId)?.nameZh ?? "") : ""}）` : partyLabel(ctx, target.id);
+  const baseColor = (pc ? ctx.choiceColor.get(pc.id) : ctx.partyColor.get(target.id)) ?? NEUTRAL;
+  const interp = v.palette === "party" ? blackTo(baseColor) : viridis;
+  const ranHere = (u: UnitView) => (pc ? u.contestIds.includes(pc.contestId) : partyRan(u, ctx, target.id));
+  const shareOf = (u: UnitView) => (pc ? choiceShare(u, pc.id, den) : partyShare(u, ctx, target.id, den));
+  const votesOf = (u: UnitView) => (pc ? (u.votes[pc.id] ?? 0) : partyVotes(u, ctx, target.id));
   // Units where the party ran no candidate are 無候選人, not 0%, and stay out of the scale's range.
-  const ran = new Set(units.filter((u) => partyRan(u, ctx, pid)).map((u) => u.code));
-  const values = new Map(units.filter((u) => ran.has(u.code)).map((u) => [u.code, partyShare(u, ctx, pid, den)]));
+  const ran = new Set(units.filter(ranHere).map((u) => u.code));
+  const values = new Map(units.filter((u) => ran.has(u.code)).map((u) => [u.code, shareOf(u)]));
   const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.fromZero);
   for (const u of units) {
     const s = values.get(u.code);
@@ -161,8 +185,8 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
       groups: absent ? [{ title: "其他", items: [{ label: "該黨無候選人", color: NO_CANDIDATE }] }] : undefined,
     },
     describe: (u) =>
-      partyRan(u, ctx, pid)
-        ? `${label} 得票率 ${fmtPct(partyShare(u, ctx, pid, den))}（${partyVotes(u, ctx, pid).toLocaleString("zh-TW")} 票，分母為${denLabel}）`
+      ranHere(u)
+        ? `${label} 得票率 ${fmtPct(shareOf(u))}（${votesOf(u).toLocaleString("zh-TW")} 票，分母為${denLabel}）`
         : `${label} 在此地區無候選人`,
   };
 }
@@ -175,12 +199,12 @@ export interface RingSlice {
 }
 
 /**
- * Ring for one unit: candidates for a single-contest unit, parties for a unit spanning
- * several contests (parties under 2% are grouped as 其他), plus 無效 / 未投票 when counted.
+ * Ring for one unit: candidates for a single-contest unit; parties for a unit spanning several
+ * contests or for 不分區政黨票 (parties under 2% are grouped as 其他); plus 無效 / 未投票 when counted.
  */
 export function ringSlices(u: UnitView, ctx: GroupContext, d: Denominator): RingSlice[] {
   let slices: RingSlice[];
-  if (!isMultiContest(u)) {
+  if (!isMultiContest(u) && !ctx.partyList) {
     slices = Object.entries(u.votes).map(([id, v]) => ({ key: id, label: ctx.choice.get(id)?.labelZh ?? id, value: v, color: ctx.choiceColor.get(id) ?? NEUTRAL }));
     slices.sort((a, b) => (ctx.choice.get(a.key)?.ballotNumber ?? 0) - (ctx.choice.get(b.key)?.ballotNumber ?? 0));
   } else {
