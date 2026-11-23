@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GroupMetadataFile, GroupResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
-import { NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
+import { NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, ZERO_GAP, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, referendumStatus, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
 import { buildMapView, effectiveMode, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
@@ -197,6 +197,22 @@ describe("multi-seat and party-list groups", () => {
   });
 });
 
+describe("兩大黨差異 without either party", () => {
+  it("marks areas where neither 民進黨 nor 國民黨 ran as 無候選人, not a tie", () => {
+    const ind = groupContext({
+      contests: [{ id: "e.a", nameZh: "甲", scope: { level: "district" }, seats: 1 }, { id: "e.b", nameZh: "乙", scope: { level: "district" }, seats: 1 }],
+      choices: [choice("a.n1", "e.a", 1, "cec-1", "甲"), choice("a.n2", "e.a", 2, "cec-16", "乙"), choice("b.n1", "e.b", 1, "cec-999", "丙")],
+      candidacies: [{ id: "a.n1.c", elected: true }, { id: "a.n2.c", elected: false }, { id: "b.n1.c", elected: true }],
+      parties: [party("cec-1", "中國國民黨", "#000099"), party("cec-16", "民主進步黨", "#1B9431"), party("cec-999", "無黨籍及未經政黨推薦", null, true)],
+    } as unknown as GroupMetadataFile);
+    const a = unit("A", { "a.n1": 5, "a.n2": 5 }, ["e.a"]);
+    const b = unit("B", { "b.n1": 9 }, ["e.b"]);
+    const v = buildMapView(ind, [a, b], DEFAULT_VIEW);
+    expect([v.colors.get("A"), v.colors.get("B")]).toEqual(["rgb(0, 0, 0)", NO_CANDIDATE]);
+    expect(v.describe(b)).toContain("皆無候選人");
+  });
+});
+
 describe("multi-seat districts (議員)", () => {
   const t1 = groupContext({
     contests: [{ id: "e.d1", nameZh: "第01選區", scope: { level: "district" }, seats: 2 }, { id: "e.d2", nameZh: "第02選區", scope: { level: "district" }, seats: 1 }],
@@ -279,7 +295,7 @@ describe("scales", () => {
     const s = sequentialScale([0.31, 0.58], () => "#000", "stepped");
     expect(s.legend.type === "stepped" && s.legend.items.map((i) => i.label)).toEqual(["50%–60%", "40%–50%", "30%–40%", "20%–30%", "10%–20%", "> 0%–10%"]);
     expect(s.t(0)).toBe(0);
-    expect(s.t(0.001)).toBeCloseTo(0.05);
+    expect(s.t(0.001)).toBeCloseTo(ZERO_GAP);
     expect(s.legend.zero?.label).toBe("0%");
   });
   it("can start at the data's low end instead of 0%, still keeping exactly 0 apart", () => {
@@ -287,7 +303,7 @@ describe("scales", () => {
     expect(s.legend.type === "stepped" && s.legend.items.map((i) => i.label).at(-1)).toBe("> 0%–10%");
     const t = sequentialScale([0.31, 0.58], () => "#000", "stepped", null, false);
     expect(t.legend.type === "stepped" && t.legend.items.map((i) => i.label)).toEqual(["55%–60%", "50%–55%", "45%–50%", "40%–45%", "35%–40%", "30%–35%"]);
-    expect(t.t(0.31)).toBeCloseTo(0.05);
+    expect(t.t(0.31)).toBeCloseTo(ZERO_GAP);
     expect(t.t(0)).toBe(0);
   });
   it("uses a fixed top when chosen, marking values above it", () => {
@@ -308,12 +324,12 @@ describe("scales", () => {
   });
   it("diverging scales keep black for an exact tie: any lead starts 5% toward its side, also when stepped", () => {
     const c = divergingScale([-0.2, 0.2], "#0000ff", "#00ff00", "continuous", (pt) => `${pt}`);
-    expect(c.t(0.0001)).toBeCloseTo(0.05, 2);
-    expect(c.t(-0.0001)).toBeCloseTo(-0.05, 2);
+    expect(c.t(0.0001)).toBeCloseTo(ZERO_GAP, 2);
+    expect(c.t(-0.0001)).toBeCloseTo(-ZERO_GAP, 2);
     const s = divergingScale([-0.2, 0.2], "#0000ff", "#00ff00", "stepped", (pt) => (pt === 0 ? "平手" : `${pt}`));
     expect(s.t(0)).toBe(0);
     expect(s.color(0)).toBe("rgb(0, 0, 0)");
-    expect(s.t(0.001)).toBeGreaterThan(0.05);
+    expect(s.t(0.001)).toBeGreaterThan(ZERO_GAP);
     expect(s.legend.zero?.label).toBe("平手");
   });
   it("diverging scale is symmetric and black at zero", () => {

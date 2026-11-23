@@ -140,13 +140,21 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
       (pt) => (pt === 0 ? "平手" : pt < 0 ? `國 +${-pt}%` : `民 +${pt}%`),
       v.max,
     );
-    for (const [code, r] of values) colors.set(code, r.value === null ? NO_DATA : scale.color(r.value));
+    // Neither party ran here: no comparison (無候選人), not a 0 − 0 tie.
+    const neither = new Set(units.filter((u) => !partyRan(u, ctx, DPP) && !partyRan(u, ctx, KMT)).map((u) => u.code));
+    for (const [code, r] of values) colors.set(code, neither.has(code) ? NO_CANDIDATE : r.value === null ? NO_DATA : scale.color(r.value));
     const formulaText = v.formula === "pct" ? `民進黨% − 國民黨%（分母：${denLabel}）` : "(民進黨 − 國民黨) ÷ (民進黨 + 國民黨)";
     return {
       colors,
       hatched,
-      legend: { title: `兩大黨差異：${formulaText}`, spec: scale.legend, note: `國＝${kmtName}，民＝${dppName}。各黨候選人票數合計；某黨無候選人時以 0 票計。` },
+      legend: {
+        title: `兩大黨差異：${formulaText}`,
+        spec: scale.legend,
+        groups: neither.size ? [{ title: "其他", items: [{ label: "兩黨皆無候選人", color: NO_CANDIDATE }] }] : undefined,
+        note: `國＝${kmtName}，民＝${dppName}。各黨候選人票數合計；只有一黨有候選人時，另一黨以 0 票計。`,
+      },
       describe: (u) => {
+        if (neither.has(u.code)) return "兩大黨差異：民進黨與國民黨在此皆無候選人";
         const r = twoPartyDiff(u, ctx, v.formula, den);
         if (r.value === null) return "兩大黨差異：無資料";
         const lead = r.value > 0 ? "民進黨領先" : r.value < 0 ? "國民黨領先" : "平手";

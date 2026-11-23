@@ -1,8 +1,10 @@
 import { Group, Stack, Text } from "@mantine/core";
-import { NO_DATA } from "../lib/colors.ts";
+import { NO_CANDIDATE, NO_DATA } from "../lib/colors.ts";
 import type { LegendModel } from "../lib/mapView.ts";
 
 const HATCH = "repeating-linear-gradient(135deg, rgba(255,255,255,.9) 0 1.5px, rgba(20,20,20,.75) 1.5px 3px, transparent 3px 8px)";
+/** Same faint "/" stripe the map draws on areas without a value. */
+const EMPTY = "repeating-linear-gradient(45deg, rgba(255,255,255,.45) 0 1px, transparent 1px 4px)";
 
 export const Swatch = ({ color, hatched }: { color: string; hatched?: boolean }) => (
   <span
@@ -13,7 +15,7 @@ export const Swatch = ({ color, hatched }: { color: string; hatched?: boolean })
       height: 14,
       borderRadius: 2,
       flex: "none",
-      background: hatched ? `${HATCH}, ${color}` : color,
+      background: hatched ? `${HATCH}, ${color}` : color === NO_DATA || color === NO_CANDIDATE ? `${EMPTY}, ${color}` : color,
     }}
   />
 );

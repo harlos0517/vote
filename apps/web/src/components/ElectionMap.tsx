@@ -6,7 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // pre-bundles (dev) or bundles (build) the library. Ship the worker as a URL asset instead.
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import type { FeatureCollection } from "@tw-election/data-client";
-import { NO_DATA } from "../lib/colors.ts";
+import { NO_CANDIDATE, NO_DATA } from "../lib/colors.ts";
 import { LOCK_BOUNDS, VIEW_BOUNDS, applyInsets, insetFrames } from "../lib/insets.ts";
 
 maplibregl.setWorkerUrl(workerUrl);
@@ -49,6 +49,22 @@ function hatchImage(): { width: number; height: number; data: Uint8Array } {
   return { width: n, height: n, data };
 }
 
+/**
+ * 6×6 tile with a thin, faint "/" stripe: marks areas without a value (無資料, 該黨無候選人) so they
+ * read as "nothing here" rather than as a colour on the scale. Opposite direction to the
+ * unelected hatch, which is "\\" with a dark and a light stripe.
+ */
+function emptyImage(): { width: number; height: number; data: Uint8Array } {
+  const n = 6;
+  const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      if ((x + (n - 1 - y)) % n === 0) data.set([255, 255, 255, 110], (y * n + x) * 4);
+    }
+  }
+  return { width: n, height: n, data };
+}
+
 export function ElectionMap(p: ElectionMapProps) {
   // Island rings moved into their insets (drawing only; codes, colours and events are unchanged).
   const { shapes, islands } = useMemo(() => {
@@ -83,6 +99,7 @@ export function ElectionMap(p: ElectionMapProps) {
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.on("load", () => {
       map.addImage("hatch", hatchImage(), { pixelRatio: 1 });
+      map.addImage("empty", emptyImage(), { pixelRatio: 1 });
       setReady(true);
     });
     let hovered: string | null = null;
@@ -138,6 +155,8 @@ export function ElectionMap(p: ElectionMapProps) {
       source: SRC,
       paint: { "fill-color": ["coalesce", ["feature-state", "fill"], NO_DATA], "fill-opacity": 0.95 },
     });
+    // No antialiasing: with thousands of small 村里 shapes, antialiased edges add up into light seams.
+    map.addLayer({ id: "units-empty", type: "fill", source: SRC, filter: ["!", ["in", ["get", "code"], ["literal", []]]], paint: { "fill-pattern": "empty", "fill-antialias": false } });
     map.addLayer({ id: "units-hatch", type: "fill", source: SRC, filter: ["in", ["get", "code"], ["literal", []]], paint: { "fill-pattern": "hatch" } });
     map.addLayer({ id: "units-line", type: "line", source: SRC, layout: { visibility: p.borders === false ? "none" : "visible" }, paint: {
       "line-color": "#ffffff",
@@ -169,6 +188,14 @@ export function ElectionMap(p: ElectionMapProps) {
       const code = f.properties.code!;
       map.setFeatureState({ source: SRC, id: code }, { fill: p.colors.get(code) ?? NO_DATA });
     }
+  }, [ready, p.geo, p.colors]);
+
+  // Empty-area pattern on everything without a value: no result at all, 無資料 or 該黨無候選人.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map?.getLayer("units-empty")) return;
+    const valued = [...p.colors].filter(([, c]) => c !== NO_DATA && c !== NO_CANDIDATE).map(([code]) => code);
+    map.setFilter("units-empty", ["!", ["in", ["get", "code"], ["literal", valued]]]);
   }, [ready, p.geo, p.colors]);
 
   useEffect(() => {
