@@ -58,12 +58,13 @@ export function quantile(xs: number[], q: number): number {
  * Sequential: low → high; interp(0) is the low end. The domain covers the middle 95% of
  * values (2.5th–97.5th percentile, snapped to whole steps) so a few outliers don't wash
  * out the map; values beyond it take the end colour and the legend ends read ≤ / ≥.
+ * With `fromZero` the low end is always 0%, so colour stays proportional to the share.
  */
-export function sequentialScale(values: number[], interp: (t: number) => string, kind: ScaleKind): ColorScale {
+export function sequentialScale(values: number[], interp: (t: number) => string, kind: ScaleKind, fromZero = false): ColorScale {
   const finite = values.filter(Number.isFinite);
   const min = finite.length ? Math.min(...finite) : 0;
   const max = finite.length ? Math.max(...finite) : 1;
-  const { lo, hi, stepPt } = snapDomain(finite.length ? quantile(finite, 0.025) : 0, finite.length ? quantile(finite, 0.975) : 1, 8);
+  const { lo, hi, stepPt } = snapDomain(fromZero || !finite.length ? 0 : quantile(finite, 0.025), finite.length ? quantile(finite, 0.975) : 1, 8);
   const openLo = min * 100 < lo - 1e-9;
   const openHi = max * 100 > hi + 1e-9;
   const bins = Math.round((hi - lo) / stepPt);

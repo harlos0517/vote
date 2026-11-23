@@ -60,6 +60,9 @@ export function Controls({
               ]}
             />
           )}
+          {view.mode !== "diff" && (view.mode !== "top" || view.shadeTop) && (
+            <Switch size="xs" label="色階從 0% 起算" checked={view.fromZero} onChange={(e) => setView({ fromZero: e.currentTarget.checked })} />
+          )}
           {view.mode === "top" && (
             <>
               <Switch size="xs" label="依得票率調整顏色深淺" checked={view.shadeTop} onChange={(e) => setView({ shadeTop: e.currentTarget.checked })} />

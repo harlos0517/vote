@@ -107,7 +107,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
       const seen = legendTop.get(p) ?? { elected: false, unelected: false };
       legendTop.set(p, t.elected ? { ...seen, elected: true } : { ...seen, unelected: true });
     }
-    const seq = sequentialScale(strengths.flatMap((x) => (x.s === null ? [] : [x.s])), (t) => String(t), v.scale);
+    const seq = sequentialScale(strengths.flatMap((x) => (x.s === null ? [] : [x.s])), (t) => String(t), v.scale, v.fromZero);
     for (const x of strengths) colors.set(x.code, v.shadeTop && x.s !== null ? shade(x.color, seq.t(x.s)) : x.color);
     const item = (p: string, hatch: boolean): LegendItem => ({ label: partyLabel(ctx, p), color: ctx.partyColor.get(p) ?? NEUTRAL, hatched: hatch && v.hatchUnelected });
     const parties = ctx.partiesByVote.map((p) => p.id).filter((p) => legendTop.has(p));
@@ -146,7 +146,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
   // Units where the party ran no candidate are 無候選人, not 0%, and stay out of the scale's range.
   const ran = new Set(units.filter((u) => partyRan(u, ctx, pid)).map((u) => u.code));
   const values = new Map(units.filter((u) => ran.has(u.code)).map((u) => [u.code, partyShare(u, ctx, pid, den)]));
-  const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale);
+  const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.fromZero);
   for (const u of units) {
     const s = values.get(u.code);
     colors.set(u.code, !ran.has(u.code) ? NO_CANDIDATE : s === null || s === undefined ? NO_DATA : scale.color(s));
