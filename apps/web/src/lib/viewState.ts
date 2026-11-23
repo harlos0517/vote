@@ -4,7 +4,7 @@
  * Hash-based so GitHub Pages needs no SPA fallback for deep links.
  * Hover is NOT stored here (it is transient); only the locked unit (u) is.
  */
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { ScaleKind, ScaleMax } from "./colors.ts";
 import type { DiffFormula } from "./views.ts";
 
@@ -118,7 +118,9 @@ const subscribe = (cb: () => void) => {
 
 export function useViewState(): [ViewState, (patch: Partial<ViewState>) => void] {
   const hash = useSyncExternalStore(subscribe, () => window.location.hash, () => "");
-  const state = parseHash(hash);
+  // Same hash → same object, so memos keyed on the view (the whole map model) survive re-renders
+  // such as hovering; a fresh object each render rebuilt and re-pushed every colour on each hover.
+  const state = useMemo(() => parseHash(hash), [hash]);
   const update = useCallback((patch: Partial<ViewState>) => {
     const next = formatHash({ ...parseHash(window.location.hash), ...patch });
     if (next !== window.location.hash) {

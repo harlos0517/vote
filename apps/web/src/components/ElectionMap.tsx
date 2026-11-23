@@ -13,6 +13,7 @@ maplibregl.setWorkerUrl(workerUrl);
 
 const SRC = "units";
 const DSRC = "districts";
+const OSRC = "outline";
 
 export interface ElectionMapProps {
   geo: FeatureCollection;
@@ -164,20 +165,12 @@ export function ElectionMap(p: ElectionMapProps) {
       "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.2, 10, 0.6],
       "line-opacity": ["interpolate", ["linear"], ["zoom"], 6, 0.35, 9, 0.8],
     } });
-    map.addLayer({
-      id: "units-hover",
-      type: "line",
-      source: SRC,
-      filter: ["==", ["get", "code"], ""],
-      paint: { "line-color": "#ffffff", "line-width": 2.5 },
-    });
-    map.addLayer({
-      id: "units-locked",
-      type: "line",
-      source: SRC,
-      filter: ["==", ["get", "code"], ""],
-      paint: { "line-color": "#ff3d7f", "line-width": 2.5 },
-    });
+    // Hover and lock outlines come from a tiny source holding just those one or two shapes.
+    // Changing a filter or feature-state on the main source makes MapLibre re-evaluate every
+    // shape (~7,900 at 村里), which made hovering lag.
+    map.addSource(OSRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: "units-hover", type: "line", source: OSRC, filter: ["==", ["get", "kind"], "hover"], paint: { "line-color": "#ffffff", "line-width": 2.5 } });
+    map.addLayer({ id: "units-locked", type: "line", source: OSRC, filter: ["==", ["get", "kind"], "locked"], paint: { "line-color": "#ff3d7f", "line-width": 2.5 } });
   }, [ready, shapes]);
 
   // colours (feature-state; re-applied when geometry changes)
@@ -203,12 +196,17 @@ export function ElectionMap(p: ElectionMapProps) {
     if (ready && map?.getLayer("units-hatch")) map.setFilter("units-hatch", ["in", ["get", "code"], ["literal", [...p.hatched]]]);
   }, [ready, p.geo, p.hatched]);
 
+  // Hover / lock outlines: put just those shapes into the small outline source.
+  const byCode = useMemo(() => new Map(shapes.features.map((f) => [f.properties.code!, f])), [shapes]);
   useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map?.getLayer("units-hover")) return;
-    map.setFilter("units-hover", ["==", ["get", "code"], p.hovered ?? ""]);
-    map.setFilter("units-locked", ["==", ["get", "code"], p.locked ?? ""]);
-  }, [ready, p.geo, p.hovered, p.locked]);
+    const src = mapRef.current?.getSource(OSRC) as GeoJSONSource | undefined;
+    if (!ready || !src) return;
+    const pick = (code: string | null, kind: string) => {
+      const f = code ? byCode.get(code) : undefined;
+      return f ? [{ ...f, properties: { kind } }] : [];
+    };
+    src.setData({ type: "FeatureCollection", features: [...pick(p.locked, "locked"), ...pick(p.hovered, "hover")] } as never);
+  }, [ready, byCode, p.hovered, p.locked]);
 
   // Frames and names of the island insets that have shapes in this map (1071130 lacks 東沙島/太平島,
   // for example). The style has no glyphs, so names are DOM markers.
@@ -251,16 +249,22 @@ export function ElectionMap(p: ElectionMapProps) {
     }
     if (src) src.setData(districtShapes as never);
     else {
-      map.addSource(DSRC, { type: "geojson", data: districtShapes as never });
+      map.addSource(DSRC, { type: "geojson", data: districtShapes as never, promoteId: "code" });
       map.addLayer({ id: "districts-line", type: "line", source: DSRC, paint: { "line-color": "#1a1a1a", "line-width": 1.1, "line-opacity": 0.7 } }, "units-hover");
-      map.addLayer({ id: "districts-hl", type: "line", source: DSRC, filter: ["in", ["get", "code"], ["literal", []]], paint: { "line-color": "#ffd400", "line-width": 3 } }, "units-hover");
+      map.addLayer({ id: "districts-hl", type: "line", source: DSRC, paint: { "line-color": "#ffd400", "line-width": 3, "line-opacity": ["case", ["boolean", ["feature-state", "hl"], false], 1, 0] } }, "units-hover");
     }
   }, [ready, districtShapes, p.geo]);
 
+  const highlighted = useRef<string[]>([]);
+  const hlKey = p.highlightDistricts.join("|");
   useEffect(() => {
     const map = mapRef.current;
-    if (ready && map?.getLayer("districts-hl")) map.setFilter("districts-hl", ["in", ["get", "code"], ["literal", p.highlightDistricts]]);
-  }, [ready, p.districts, p.highlightDistricts]);
+    if (!ready || !map?.getSource(DSRC)) return;
+    for (const c of highlighted.current) map.setFeatureState({ source: DSRC, id: c }, { hl: false });
+    for (const c of p.highlightDistricts) map.setFeatureState({ source: DSRC, id: c }, { hl: true });
+    highlighted.current = p.highlightDistricts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, districtShapes, hlKey]);
 
   return <div ref={container} role="region" aria-label={p.ariaLabel} style={{ position: "absolute", inset: 0 }} />;
 }
