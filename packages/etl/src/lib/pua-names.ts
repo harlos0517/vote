@@ -30,18 +30,20 @@ export function loadPuaNames(repoRoot: string): Map<string, PuaName> {
   return out;
 }
 
-/** Replace mapped candidate names in place; unmapped ones are left for the PUA check to fail on. */
+/** Replace mapped candidate and place names in place; unmapped ones are left for the PUA check to fail on. */
 export function applyPuaNames(ds: ElDataset, map: Map<string, PuaName>): ValidationCheck {
   const used: { from: string; to: PuaName }[] = [];
-  for (const c of ds.candidates) {
-    const m = map.get(c.name);
-    if (!m) continue;
-    used.push({ from: c.name, to: m });
-    c.name = m.corrected;
-  }
+  const fix = <T extends { name: string }>(x: T) => {
+    const m = map.get(x.name);
+    if (!m) return;
+    if (!used.some((u) => u.from === x.name)) used.push({ from: x.name, to: m });
+    x.name = m.corrected;
+  };
+  ds.candidates.forEach(fix);
+  ds.units.forEach(fix);
   const unreviewed = used.filter((u) => !u.to.reviewed);
   if (unreviewed.length) {
     return { id: "pua-names", status: "warn", detail: `${unreviewed.length} PUA names replaced by unreviewed readings: ${unreviewed.map((u) => `${escapePua(u.from)} → ${u.to.corrected}`).join(", ")}` };
   }
-  return { id: "pua-names", status: "pass", detail: used.length ? `${used.length} PUA names replaced by reviewed readings` : "no PUA names in candidates" };
+  return { id: "pua-names", status: "pass", detail: used.length ? `${used.length} PUA names replaced by reviewed readings` : "no PUA names in candidates or places" };
 }
