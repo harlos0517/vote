@@ -72,3 +72,16 @@ describe("release id", () => {
     expect(releaseIdFor(a)).not.toBe(releaseIdFor([{ path: "a.json", body: "1!" }, a[1]!]));
   });
 });
+
+describe("party colours", () => {
+  it("loads the reviewed table and warns while colours are unreviewed", async () => {
+    const { loadPartyColors, checkPartyColors } = await import("../src/lib/party-colors.ts");
+    const colors = loadPartyColors(join(import.meta.dirname, "../../.."));
+    expect(colors.get(16)?.color).toMatch(/^#[0-9A-F]{6}$/i);
+    const unreviewed = new Map([[1, { color: "#000099", reviewed: false, source: "x" }]]);
+    expect(checkPartyColors([1, 999], unreviewed).status).toBe("warn");
+    const reviewed = new Map([[1, { color: "#000099", reviewed: true, source: "x" }]]);
+    expect(checkPartyColors([1, 999], reviewed).status).toBe("pass");
+    expect(checkPartyColors([5], reviewed).detail).toMatch(/neutral grey/);
+  });
+});

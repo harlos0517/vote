@@ -16,6 +16,7 @@ import { readElDir } from "./adapters/cec-el.ts";
 import { checkElDataset } from "./validate/el-checks.ts";
 import { ARCHIVE_DIR, CONTEST_ID, ELECTION, buildPresident2024, toParty } from "./contests/president-2024.ts";
 import { buildBoundaries, type GeoJSON } from "./geo/build.ts";
+import { loadPartyColors } from "./lib/party-colors.ts";
 import { RELEASE_TOKEN, json, writeRelease, type PendingFile } from "./emit/release.ts";
 
 export interface PipelineOptions {
@@ -50,7 +51,8 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const ds = readElDir(contestDir);
   const numbers = [...new Set(ds.candidates.map((c) => c.ballotNumber))].sort((a, b) => a - b);
   const checks: ValidationCheck[] = checkElDataset(ds, numbers);
-  const built = buildPresident2024(ds);
+  const partyColors = loadPartyColors(o.repoRoot);
+  const built = buildPresident2024(ds, partyColors);
   checks.push(...built.checks);
   checks.push(...checkOfficialAnnouncements(o.repoRoot, built));
 
@@ -133,7 +135,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       }),
     ),
   });
-  files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 1, parties: ds.parties.map(toParty) })) });
+  files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 1, parties: ds.parties.map((p) => toParty(p, partyColors)) })) });
 
   const warn = checks.some((c) => c.status === "warn");
   const { releaseId, root } = writeRelease(o.outDir, files, {

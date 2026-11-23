@@ -16,6 +16,7 @@ import type {
 } from "@tw-election/schema";
 import { type ElDataset, type ElUnit, countyCode, townCode } from "../adapters/cec-el.ts";
 import { PUA_RE } from "../lib/csv.ts";
+import { checkPartyColors, type PartyColor } from "../lib/party-colors.ts";
 
 export const ELECTION = {
   id: "2024-01-13-president-legislative",
@@ -31,11 +32,13 @@ export const EMITTED_LEVELS = ["national", "county", "town"] as const;
 type EmittedLevel = (typeof EMITTED_LEVELS)[number];
 
 export const partyId = (code: number) => `cec-${code}`;
-export const toParty = (p: { code: number; name: string }): Party => ({
+export const toParty = (p: { code: number; name: string }, colors: Map<number, PartyColor>): Party => ({
   id: partyId(p.code),
   cecCode: p.code,
   nameZh: p.name,
   isIndependent: p.code === 999,
+  color: colors.get(p.code)?.color ?? null,
+  colorReviewed: colors.get(p.code)?.reviewed ?? false,
 });
 
 export function unitId(u: ElUnit): string {
@@ -61,7 +64,7 @@ export interface BuiltContest {
   checks: ValidationCheck[];
 }
 
-export function buildPresident2024(ds: ElDataset): BuiltContest {
+export function buildPresident2024(ds: ElDataset, colors: Map<number, PartyColor> = new Map()): BuiltContest {
   const checks: ValidationCheck[] = [];
   const numbers = [...new Set(ds.candidates.map((c) => c.ballotNumber))].sort((a, b) => a - b);
   const choiceId = (n: number) => `n${n}`;
@@ -162,7 +165,9 @@ export function buildPresident2024(ds: ElDataset): BuiltContest {
       : { id: "no-pua-or-empty-names", status: "pass", detail: `${strings.length} emitted names are plain Unicode` },
   );
 
-  const usedParties = [...new Set(ds.candidates.map((c) => c.partyCode))].map((code) => toParty(partyByCode.get(code)!));
+  const usedCodes = [...new Set(ds.candidates.map((c) => c.partyCode))];
+  const usedParties = usedCodes.map((code) => toParty(partyByCode.get(code)!, colors));
+  checks.push(checkPartyColors(usedCodes, colors));
 
   const contest: Contest = {
     id: CONTEST_ID,
