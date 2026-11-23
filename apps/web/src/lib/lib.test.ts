@@ -5,6 +5,7 @@ import { NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, divergingScale, sequentialScale, s
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, referendumStatus, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
 import { buildMapView, effectiveMode, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
+import { available, nearestGroup } from "./picker.ts";
 
 // --- fixtures -----------------------------------------------------------------
 const unit = (code: string, votes: Record<string, number>, contestIds = ["e.president"], s: Partial<UnitView["summary"]> = {}): UnitView => {
@@ -49,7 +50,7 @@ const d0 = { invalid: false, abstain: false };
 // --- URL state ----------------------------------------------------------------
 describe("view state hash", () => {
   it("round-trips every option and keeps defaults out of the URL", () => {
-    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "district" as const, mode: "share" as const, formula: "ratio" as const, choice: "cec-16", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, fromZero: false, colorblind: true, hatchUnelected: false, unit: "cty:63000" };
+    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "district" as const, mode: "share" as const, formula: "ratio" as const, choice: "cec-16", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, max: 0.25, colorblind: true, hatchUnelected: false, unit: "cty:63000" };
     expect(parseHash(formatHash(s))).toEqual(s);
     expect(formatHash(DEFAULT_VIEW)).toBe("#/?");
     expect(parseHash("")).toEqual(DEFAULT_VIEW);
@@ -142,10 +143,10 @@ describe("party share and ring", () => {
     expect(v.legend.groups?.[0]?.items[0]?.label).toBe("該黨無候選人");
     expect(buildMapView(L, [d1, d2], { ...DEFAULT_VIEW, mode: "share", choice: "cec-16" }).legend.groups).toBeUndefined();
   });
-  it("rings show candidates for one contest, parties (small ones as 其他) for several", () => {
-    expect(ringSlices(unit("1", { n2: 5, n1: 3, n3: 2 }), P, d0).map((s) => s.key)).toEqual(["n1", "n2", "n3"]);
+  it("rings use one fixed party order (民進黨, 民眾黨, 國民黨, others, 無黨籍), small parties as 其他", () => {
+    expect(ringSlices(unit("1", { n2: 5, n1: 3, n3: 2 }), P, d0).map((s) => s.key)).toEqual(["n2", "n1", "n3"]);
     const cty = unit("63000", { "d1.n1": 600, "d1.n2": 400, "d2.n1": 300, "d2.n2": 500, "d2.n3": 20 }, ["e.d1", "e.d2"]);
-    expect(ringSlices(cty, L, { invalid: true, abstain: false }).map((s) => s.key)).toEqual(["cec-1", "cec-16", "other", "invalid"]);
+    expect(ringSlices(cty, L, { invalid: true, abstain: false }).map((s) => s.key)).toEqual(["cec-16", "cec-1", "other", "invalid"]);
   });
   it("uses party colours, with neutral grey for independents", () => {
     expect(L.choiceColor.get("d2.n3")).toBe(NEUTRAL);
@@ -243,29 +244,59 @@ describe("referendum", () => {
   });
 });
 
+describe("投票率 and the election picker", () => {
+  it("colours turnout (投票數 ÷ 選舉人數) in every group, referendums included", () => {
+    const u = unit("A", { n1: 30, n2: 50, n3: 20 }, ["e.president"], { electors: 200, ballotsCast: 110 });
+    const v = buildMapView(P, [u], { ...DEFAULT_VIEW, mode: "turnout" });
+    expect(v.describe(u)).toContain("投票率 55.00%");
+    expect(effectiveMode(P, { ...DEFAULT_VIEW, mode: "turnout" })).toBe("turnout");
+  });
+  it("opens the same office near the year being viewed, and hides empty categories", () => {
+    const gs = [
+      { id: "a", office: "president" as const, date: "2024-01-13", nameZh: "" },
+      { id: "b", office: "president" as const, date: "2020-01-11", nameZh: "" },
+      { id: "c", office: "mayor-or-magistrate" as const, date: "2022-11-26", nameZh: "" },
+      { id: "d", office: "mayor-or-magistrate" as const, date: "2018-11-24", nameZh: "" },
+    ];
+    expect(nearestGroup(gs, "mayor-or-magistrate", "2020-01-11")?.id).toBe("d");
+    expect(nearestGroup(gs, "president", "2022-11-26")?.id).toBe("a");
+    expect(nearestGroup(gs, "president", null)?.id).toBe("a");
+    expect(available(gs).map((c) => c.key)).toEqual(["president", "mayor"]);
+  });
+});
+
 // --- scales -------------------------------------------------------------------
 describe("scales", () => {
   it("snaps to whole steps with at most the requested bins", () => {
     expect(snapDomain(0.31, 0.58, 8)).toEqual({ lo: 30, hi: 60, stepPt: 5 });
     expect(snapDomain(0.05, 0.64, 8)).toEqual({ lo: 0, hi: 70, stepPt: 10 });
   });
-  it("stepped legends have exact, contiguous labels", () => {
+  it("snaps small fixed tops with fractional steps", () => {
+    expect(snapDomain(0, 0.01, 8)).toEqual({ lo: 0, hi: 1, stepPt: 0.2 });
+    expect(snapDomain(0, 0.05, 8)).toEqual({ lo: 0, hi: 5, stepPt: 1 });
+  });
+  it("starts at 0%, keeps exactly 0 apart from small values, and labels exact bins", () => {
     const s = sequentialScale([0.31, 0.58], () => "#000", "stepped");
-    expect(s.legend.type === "stepped" && s.legend.items.map((i) => i.label)).toEqual(["55%–60%", "50%–55%", "45%–50%", "40%–45%", "35%–40%", "30%–35%"]);
-  });
-  it("can start the range at 0%", () => {
-    const s = sequentialScale([0.31, 0.58], () => "#000", "stepped", true);
-    expect(s.legend.type === "stepped" && s.legend.items.map((i) => i.label)).toEqual(["50%–60%", "40%–50%", "30%–40%", "20%–30%", "10%–20%", "0%–10%"]);
+    expect(s.legend.type === "stepped" && s.legend.items.map((i) => i.label)).toEqual(["50%–60%", "40%–50%", "30%–40%", "20%–30%", "10%–20%", "> 0%–10%"]);
     expect(s.t(0)).toBe(0);
+    expect(s.t(0.001)).toBeCloseTo(0.05);
+    expect(s.legend.zero?.label).toBe("0%");
   });
-  it("fits the middle 95% so outliers don't wash out the map, and labels open ends", () => {
+  it("uses a fixed top when chosen, marking values above it", () => {
+    const s = sequentialScale([0.02, 0.3], () => "#000", "continuous", 0.1);
+    expect(s.legend.type === "continuous" && s.legend.ticks.map((t) => t.label)).toEqual(["> 0%", "5%", "≥ 10%"]);
+    expect(s.t(0.3)).toBe(1);
+    const d = divergingScale([-0.3, 0.3], "#00f", "#0f0", "continuous", (pt) => `${pt}`, 0.25);
+    expect(d.t(0.25)).toBe(1);
+  });
+  it("fits the data when 自動, so outliers don't wash out the map", () => {
     const vals = [...Array.from({ length: 98 }, (_, i) => -0.2 + (0.4 * i) / 97), -0.8, 0.85];
     const d = divergingScale(vals, "#0000ff", "#00ff00", "stepped", (pt) => `${pt}`);
     const labels = d.legend.type === "stepped" ? d.legend.items.map((i) => i.label) : [];
     expect(labels[0]!.startsWith("≥")).toBe(true);
     expect(labels.at(-1)!.startsWith("≥")).toBe(true);
     const s2 = sequentialScale([...Array.from({ length: 98 }, (_, i) => 0.3 + (0.2 * i) / 97), 0.05, 0.95], () => "#000", "continuous");
-    expect(s2.legend.type === "continuous" && s2.legend.ticks.map((t) => t.label)).toEqual(["≤ 30%", "40%", "≥ 50%"]);
+    expect(s2.legend.type === "continuous" && s2.legend.ticks.map((t) => t.label)).toEqual(["> 0%", "25%", "≥ 50%"]);
   });
   it("diverging scale is symmetric and black at zero", () => {
     const s = divergingScale([-0.12, 0.3], "#0000ff", "#00ff00", "continuous", (pt) => `${pt}`);

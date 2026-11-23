@@ -5,12 +5,15 @@
  * Hover is NOT stored here (it is transient); only the locked unit (u) is.
  */
 import { useCallback, useSyncExternalStore } from "react";
-import type { ScaleKind } from "./colors.ts";
+import type { ScaleKind, ScaleMax } from "./colors.ts";
 import type { DiffFormula } from "./views.ts";
 
 export type MapLevel = "county" | "district" | "town" | "village";
-/** diff = 兩大黨差異, top = 當選候選人 (local top), share = 各候選人得票率 */
-export type ViewMode = "diff" | "top" | "share";
+/** diff = 兩大黨差異, top = 當選候選人 (local top), share = 各候選人得票率, turnout = 投票率 */
+export type ViewMode = "diff" | "top" | "share" | "turnout";
+
+/** Fixed legend tops offered besides 自動 (percent). */
+export const SCALE_MAXES = [100, 75, 50, 25, 10, 5, 1] as const;
 export type SharePalette = "party" | "multi";
 
 export interface ViewState {
@@ -27,8 +30,8 @@ export interface ViewState {
   shadeTop: boolean;
   /** Referendum: blue / orange instead of green / red. */
   colorblind: boolean;
-  /** Sequential scales start at 0% instead of the data's low end. */
-  fromZero: boolean;
+  /** Legend top: null = 自動 (fit the data), else a fraction. Diverging views use it as ±. */
+  max: ScaleMax;
   /** 當選候選人 view: hatch areas whose local top candidate was not elected. */
   hatchUnelected: boolean;
   unit: string | null; // locked unit
@@ -45,7 +48,7 @@ export const DEFAULT_VIEW: ViewState = {
   invalid: false,
   abstain: false,
   shadeTop: true,
-  fromZero: true,
+  max: null,
   colorblind: false,
   hatchUnelected: true,
   unit: null,
@@ -62,7 +65,7 @@ export function parseHash(hash: string): ViewState {
   return {
     contest: q.get("c"),
     level: oneOf(q.get("lv"), ["county", "district", "town", "village"] as const, d.level),
-    mode: oneOf(legacyMode, ["diff", "top", "share"] as const, d.mode),
+    mode: oneOf(legacyMode, ["diff", "top", "share", "turnout"] as const, d.mode),
     formula: oneOf(q.get("f"), ["pct", "ratio"] as const, d.formula),
     choice: q.get("ch"),
     palette: oneOf(q.get("pal"), ["party", "multi"] as const, d.palette),
@@ -70,7 +73,7 @@ export function parseHash(hash: string): ViewState {
     invalid: bool(q.get("inv"), d.invalid),
     abstain: bool(q.get("abs"), d.abstain),
     shadeTop: bool(q.get("sh"), d.shadeTop),
-    fromZero: bool(q.get("z"), d.fromZero),
+    max: (SCALE_MAXES as readonly number[]).includes(Number(q.get("mx"))) ? Number(q.get("mx")) / 100 : d.max,
     colorblind: bool(q.get("cb"), d.colorblind),
     hatchUnelected: bool(q.get("ht"), d.hatchUnelected),
     unit: q.get("u"),
@@ -91,7 +94,7 @@ export function formatHash(s: ViewState): string {
   if (s.invalid !== d.invalid) q.set("inv", s.invalid ? "1" : "0");
   if (s.abstain !== d.abstain) q.set("abs", s.abstain ? "1" : "0");
   if (s.shadeTop !== d.shadeTop) q.set("sh", s.shadeTop ? "1" : "0");
-  if (s.fromZero !== d.fromZero) q.set("z", s.fromZero ? "1" : "0");
+  if (s.max !== d.max && s.max !== null) q.set("mx", String(Math.round(s.max * 100)));
   if (s.colorblind !== d.colorblind) q.set("cb", s.colorblind ? "1" : "0");
   if (s.hatchUnelected !== d.hatchUnelected) q.set("ht", s.hatchUnelected ? "1" : "0");
   if (s.unit) q.set("u", s.unit);

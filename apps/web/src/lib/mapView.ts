@@ -3,7 +3,7 @@
  * Pure (no React) so every mode can be unit-tested.
  */
 import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, REF_COLORS, TIE, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
-import { fmtPct, type UnitView } from "./results.ts";
+import { fmtPct, turnout, type UnitView } from "./results.ts";
 import type { ViewState } from "./viewState.ts";
 import {
   DPP,
@@ -80,6 +80,26 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
   const colors = new Map<string, string>();
   const hatched = new Set<string>();
 
+  if (v.mode === "turnout") {
+    // 投票率 = 投票數 ÷ 選舉人數 (無效票 and 未投票 are always counted here).
+    const interp = v.palette === "party" ? blackTo("#f2f2f2") : viridis;
+    const values = new Map(units.map((u) => [u.code, turnout(u.summary)]));
+    const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.max);
+    for (const [code, x] of values) colors.set(code, x === null ? NO_DATA : scale.color(x));
+    const electors = ctx.referendum ? "投票權人數" : "選舉人數";
+    return {
+      colors,
+      hatched,
+      legend: { title: `投票率（投票數 ÷ ${electors}）`, spec: scale.legend },
+      describe: (u) => {
+        const x = turnout(u.summary);
+        return x === null
+          ? "投票率：無資料"
+          : `投票率 ${fmtPct(x)}：投票數 ${(u.summary.ballotsCast ?? 0).toLocaleString("zh-TW")} ÷ ${electors} ${(u.summary.electors ?? 0).toLocaleString("zh-TW")}`;
+      },
+    };
+  }
+
   if (v.mode === "diff" && ctx.referendum) {
     const c = REF_COLORS[v.colorblind ? "colorblind" : "normal"];
     const values = new Map(units.map((u) => [u.code, referendumDiff(u, v.formula, den)]));
@@ -89,6 +109,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
       c.agree,
       v.scale,
       (pt) => (pt === 0 ? "相同" : pt < 0 ? `不同意 +${-pt}%` : `同意 +${pt}%`),
+      v.max,
     );
     for (const [code, r] of values) colors.set(code, r.value === null ? NO_DATA : scale.color(r.value));
     const formulaText = v.formula === "pct" ? `同意% − 不同意%（分母：${denLabel}）` : "(同意 − 不同意) ÷ (同意 + 不同意)";
@@ -117,6 +138,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
       ctx.party.get(DPP)?.color ?? DEFAULT_DPP,
       v.scale,
       (pt) => (pt === 0 ? "平手" : pt < 0 ? `國 +${-pt}%` : `民 +${pt}%`),
+      v.max,
     );
     for (const [code, r] of values) colors.set(code, r.value === null ? NO_DATA : scale.color(r.value));
     const formulaText = v.formula === "pct" ? `民進黨% − 國民黨%（分母：${denLabel}）` : "(民進黨 − 國民黨) ÷ (民進黨 + 國民黨)";
@@ -168,7 +190,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
       const seen = legendTop.get(p) ?? { elected: false, unelected: false };
       legendTop.set(p, t.elected ? { ...seen, elected: true } : { ...seen, unelected: true });
     }
-    const seq = sequentialScale(strengths.flatMap((x) => (x.s === null ? [] : [x.s])), (t) => String(t), v.scale, v.fromZero);
+    const seq = sequentialScale(strengths.flatMap((x) => (x.s === null ? [] : [x.s])), (t) => String(t), v.scale);
     for (const x of strengths) colors.set(x.code, v.shadeTop && x.s !== null ? shade(x.color, seq.t(x.s)) : x.color);
     const item = (p: string, hatch: boolean): LegendItem => ({ label: partyLabel(ctx, p), color: ctx.partyColor.get(p) ?? NEUTRAL, hatched: hatch && v.hatchUnelected });
     const parties = ctx.partiesByVote.map((p) => p.id).filter((p) => legendTop.has(p));
@@ -221,7 +243,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
   // Units where the party ran no candidate are 無候選人, not 0%, and stay out of the scale's range.
   const ran = new Set(units.filter(ranHere).map((u) => u.code));
   const values = new Map(units.filter((u) => ran.has(u.code)).map((u) => [u.code, shareOf(u)]));
-  const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.fromZero);
+  const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.max);
   for (const u of units) {
     const s = values.get(u.code);
     colors.set(u.code, !ran.has(u.code) ? NO_CANDIDATE : s === null || s === undefined ? NO_DATA : scale.color(s));
@@ -250,6 +272,21 @@ export interface RingSlice {
 }
 
 /**
+ * One slice order everywhere, so a party keeps its place across areas and years: 民主進步黨,
+ * 台灣民眾黨, 中國國民黨, then other parties by the group's national votes, 無黨籍 last.
+ * Referendums: 同意 then 不同意 (the threshold marker measures from 同意's start).
+ */
+export const RING_FIRST = [DPP, "cec-350", KMT];
+export function partyRank(ctx: GroupContext, partyId: string | null): number {
+  if (!partyId) return 9999;
+  const fixed = RING_FIRST.indexOf(partyId);
+  if (fixed >= 0) return fixed;
+  if (ctx.party.get(partyId)?.isIndependent) return 9000;
+  const i = ctx.partiesByVote.findIndex((p) => p.id === partyId);
+  return 100 + (i < 0 ? 999 : i);
+}
+
+/**
  * Ring for one unit: candidates for a single-contest unit; parties for a unit spanning several
  * contests or for 不分區政黨票 (parties under 2% are grouped as 其他); plus 無效 / 未投票 when counted.
  */
@@ -257,14 +294,18 @@ export function ringSlices(u: UnitView, ctx: GroupContext, d: Denominator, color
   let slices: RingSlice[];
   if (!isMultiContest(u) && !ctx.partyList) {
     slices = Object.entries(u.votes).map(([id, v]) => ({ key: id, label: ctx.choice.get(id)?.labelZh ?? id, value: v, color: choiceColorOf(ctx, id, colorblind) }));
-    // Ballot order; referendums: 同意 first so the threshold marker measures from the start.
-    const order = (k: string) => (k === "agree" ? 0 : k === "disagree" ? 1 : (ctx.choice.get(k)?.ballotNumber ?? 0));
+    const order = (k: string) => {
+      if (k === "agree") return 0;
+      if (k === "disagree") return 1;
+      const c = ctx.choice.get(k);
+      return partyRank(ctx, c?.partyId ?? null) * 1000 + (c?.ballotNumber ?? 0); // same party: by ballot number
+    };
     slices.sort((a, b) => order(a.key) - order(b.key));
   } else {
     const valid = u.summary.valid ?? 0;
     const big: RingSlice[] = [];
     let other = 0;
-    for (const p of ctx.partiesByVote) {
+    for (const p of [...ctx.partiesByVote].sort((a, b) => partyRank(ctx, a.id) - partyRank(ctx, b.id))) {
       const v = partyVotes(u, ctx, p.id);
       if (!v) continue;
       if (valid && v / valid < 0.02) other += v;

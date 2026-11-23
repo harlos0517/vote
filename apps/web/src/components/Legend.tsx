@@ -42,6 +42,12 @@ export function Legend({ model }: { model: LegendModel }) {
           </div>
         </Group>
       )}
+      {spec?.zero && (
+        <Group gap={6} wrap="nowrap">
+          <Swatch color={spec.zero.color} />
+          <Text size="xs">{spec.zero.label}</Text>
+        </Group>
+      )}
       {model.groups?.map((g) => (
         <Stack key={g.title} gap={2}>
           <Text size="xs" c="dimmed">{g.title}</Text>
