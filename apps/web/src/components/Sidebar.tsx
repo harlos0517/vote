@@ -14,6 +14,7 @@ import {
   type GroupContext,
 } from "../lib/views.ts";
 import { choiceColorOf } from "../lib/mapView.ts";
+import { Fold } from "./Fold.tsx";
 import { Swatch } from "./Legend.tsx";
 import { SourceNotes } from "./SourceNotes.tsx";
 
@@ -317,10 +318,11 @@ function ReferendumTable({ ctx, unit, den, d, abst, colorblind }: TableProps) {
       <Text size="sm" fw={600}>主文</Text>
       <Text size="sm">{r.questionZh ?? "（尚未登錄）"}</Text>
       {r.questionSource && (
-        <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
-          出處：{r.questionSource}
-          {!r.questionReviewed && "（尚未人工核對）"}
-        </Text>
+        <Fold label={`主文出處${r.questionReviewed ? "" : "（尚未人工核對）"}`}>
+          <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
+            {r.questionSource}
+          </Text>
+        </Fold>
       )}
       <Text size="sm" fw={600}>得票（分母：{denominatorLabel(den, true)}）</Text>
       <Table verticalSpacing={3} fz="xs" striped style={{ whiteSpace: "nowrap" }}>

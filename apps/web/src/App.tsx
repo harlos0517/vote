@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Alert, Box, Button, Group, Loader, Paper, Select, Stack, Text, Title, useComputedColorScheme } from "@mantine/core";
 import { DataError } from "@tw-election/data-client";
-import { Controls, LEVEL_LABEL } from "./components/Controls.tsx";
+import { ColorOptions, Controls, LEVEL_LABEL } from "./components/Controls.tsx";
 import { ElectionMap } from "./components/ElectionMap.tsx";
 import { Legend } from "./components/Legend.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { VoteRing } from "./components/VoteRing.tsx";
-import { YearSlider, timelineOf } from "./components/YearSlider.tsx";
-import { buildMapView, ringSlices } from "./lib/mapView.ts";
+import { ElectionPicker } from "./components/ElectionPicker.tsx";
+import { buildMapView, effectiveMode, ringSlices } from "./lib/mapView.ts";
 import { useGeography, useGroup, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
 import { codeOf, fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
 import { type MapLevel, useViewState } from "./lib/viewState.ts";
@@ -29,7 +29,6 @@ export function App() {
   );
   const groupId = view.contest && groups.some((g) => g.value === view.contest) ? view.contest : (groups[0]?.value ?? null);
   const meta = useGroup(release, groupId);
-  const timeline = timelineOf(index.data?.timelines ?? [], groupId);
   const m = meta.data;
 
   const levels = (m?.group.levels.filter((l): l is MapLevel => (ALL_LEVELS as string[]).includes(l)) ?? []) as MapLevel[];
@@ -50,6 +49,12 @@ export function App() {
   const townNames = useMemo(() => new Map(towns.data?.units.map((u) => [u.id, u.nameZh]) ?? []), [towns.data]);
   const ctx = useMemo(() => (m ? groupContext(m, nationalUnit?.votes) : null), [m, nationalUnit]);
   const model = useMemo(() => (ctx && units ? buildMapView(ctx, [...units.values()], view) : null), [ctx, units, view]);
+  // Keep the map mounted (and its zoom/position) while the next group or level loads: draw the
+  // last complete set until the new one is ready.
+  const complete = geo.data && units && model ? { geo: geo.data, units, model } : null;
+  const lastDrawn = useRef(complete);
+  if (complete) lastDrawn.current = complete;
+  const drawn = complete ?? lastDrawn.current;
 
   const lockedCode = view.unit ? codeOf(view.unit) : null;
   const shown: { unit: UnitView; status: "hover" | "locked" | "overall"; levelName: string } | null =
@@ -70,7 +75,9 @@ export function App() {
     return d ? [d] : [];
   }, [shown, fine, ctx]);
 
-  const den = { invalid: view.invalid, abstain: view.abstain };
+  // 投票率 always counts 無效票 and 未投票.
+  const turnoutMode = ctx ? effectiveMode(ctx, view) === "turnout" : false;
+  const den = turnoutMode ? { invalid: true, abstain: true } : { invalid: view.invalid, abstain: view.abstain };
   const ring = shown && ctx ? ringSlices(shown.unit, ctx, den, view.colorblind) : [];
   // Referendum threshold: 同意 must reach 25% of electors; 同意 is the first slice, so mark that point.
   const ringTotal = ring.reduce((x, s) => x + s.value, 0);
@@ -89,30 +96,20 @@ export function App() {
     <div className={classes.page}>
       <header className={classes.header}>
         <Title order={1} size="h4">臺灣歷史選舉地圖</Title>
-        <Select
-          aria-label="選擇選舉"
-          data={groups}
-          value={groupId}
-          onChange={(v) => setView({ contest: v, choice: null, unit: null })}
-          allowDeselect={false}
-          size="xs"
-          w={{ base: "100%", sm: 360 }}
-          disabled={!groups.length}
-        />
-        {timeline && groupId && timeline.slots.length > 1 && (
-          // Keeps the view (mode, party, level, locked area) so years can be compared directly.
-          <YearSlider timeline={timeline} groupId={groupId} onChange={(g) => setView({ contest: g })} />
+        {index.data && groupId && (
+          // Keeps the view (mode, party, level, locked area) so years and offices can be compared directly.
+          <ElectionPicker index={index.data} groupId={groupId} onChange={(g) => setView({ contest: g })} />
         )}
       </header>
 
       <main className={classes.main}>
         <section className={classes.mapPane}>
           <div className={classes.mapCanvas}>
-            {geo.data && units && model && (
+            {drawn && (
               <ElectionMap
-                geo={geo.data}
-                colors={model.colors}
-                hatched={model.hatched}
+                geo={drawn.geo}
+                colors={drawn.model.colors}
+                hatched={drawn.model.hatched}
                 hovered={hovered}
                 locked={lockedCode}
                 districts={fine ? districtGeo.data : undefined}
@@ -121,7 +118,7 @@ export function App() {
                 borders={level !== "village"}
                 ariaLabel={`${m?.group.nameZh ?? ""} ${LEVEL_LABEL[level]}得票地圖`}
                 onHover={setHovered}
-                onClick={(code) => setView({ unit: code ? (units.get(code)?.id ?? null) : null })}
+                onClick={(code) => setView({ unit: code ? (drawn.units.get(code)?.id ?? null) : null })}
               />
             )}
             {loading && !firstError && (
@@ -135,15 +132,24 @@ export function App() {
             )}
           </div>
           <div className={classes.extras}>
-            {model && (
+            {ctx && (
+              <Paper className={classes.controlsBelow} p="xs" radius="md" withBorder>
+                <Controls ctx={ctx} view={view} level={level} levels={levels} setView={setView} />
+              </Paper>
+            )}
+            {model && ctx && (
               <Paper className={classes.legend} shadow="sm" p="xs" radius="md" withBorder>
-                <Legend model={model.legend} />
+                <Stack gap="xs">
+                  <Legend model={model.legend} />
+                  <ColorOptions ctx={ctx} view={view} setView={setView} />
+                </Stack>
               </Paper>
             )}
             {shown && ring.length > 0 && (
-              <Paper className={classes.ring} shadow="sm" p={6} radius="xl" withBorder>
+              // No frame or background: the ring sits directly on the map.
+              <div className={classes.ring}>
                 <VoteRing segments={ring} title={shown.unit.name} subtitle={`投票率 ${fmtPct(turnout(shown.unit.summary), 1)}`} marker={marker} />
-              </Paper>
+              </div>
             )}
           </div>
         </section>

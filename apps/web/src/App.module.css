@@ -46,6 +46,11 @@
   max-width: calc(100% - 72px);
 }
 
+/* Phones: the options sit below the map instead of over it (no collapse button any more). */
+.controlsBelow {
+  display: none;
+}
+
 /* Legend (left) and ring (right) float over the bottom of the map on wide screens. */
 .extras {
   position: absolute;
@@ -100,6 +105,13 @@
   .mapCanvas {
     position: relative;
     height: 58dvh;
+  }
+  .controls {
+    display: none;
+  }
+  .controlsBelow {
+    display: block;
+    flex: 1 1 100%;
   }
   .extras {
     position: static;

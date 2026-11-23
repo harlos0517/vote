@@ -1,10 +1,13 @@
 import { Anchor, List, Stack, Text } from "@mantine/core";
 import type { GroupMetadataFile } from "@tw-election/schema";
+import { Fold } from "./Fold.tsx";
 
 export function SourceNotes({ meta, levelLabel }: { meta: GroupMetadataFile; levelLabel: string }) {
   const warn = meta.validation.filter((c) => c.status === "warn");
   const passed = meta.validation.filter((c) => c.status === "pass").length;
+  const notes = warn.length + meta.group.warnings.length;
   return (
+    <Fold label={`資料來源、界線與驗證${notes ? `（${notes} 項說明）` : ""}`}>
     <Stack gap={6}>
       <Text size="xs">
         <b>選舉</b>：{meta.election.nameZh}（{meta.election.date}）・{meta.group.nameZh}
@@ -30,5 +33,6 @@ export function SourceNotes({ meta, levelLabel }: { meta: GroupMetadataFile; lev
         </List>
       )}
     </Stack>
+    </Fold>
   );
 }
