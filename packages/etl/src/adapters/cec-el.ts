@@ -148,3 +148,53 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
   const parties = readCecCsv(join(dir, "elpaty.csv")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
   return { units: [...units.values()], candidates, parties };
 }
+
+/** 不分區政黨名單 member (elrepm.csv). */
+export interface ElListMember {
+  partyCode: number;
+  rank: number;
+  name: string;
+  gender: "M" | "F" | null;
+  birthYearROC: number | null;
+  incumbent: boolean | null;
+  electedMark: string; // "*", "!" (women quota), "-" (displaced by it), ""
+}
+
+/** 不分區政黨 allocation as published (elretks.csv). */
+export interface ElListResult {
+  partyCode: number;
+  voteSharePct: number;
+  qualifiedSharePct: number;
+  nominated: number;
+  seats: number;
+}
+
+export interface ElPartyList {
+  members: ElListMember[];
+  results: ElListResult[];
+}
+
+/** Read the party-list extras that only 不分區政黨 directories have. */
+export function readElPartyList(dir: string): ElPartyList {
+  const members = readCecCsv(join(dir, "elrepm.csv")).map((r) => ({
+    partyCode: int(r[0], "party code"),
+    rank: int(r[1], "list rank"),
+    name: r[2]!,
+    gender: r[3] === "1" ? ("M" as const) : r[3] === "2" ? ("F" as const) : null,
+    birthYearROC: /^\d{7}$/.test(r[4] ?? "") ? Number(r[4]!.slice(0, 3)) : null,
+    incumbent: r[8] === "Y" ? true : r[8] === "N" ? false : null,
+    electedMark: (r[9] ?? "").trim(),
+  }));
+  const num = (s: string | undefined, what: string) => {
+    if (s === undefined || !/^\d+(\.\d+)?$/.test(s)) throw new Error(`expected number for ${what}, got ${JSON.stringify(s)}`);
+    return Number(s);
+  };
+  const results = readCecCsv(join(dir, "elretks.csv")).map((r) => ({
+    partyCode: int(r[0], "party code"),
+    voteSharePct: num(r[1], "vote share"),
+    qualifiedSharePct: num(r[2], "qualified share"),
+    nominated: int(r[3], "nominated"),
+    seats: int(r[4], "seats"),
+  }));
+  return { members, results };
+}
