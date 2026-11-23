@@ -87,7 +87,9 @@ bucket 名稱（例如 `vote`）不是機密。放在 secret 裡時，GitHub 會
 
 workflow 會優先使用變數；沒有變數時才讀 secret。
 
-## 3.5 Seeding the raw mirror（第一次發布前，在本機執行一次）
+## 3.5 Seeding the raw mirror（第一次發布前，以及新增原始檔之後，在本機執行）
+
+**新增原始檔時要重跑**：`packages/etl/src/config/sources.ts` 的 `RAW_SOURCES` 每多一個檔案（例如 2022 選舉用的 `v111.bin`，村里界 1111118 版），CI 就需要鏡像裡也有它，否則 Publish workflow 會在下載時失敗。已上傳的檔案會略過，只會上傳新的。
 
 `www.land.moi.gov.tw`（國土測繪中心圖資）從 GitHub Actions 的海外 runner 無法連線，推測是只開放臺灣 IP。因此 CI 改從公開鏡像 `vote-data.harlos.tw/raw/…` 下載原始檔，而鏡像需要先從**能連上官方網站的電腦**（例如你的電腦）上傳一次。
 
