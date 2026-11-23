@@ -6,6 +6,7 @@ import {
   denominatorLabel,
   denominatorOf,
   isMultiContest,
+  listSeats,
   partyVotes,
   seatsByParty,
   type Denominator,
@@ -54,7 +55,9 @@ export function Sidebar(p: SidebarProps) {
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
         <Table.Tbody>
           {p.countyName && <KV k="所屬縣市" v={p.countyName} />}
-          {ctx.singleContest && meta.contests[0]!.scope.level === "national" && <KV k="選區" v="全國（單一選區）" />}
+          {ctx.singleContest && meta.contests[0]!.scope.level === "national" && (
+            <KV k="選區" v={`全國（單一選區${(meta.contests[0]!.seats ?? 1) > 1 ? `，選出 ${meta.contests[0]!.seats} 席` : ""}）`} />
+          )}
           {contestName && <KV k="選區" v={contestName} />}
           {multi && !ctx.singleContest && <KV k="選區" v={`${unit.contestIds.length} 個選區，各選 1 席`} />}
           <KV k="投票日期" v={meta.election.date} />
@@ -64,7 +67,7 @@ export function Sidebar(p: SidebarProps) {
       <Text size="sm" fw={600}>目前檢視</Text>
       <Text size="sm">{p.currentView}</Text>
 
-      {multi ? <PartyTable {...p} d={d} abst={abst} /> : <CandidateTable {...p} d={d} abst={abst} />}
+      {ctx.partyList ? <PartyListTable {...p} d={d} abst={abst} /> : multi ? <PartyTable {...p} d={d} abst={abst} /> : <CandidateTable {...p} d={d} abst={abst} />}
 
       <Text size="sm" fw={600}>概況</Text>
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
@@ -122,10 +125,10 @@ function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
                 <Table.Td style={{ whiteSpace: "normal" }}>
                   <Group gap={6} wrap="nowrap">
                     <Swatch color={ctx.choiceColor.get(c.id) ?? NEUTRAL} />
-                    <div>
+                    <div style={{ overflowWrap: "anywhere" }}>
                       <div>
                         {c.labelZh.split("／").map((name, k) => (
-                          <span key={name} style={{ whiteSpace: "nowrap" }}>{k > 0 && "／"}{name}{k === 0 && <wbr />}</span>
+                          <span key={name} style={{ whiteSpace: name.length > 12 ? "normal" : "nowrap" }}>{k > 0 && "／"}{name}{k === 0 && <wbr />}</span>
                         ))}
                       </div>
                       <Text size="xs" c="dimmed">{c.partyId ? (ctx.party.get(c.partyId)?.nameZh ?? c.partyId) : ""}</Text>
@@ -185,6 +188,102 @@ function PartyTable({ ctx, unit, den, d, abst }: TableProps) {
         </Table.Tbody>
       </Table>
       <Text size="xs" c="dimmed">此層級跨多個選區：票數為各黨候選人合計，席次為各選區當選結果加總。點選或切換到選區、鄉鎮層級可查看候選人。</Text>
+    </>
+  );
+}
+
+/** 不分區政黨票: parties on the ballot, with the national seat allocation; names at 全國 only. */
+function PartyListTable({ ctx, unit, den, d, abst }: TableProps) {
+  const pl = ctx.partyList!;
+  const alloc = new Map(pl.allocation.map((a) => [a.partyId, a]));
+  const national = unit.id === "nat";
+  const choices = ctx.meta.choices.filter((c) => c.contestId === unit.contestIds[0]).sort((a, b) => (unit.votes[b.id] ?? 0) - (unit.votes[a.id] ?? 0));
+  const cand = new Map(ctx.meta.candidacies.map((c) => [c.id, c]));
+  const person = new Map(ctx.meta.persons.map((x) => [x.id, x]));
+  const total = pl.allocation.reduce((a, b) => a + b.seats, 0);
+  return (
+    <>
+      <Text size="sm" fw={600}>政黨得票（分母：{denominatorLabel(den)}）</Text>
+      <Table verticalSpacing={3} fz="xs" striped style={{ whiteSpace: "nowrap" }}>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>號次</Table.Th>
+            <Table.Th>政黨</Table.Th>
+            <Table.Th ta="right">得票數</Table.Th>
+            <Table.Th ta="right">得票率</Table.Th>
+            <Table.Th ta="right">全國席次</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {choices.map((c) => {
+            const v = unit.votes[c.id] ?? 0;
+            const n = c.partyId ? listSeats(ctx, c.partyId) : 0;
+            return (
+              <Table.Tr key={c.id}>
+                <Table.Td>{c.ballotNumber}</Table.Td>
+                <Table.Td style={{ whiteSpace: "normal" }}>
+                  <Group gap={6} wrap="nowrap"><Swatch color={ctx.choiceColor.get(c.id) ?? NEUTRAL} />{c.labelZh}</Group>
+                </Table.Td>
+                <Num v={fmtInt(v)} />
+                <Num v={fmtPct(d === null ? null : v / d)} />
+                <Num v={n ? String(n) : "—"} />
+              </Table.Tr>
+            );
+          })}
+          {den.invalid && <ExtraRow label="無效票" color={INVALID_COLOR} n={unit.summary.invalid} d={d} lead />}
+          {den.abstain && <ExtraRow label="未投票" color={ABSTAIN_COLOR} n={abst} d={d} lead />}
+        </Table.Tbody>
+      </Table>
+      <Text size="xs" c="dimmed">
+        共 {total} 席，依全國得票率分配給得票率達 {pl.thresholdPct}% 的政黨（{pl.thresholdBasis}）。「全國席次」為全國結果，不是該地區的席次。
+      </Text>
+      {national && (
+        <>
+          <Text size="sm" fw={600}>席次分配（中選會公告數值）</Text>
+          <Table verticalSpacing={3} fz="xs" striped style={{ whiteSpace: "nowrap" }}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>政黨</Table.Th>
+                <Table.Th ta="right">得票率</Table.Th>
+                <Table.Th ta="right">門檻以上政黨間占比</Table.Th>
+                <Table.Th ta="right">席次</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {[...pl.allocation].filter((a) => a.seats > 0 || a.qualifiedSharePct !== null).sort((a, b) => b.voteSharePct - a.voteSharePct).map((a) => (
+                <Table.Tr key={a.partyId}>
+                  <Table.Td><Group gap={6} wrap="nowrap"><Swatch color={ctx.partyColor.get(a.partyId) ?? NEUTRAL} />{ctx.party.get(a.partyId)?.nameZh ?? a.partyId}</Group></Table.Td>
+                  <Num v={`${a.voteSharePct.toFixed(2)}%`} />
+                  <Num v={a.qualifiedSharePct === null ? "—" : `${a.qualifiedSharePct.toFixed(2)}%`} />
+                  <Num v={String(a.seats)} />
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+          <Text size="sm" fw={600}>當選名單（依名單順位）</Text>
+          {choices.filter((c) => c.partyId && (alloc.get(c.partyId)?.seats ?? 0) > 0).map((c) => {
+            const elected = c.candidacyIds.map((id) => cand.get(id)).filter((x) => x !== undefined && x.elected);
+            return (
+              <Stack key={c.id} gap={2}>
+                <Group gap={6} wrap="nowrap"><Swatch color={ctx.choiceColor.get(c.id) ?? NEUTRAL} /><Text size="xs" fw={600}>{c.labelZh}（{elected.length} 席）</Text></Group>
+                <Text size="xs" style={{ lineHeight: 1.7 }}>
+                  {elected.map((x, k) => (
+                    <span key={x!.id} style={{ display: "inline-block", whiteSpace: "nowrap" }}>
+                      {x!.listRank}. {person.get(x!.personId)?.nameZh}{x!.electedNote === "women-quota" ? "（婦女保障）" : ""}{k < elected.length - 1 && "、"}
+                    </span>
+                  ))}
+                </Text>
+                {c.candidacyIds.map((id) => cand.get(id)).some((x) => x?.electedNote === "displaced-by-women-quota") && (
+                  <Text size="xs" c="dimmed">
+                    因婦女保障未當選：
+                    {c.candidacyIds.map((id) => cand.get(id)).filter((x) => x?.electedNote === "displaced-by-women-quota").map((x) => `${x!.listRank}. ${person.get(x!.personId)?.nameZh}`).join("、")}
+                  </Text>
+                )}
+              </Stack>
+            );
+          })}
+        </>
+      )}
     </>
   );
 }
