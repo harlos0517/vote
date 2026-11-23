@@ -20,12 +20,12 @@ import { type BuiltGroup, type ElGroupDef, buildElGroup, groupId, toParty } from
 import { ALL_SNAPSHOTS, GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries, buildVillages } from "./geo/build.ts";
 import { loadVillageGroups, planVillages, villageGeoCode, villageGroupKey } from "./geo/villages.ts";
-import { buildComposite, planMix, snapshotCodes } from "./geo/mix.ts";
+import { buildComposite, planMix, snapshotCodes, snapshotNames } from "./geo/mix.ts";
 import { loadPartyColors } from "./lib/party-colors.ts";
 import { applyPuaNames, loadPuaNames } from "./lib/pua-names.ts";
 import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
 import { buildTimelines, loadElectionGroups } from "./lib/timelines.ts";
-import { type RfDataset, readRfDir, renumberTowns } from "./adapters/cec-rf.ts";
+import { type RfDataset, readRfDir, renumberTowns, renumberVillages } from "./adapters/cec-rf.ts";
 import { buildRfGroup } from "./groups/rf-group.ts";
 import { RELEASE_TOKEN, json, writeRelease, type PendingFile } from "./emit/release.ts";
 
@@ -80,6 +80,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const villageGeo = new Map<string, GeoJSON>();
   const villageGroups = loadVillageGroups(o.repoRoot);
   const composites = new Map<string, string>();
+  const checks0: ValidationCheck[] = [];
   const allChecks: ValidationCheck[] = [];
   for (const def of GROUPS) {
     const gid = groupId(def);
@@ -87,11 +88,14 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     const rf = def.format === "rf";
     const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork);
     const puaCheck = applyPuaNames(ds, puaNames);
+    if (rf && def.rfTownCodesFrom && def.villages) {
+      checks0.push(await renumberRfVillages(def, ds as RfDataset, cecWork, { versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes")));
+    }
     const dir = join(cecWork, def.archiveDirs[0]!);
     const built = rf
       ? buildRfGroup(def, ds as RfDataset, questions.get(`${def.election.id}#${def.referendumCase}`))
       : buildElGroup(def, ds, partyColors, def.choiceKind === "party" ? readElPartyList(dir) : undefined);
-    const checks = [...built.checks, puaCheck, ...checkOfficialAnnouncements(o.repoRoot, built)];
+    const checks = [...built.checks, puaCheck, ...checks0.splice(0), ...checkOfficialAnnouncements(o.repoRoot, built)];
 
     // Mixed snapshots: townships whose reported villages the year's snapshot lacks come from the nearest one that has them.
     let boundaryVersion = def.boundary.versionId;
@@ -373,6 +377,34 @@ function readRfGroup(def: ElGroupDef, cecWork: string): RfDataset {
     renumberTowns(ds, towns);
   }
   return ds;
+}
+
+/**
+ * 2018 rf* villages → registry codes by name within each (already renumbered) township: first from
+ * the same day's el* elbase, then — for villages the el* files only list inside groups (連江縣) —
+ * from the boundary snapshot's village names.
+ */
+async function renumberRfVillages(def: ElGroupDef, ds: RfDataset, cecWork: string, snap: { versionId: string; shp: string }, workDir: string): Promise<ValidationCheck> {
+  const fromEl = new Map<string, string>();
+  for (const a of def.rfTownCodesFrom!) {
+    for (const u of readElDir(join(cecWork, a)).units) {
+      if (u.level === "village" && /^0\d{3}$/.test(u.key.vil) && !u.name.includes("、")) fromEl.set(`${townCode(u.key)}|${u.name}`, u.key.vil);
+    }
+  }
+  const fromSnap = await snapshotNames(snap, workDir);
+  const fallback: string[] = [];
+  renumberVillages(ds, (town, name) => {
+    const el = fromEl.get(`${town}|${name}`);
+    if (el) return el;
+    const code = fromSnap.get(`${town}|${name}`);
+    if (code) fallback.push(`${town}${name}`);
+    return code ? `0${code.slice(8)}` : undefined;
+  });
+  return {
+    id: "rf-village-codes",
+    status: "pass",
+    detail: `village codes matched by name within townships${fallback.length ? `; ${fallback.length} via ${snap.versionId} names (only listed inside groups in the el* files): ${fallback.join(", ")}` : " (all from the same day's el* files)"}`,
+  };
 }
 
 const RF_FILES = ["rfarea.csv", "rfprof.csv", "rftckt.csv"];

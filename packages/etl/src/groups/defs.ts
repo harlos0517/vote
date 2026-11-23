@@ -191,6 +191,8 @@ interface LocalDef {
   councilorWarnings: string[];
   /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
   villages?: boolean;
+  /** Mix snapshots per township where villages were reorganised (geo/mix.ts). */
+  mix?: boolean;
 }
 
 const L22: LocalDef = {
@@ -213,6 +215,8 @@ const L22: LocalDef = {
 
 const L18: LocalDef = {
   election: E2018,
+  villages: true,
+  mix: true,
   boundary: B2018,
   dirs: {
     mayor: [`${L2018}直轄市市長/`, `${L2018}縣市市長/`],
@@ -231,7 +235,7 @@ const L18: LocalDef = {
 
 function localElections(l: LocalDef): ElGroupDef[] {
   const y = l.election.date.slice(0, 4);
-  const base = { election: l.election, boundary: l.boundary, villages: l.villages ?? false, contests: "district" as const, choiceKind: "candidate" as const };
+  const base = { election: l.election, boundary: l.boundary, villages: l.villages ?? false, mixSnapshots: l.mix ?? false, contests: "district" as const, choiceKind: "candidate" as const };
   const indigenous = (kind: "平地" | "山地"): ElGroupDef => {
     const code = kind === "平地" ? "T2" : "T3";
     return {
@@ -294,5 +298,5 @@ export const GROUPS: ElGroupDef[] = [
   ...localElections(L22),
   ...localElections(L18),
   ...[17, 18, 19, 20].map(nationalReferendum(E2021R, B2021, undefined, true)),
-  ...[7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(nationalReferendum(E2018R, B2018, L18.dirs.mayor)),
+  ...[7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(nationalReferendum(E2018R, B2018, L18.dirs.mayor, true)),
 ];
