@@ -20,7 +20,63 @@ export const Swatch = ({ color, hatched }: { color: string; hatched?: boolean })
   />
 );
 
-export function Legend({ model }: { model: LegendModel }) {
+export function Legend({ model, horizontal }: { model: LegendModel; horizontal?: boolean }) {
+  return horizontal ? <HorizontalLegend model={model} /> : <VerticalLegend model={model} />;
+}
+
+const Item = ({ color, label, hatched }: { color: string; label: string; hatched?: boolean }) => (
+  <Group gap={6} wrap="nowrap">
+    <Swatch color={color} hatched={hatched} />
+    <Text size="xs">{label}</Text>
+  </Group>
+);
+
+/** Phones (建議 2): scale as a horizontal bar or a row of bins, other swatches flowing in rows. */
+function HorizontalLegend({ model }: { model: LegendModel }) {
+  const { spec } = model;
+  const extras = [
+    ...(spec?.zero ? [{ color: spec.zero.color, label: spec.zero.label }] : []),
+    ...(model.groups?.flatMap((g) => g.items) ?? []),
+    { color: NO_DATA, label: "無資料" },
+  ];
+  return (
+    <Stack gap={6}>
+      <Text size="xs" fw={600}>{model.title}</Text>
+      {spec?.type === "continuous" && (
+        <div>
+          <div style={{ height: 10, borderRadius: 2, background: spec.gradient.replace("to top", "to right") }} aria-hidden />
+          <div style={{ position: "relative", height: 16 }}>
+            {spec.ticks.map((t) => (
+              <Text
+                key={t.label}
+                size="xs"
+                style={{
+                  position: "absolute",
+                  left: `${t.at * 100}%`,
+                  transform: t.at === 0 ? "none" : t.at === 1 ? "translateX(-100%)" : "translateX(-50%)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t.label}
+              </Text>
+            ))}
+          </div>
+        </div>
+      )}
+      {spec?.type === "stepped" && (
+        <Group gap="6px 12px">
+          {[...spec.items].reverse().map((it) => <Item key={it.label} {...it} />)}
+        </Group>
+      )}
+      <Group gap="6px 12px">
+        {extras.map((it) => <Item key={it.label} {...it} />)}
+      </Group>
+      {model.note && <Text size="xs" c="dimmed">{model.note}</Text>}
+    </Stack>
+  );
+}
+
+function VerticalLegend({ model }: { model: LegendModel }) {
   const { spec } = model;
   return (
     <Stack gap={4} maw={240}>

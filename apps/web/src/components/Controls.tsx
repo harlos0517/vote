@@ -1,5 +1,6 @@
 import { SegmentedControl, Select, Stack, Switch, Text } from "@mantine/core";
 import { effectiveMode, selectedTarget } from "../lib/mapView.ts";
+import { useNarrow } from "../lib/useNarrow.ts";
 import { SCALE_MAXES, type MapLevel, type ViewState } from "../lib/viewState.ts";
 import { partyLabel, type GroupContext } from "../lib/views.ts";
 
@@ -20,9 +21,11 @@ export function Controls({
 }) {
   const ref = ctx.referendum !== null;
   const mode = effectiveMode(ctx, view);
+  const narrow = useNarrow();
   return (
     <Stack gap={8}>
       <SegmentedControl
+        fullWidth={narrow}
         size="xs"
         aria-label="地圖層級"
         value={level}
@@ -30,6 +33,7 @@ export function Controls({
         data={levels.map((l) => ({ value: l, label: LEVEL_LABEL[l] }))}
       />
       <SegmentedControl
+        fullWidth={narrow}
         size="xs"
         aria-label="得票檢視方式"
         value={mode}
@@ -51,6 +55,7 @@ export function Controls({
       />
       {mode === "diff" && (
         <SegmentedControl
+        fullWidth={narrow}
           size="xs"
           aria-label={ref ? "同意與不同意差異公式" : "兩大黨差異公式"}
           value={view.formula}
@@ -97,6 +102,7 @@ export function Controls({
 export function ColorOptions({ ctx, view, setView }: { ctx: GroupContext; view: ViewState; setView: (p: Partial<ViewState>) => void }) {
   const mode = effectiveMode(ctx, view);
   const scaled = mode !== "top" || view.shadeTop;
+  const narrow = useNarrow();
   return (
     <Stack gap={6}>
       {mode === "top" && (
@@ -104,6 +110,7 @@ export function ColorOptions({ ctx, view, setView }: { ctx: GroupContext; view: 
       )}
       {scaled && (
         <SegmentedControl
+        fullWidth={narrow}
           size="xs"
           aria-label="色階"
           value={view.scale}
@@ -131,6 +138,7 @@ export function ColorOptions({ ctx, view, setView }: { ctx: GroupContext; view: 
       )}
       {(mode === "share" || mode === "turnout") && (
         <SegmentedControl
+        fullWidth={narrow}
           size="xs"
           aria-label="配色"
           value={view.palette}

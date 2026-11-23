@@ -7,6 +7,7 @@ import { Legend } from "./components/Legend.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { VoteRing } from "./components/VoteRing.tsx";
 import { ElectionPicker } from "./components/ElectionPicker.tsx";
+import { useNarrow } from "./lib/useNarrow.ts";
 import { buildMapView, effectiveMode, ringSlices } from "./lib/mapView.ts";
 import { useGeography, useGroup, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
 import { codeOf, fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
@@ -89,6 +90,7 @@ export function App() {
       : null;
 
   const scheme = useComputedColorScheme("light");
+  const narrow = useNarrow();
   const firstError = [manifest, index, meta, results, national, geo].find((q) => q.isError);
   const loading = [manifest, index, meta, results, geo].some((q) => q.isLoading);
 
@@ -140,7 +142,7 @@ export function App() {
             {model && ctx && (
               <Paper className={classes.legend} shadow="sm" p="xs" radius="md" withBorder>
                 <Stack gap="xs">
-                  <Legend model={model.legend} />
+                  <Legend model={model.legend} horizontal={narrow} />
                   <ColorOptions ctx={ctx} view={view} setView={setView} />
                 </Stack>
               </Paper>

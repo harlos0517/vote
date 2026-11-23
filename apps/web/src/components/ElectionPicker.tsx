@@ -1,6 +1,7 @@
 import { Group, SegmentedControl, Select } from "@mantine/core";
 import type { ReleaseIndexFile } from "@tw-election/schema";
 import { available, categoryOf, nearestGroup, pickerGroups } from "../lib/picker.ts";
+import { useNarrow } from "../lib/useNarrow.ts";
 import { THIRD_TIER, YearSlider, timelineOf } from "./YearSlider.tsx";
 
 const caseNo = (g: { nameZh: string }) => Number(/第(\d+)案/.exec(g.nameZh)?.[1] ?? 0);
@@ -17,13 +18,16 @@ export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseInd
     const g = nearestGroup(groups, office, current.date);
     if (g && g.id !== groupId) onChange(g.id);
   };
+  const narrow = useNarrow();
   const timeline = timelineOf(index.timelines, groupId);
   // 公投: one chooser over every case of every year instead of a year slider.
   const cases = cat.key === "referendum" ? groups.filter((g) => g.office === current.office).sort((a, b) => b.date.localeCompare(a.date) || caseNo(a) - caseNo(b)) : [];
   return (
-    <Group gap="sm" wrap="wrap" style={{ flex: "0 1 auto", justifyContent: "flex-start" }}>
+    <Group gap="sm" wrap="wrap" style={{ flex: narrow ? "1 1 100%" : "0 1 auto", justifyContent: "flex-start" }}>
       <SegmentedControl
         size="xs"
+        fullWidth={narrow}
+        w={narrow ? "100%" : undefined}
         aria-label="選舉類別"
         value={cat.key}
         onChange={(k) => go(cats.find((c) => c.key === k)!.subs[0]!.office)}
@@ -32,6 +36,8 @@ export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseInd
       {subs.length > 1 && (
         <SegmentedControl
           size="xs"
+          fullWidth={narrow}
+          w={narrow ? "100%" : undefined}
           aria-label="選舉種類"
           value={current.office}
           onChange={(o) => go(o as typeof current.office)}
@@ -41,7 +47,7 @@ export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseInd
       {cat.key === "referendum" ? (
         <Select
           size="xs"
-          style={THIRD_TIER}
+          style={narrow ? { width: "100%" } : THIRD_TIER}
           aria-label="公投案"
           value={groupId}
           onChange={(v) => v && onChange(v)}
@@ -51,7 +57,7 @@ export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseInd
           data={cases.map((g) => ({ value: g.id, label: `${g.date.slice(0, 4)}｜${g.nameZh.replace("全國性公民投票案", "")}` }))}
         />
       ) : timeline && timeline.slots.length > 1 ? (
-        <YearSlider timeline={timeline} groupId={groupId} onChange={onChange} />
+        <YearSlider timeline={timeline} groupId={groupId} onChange={onChange} full={narrow} />
       ) : (
         timeline && <span style={{ ...THIRD_TIER, fontSize: 12, color: "var(--mantine-color-dimmed)" }}>{timeline.slots[0]!.label} 年</span>
       )}

@@ -121,7 +121,22 @@
   }
   .legend {
     max-height: none;
-    flex: 1 1 200px;
+    flex: 1 1 100%;
+  }
+  /* The ring floats over the map's bottom-right corner (open sea), above the attribution. */
+  .mapPane {
+    position: relative;
+  }
+  .ring {
+    position: absolute;
+    top: calc(58dvh - 124px);
+    right: 2px;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .ring svg {
+    width: 92px;
+    height: 92px;
   }
   .panel {
     border-left: none;

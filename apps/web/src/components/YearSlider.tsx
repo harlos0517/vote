@@ -14,12 +14,12 @@ export const timelineOf = (timelines: Timeline[], groupId: string | null) =>
  * Year slider for the current election type. Moving it opens the same type in another slot;
  * within a slot holding several groups (e.g. referendum cases) the same position is kept.
  */
-export function YearSlider({ timeline, groupId, onChange }: { timeline: Timeline; groupId: string; onChange: (groupId: string) => void }) {
+export function YearSlider({ timeline, groupId, onChange, full }: { timeline: Timeline; groupId: string; onChange: (groupId: string) => void; full?: boolean }) {
   const at = timeline.slots.findIndex((s) => s.groupIds.includes(groupId));
   const within = Math.max(0, timeline.slots[at]?.groupIds.indexOf(groupId) ?? 0);
   return (
     // Side padding keeps the first/last year labels (centred on the ends) inside the header.
-    <Group gap="md" wrap="nowrap" style={{ ...THIRD_TIER, paddingInline: 16 }}>
+    <Group gap="md" wrap="nowrap" style={{ ...THIRD_TIER, ...(full ? { width: "100%", flex: "1 1 100%" } : {}), paddingInline: 16 }}>
       <Slider
         aria-label={`${timeline.nameZh}年份`}
         style={{ flex: 1 }}
