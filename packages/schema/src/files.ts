@@ -113,6 +113,19 @@ export const ReleaseIndexFile = z.object({
       groups: z.array(z.object({ id: GroupId, nameZh: z.string(), office: Office, levels: z.array(ReportingLevel) })),
     }),
   ),
+  /**
+   * Year slider per election type (office): slots oldest → newest. Elections within 12 months
+   * share a slot; the assignment is a reviewed record (packages/etl/mappings/election-groups.csv).
+   */
+  timelines: z
+    .array(
+      z.object({
+        office: Office,
+        nameZh: z.string(),
+        slots: z.array(z.object({ label: z.string(), date: z.iso.date(), groupIds: z.array(GroupId).min(1) })).min(1),
+      }),
+    )
+    .default([]),
 });
 
 export const PartiesFile = z.object({
