@@ -27,6 +27,8 @@ export interface ElectionMapProps {
   /** District codes to outline strongly (the hovered / locked unit's district). */
   highlightDistricts: string[];
   background: string;
+  /** Draw the white outline of every area (off at 村里 level, where ~7,900 outlines hide the colours). */
+  borders?: boolean;
   onHover: (code: string | null) => void;
   /** Click on a unit (code) or on empty map (null). */
   onClick: (code: string | null) => void;
@@ -105,6 +107,11 @@ export function ElectionMap(p: ElectionMapProps) {
   }, []);
 
   useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map?.getLayer("units-line")) map.setLayoutProperty("units-line", "visibility", p.borders === false ? "none" : "visible");
+  }, [ready, p.borders, p.geo]);
+
+  useEffect(() => {
     if (ready) mapRef.current?.setPaintProperty("bg", "background-color", p.background);
   }, [ready, p.background]);
 
@@ -125,7 +132,7 @@ export function ElectionMap(p: ElectionMapProps) {
       paint: { "fill-color": ["coalesce", ["feature-state", "fill"], NO_DATA], "fill-opacity": 0.95 },
     });
     map.addLayer({ id: "units-hatch", type: "fill", source: SRC, filter: ["in", ["get", "code"], ["literal", []]], paint: { "fill-pattern": "hatch" } });
-    map.addLayer({ id: "units-line", type: "line", source: SRC, paint: {
+    map.addLayer({ id: "units-line", type: "line", source: SRC, layout: { visibility: p.borders === false ? "none" : "visible" }, paint: {
       "line-color": "#ffffff",
       // Fade borders when zoomed out so ~7,900 村里 outlines don't wash out the colours.
       "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.2, 10, 0.6],

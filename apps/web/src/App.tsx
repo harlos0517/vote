@@ -118,6 +118,7 @@ export function App() {
                 districts={fine ? districtGeo.data : undefined}
                 highlightDistricts={highlightDistricts}
                 background={scheme === "dark" ? "#1f2023" : "#eef1f4"}
+                borders={level !== "village"}
                 ariaLabel={`${m?.group.nameZh ?? ""} ${LEVEL_LABEL[level]}得票地圖`}
                 onHover={setHovered}
                 onClick={(code) => setView({ unit: code ? (units.get(code)?.id ?? null) : null })}
