@@ -86,8 +86,16 @@ function int(s: string | undefined, what: string): number {
   return Number(s);
 }
 
+/**
+ * The 2018 files mark code fields as text with a leading apostrophe (`'63`, `'0001`), a
+ * spreadsheet export artefact. Strip it from apostrophe + digits only; names are untouched.
+ */
+function readEl(path: string): string[][] {
+  return readCecCsv(path).map((r) => r.map((f) => (/^'\d+$/.test(f) ? f.slice(1) : f)));
+}
+
 export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true): ElDataset {
-  const base = readCecCsv(join(dir, "elbase.csv"));
+  const base = readEl(join(dir, "elbase.csv"));
   // Names are looked up with the district code first ("臺北市第01選區" lives at dist 01), then
   // without it: elbase may use dist "00" where results use "01" (總統), so the fallback key
   // keeps the dist-"00" row and is never overwritten by a district row.
@@ -104,7 +112,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       : (exact.get(`${k.prv}${k.cty}|${k.dist}|${k.town}|${k.vil}`) ?? loose.get(`${k.prv}${k.cty}|${k.town}|${k.vil}`) ?? "");
 
   const units = new Map<string, ElUnit>();
-  for (const r of readCecCsv(join(dir, "elprof.csv"))) {
+  for (const r of readEl(join(dir, "elprof.csv"))) {
     const k = keyOf(r);
     if (!belongs(k)) continue;
     const id = keyString(k);
@@ -122,7 +130,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       officialRate: new Map(),
     });
   }
-  for (const r of readCecCsv(join(dir, "elctks.csv"))) {
+  for (const r of readEl(join(dir, "elctks.csv"))) {
     const k = keyOf(r);
     if (!belongs(k)) continue;
     const u = units.get(keyString(k));
@@ -133,7 +141,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
     u.officialRate.set(n, Number(r[8]));
   }
 
-  const candidates: ElCandidate[] = readCecCsv(join(dir, "elcand.csv"))
+  const candidates: ElCandidate[] = readEl(join(dir, "elcand.csv"))
     .filter((r) => belongs(keyOf(r)))
     .map((r) => ({
       key: keyOf(r),
@@ -147,7 +155,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       isRunningMate: r[15] === "Y",
     }));
 
-  const parties = readCecCsv(join(dir, "elpaty.csv")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
+  const parties = readEl(join(dir, "elpaty.csv")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
   return { units: [...units.values()], candidates, parties };
 }
 
@@ -178,7 +186,7 @@ export interface ElPartyList {
 
 /** Read the party-list extras that only 不分區政黨 directories have. */
 export function readElPartyList(dir: string): ElPartyList {
-  const members = readCecCsv(join(dir, "elrepm.csv")).map((r) => ({
+  const members = readEl(join(dir, "elrepm.csv")).map((r) => ({
     partyCode: int(r[0], "party code"),
     rank: int(r[1], "list rank"),
     name: r[2]!,
@@ -191,7 +199,7 @@ export function readElPartyList(dir: string): ElPartyList {
     if (s === undefined || !/^\d+(\.\d+)?$/.test(s)) throw new Error(`expected number for ${what}, got ${JSON.stringify(s)}`);
     return Number(s);
   };
-  const results = readCecCsv(join(dir, "elretks.csv")).map((r) => ({
+  const results = readEl(join(dir, "elretks.csv")).map((r) => ({
     partyCode: int(r[0], "party code"),
     voteSharePct: num(r[1], "vote share"),
     qualifiedSharePct: num(r[2], "qualified share"),
