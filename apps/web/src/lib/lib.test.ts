@@ -21,6 +21,15 @@ describe("share scale", () => {
     expect(s(0.31)).not.toBe(s(0.58));
     expect(s.range()).not.toContain(NO_DATA);
   });
+  it("widens to whole 10-point bins when 5-point bins would exceed 8", () => {
+    const s = shareScale([0.05, 0.64]); // 5–65% → 12 five-point bins → use 10-point
+    expect(s.domain()).toEqual([0, 0.7]);
+    expect(s.range()).toHaveLength(7);
+    for (const c of s.range()) {
+      const [a, b] = s.invertExtent(c);
+      expect(Math.round((b - a) * 1000)).toBe(100); // every bin exactly 10 points
+    }
+  });
   it("handles a single value without a zero-width domain", () => {
     const [lo, hi] = shareScale([0.5]).domain();
     expect(hi! - lo!).toBeGreaterThan(0);
