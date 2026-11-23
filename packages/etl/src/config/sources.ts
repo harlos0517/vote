@@ -21,6 +21,14 @@ export const RAW_SOURCES = {
     bytes: 110316470,
     retrievedAt: "2026-11-23T00:00:00Z",
   },
+  nlscVillage108: {
+    id: "nlsc-village-history",
+    file: "v108.bin",
+    url: "https://www.land.moi.gov.tw/chhtml/DownloadGovDoc?gsno=7DD6BC&gdid=527",
+    sha256: "0a43d3ef677ef368a2161b425ef9b1cb3fc5504b32a1f8bbf3e2eb763cc42a56",
+    bytes: 21971124,
+    retrievedAt: "2026-11-23T00:00:00Z",
+  },
   nlscVillage110: {
     id: "nlsc-village-history",
     file: "v110.bin",

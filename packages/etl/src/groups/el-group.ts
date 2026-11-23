@@ -69,7 +69,7 @@ export interface BoundaryDef {
   /** Published id, e.g. "nlsc-village-1120928". */
   versionId: string;
   /** Key of the raw source in RAW_SOURCES and the shapefile name inside it. */
-  raw: "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
+  raw: "nlscVillage108" | "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
   shapefile: RegExp;
 }
 
