@@ -69,15 +69,18 @@ export type ScaleMax = number | null;
 export const ZERO_GAP = 0.05;
 
 /**
- * Sequential, always from 0%: low → high; interp(0) is reserved for exactly 0. The top is `max`
- * when the viewer fixes one, else the 97.5th percentile (snapped to whole steps) so a few
- * outliers don't wash out the map; values above take the end colour and the legend reads ≥.
+ * Sequential: low → high; interp(0) is reserved for exactly 0 (non-zero values start ZERO_GAP up
+ * the ramp). The bottom is 0% (`fromZero`, default) or the 2.5th percentile; the top is `max`
+ * when the viewer fixes one, else the 97.5th percentile — both snapped to whole steps, so a few
+ * outliers don't wash out the map. Values beyond the ends take the end colours (legend ≤ / ≥).
  */
-export function sequentialScale(values: number[], interp: (t: number) => string, kind: ScaleKind, max: ScaleMax = null): ColorScale {
+export function sequentialScale(values: number[], interp: (t: number) => string, kind: ScaleKind, max: ScaleMax = null, fromZero = true): ColorScale {
   const finite = values.filter(Number.isFinite);
   const top = max ?? (finite.length ? quantile(finite, 0.975) : 1);
-  const { lo, hi, stepPt } = snapDomain(0, Math.max(top, 0.0001), 8);
+  const bottom = fromZero || !finite.length ? 0 : Math.min(quantile(finite, 0.025), top * 0.999);
+  const { lo, hi, stepPt } = snapDomain(bottom, Math.max(top, 0.0001), 8);
   const openHi = finite.length > 0 && Math.max(...finite) * 100 > hi + 1e-9;
+  const openLo = lo > 0 && finite.some((v) => v > 0 && v * 100 < lo - 1e-9);
   const bins = Math.round((hi - lo) / stepPt);
   const linT = (v: number) => Math.min(1, Math.max(0, (v * 100 - lo) / (hi - lo)));
   const binT = (v: number) => {
@@ -90,7 +93,8 @@ export function sequentialScale(values: number[], interp: (t: number) => string,
   const binLabel = (b: number) => {
     const a = clean(lo + b * stepPt);
     if (b === bins - 1 && openHi) return `≥ ${pct(a)}`;
-    return `${b === 0 ? "> " : ""}${pct(a)}–${pct(a + stepPt)}`;
+    if (b === 0 && openLo) return `< ${pct(a + stepPt)}`;
+    return `${b === 0 && lo === 0 ? "> " : ""}${pct(a)}–${pct(a + stepPt)}`;
   };
   const zero = { color: interp(0), label: "0%" };
   const legend: LegendSpec =
@@ -107,7 +111,7 @@ export function sequentialScale(values: number[], interp: (t: number) => string,
           type: "continuous",
           gradient: `linear-gradient(to top, ${Array.from({ length: 11 }, (_, i) => `${interp(lift(i / 10))} ${i * 10}%`).join(", ")})`,
           ticks: [
-            { at: 0, label: `> ${pct(lo)}` },
+            { at: 0, label: lo === 0 ? `> ${pct(lo)}` : `${openLo ? "≤ " : ""}${pct(lo)}` },
             { at: 0.5, label: pct((lo + hi) / 2) },
             { at: 1, label: `${openHi ? "≥ " : ""}${pct(hi)}` },
           ],

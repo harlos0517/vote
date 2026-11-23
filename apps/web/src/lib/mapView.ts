@@ -84,7 +84,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
     // 投票率 = 投票數 ÷ 選舉人數 (無效票 and 未投票 are always counted here).
     const interp = v.palette === "party" ? blackTo("#f2f2f2") : viridis;
     const values = new Map(units.map((u) => [u.code, turnout(u.summary)]));
-    const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.max);
+    const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.max, v.fromZero);
     for (const [code, x] of values) colors.set(code, x === null ? NO_DATA : scale.color(x));
     const electors = ctx.referendum ? "投票權人數" : "選舉人數";
     return {
@@ -190,7 +190,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
       const seen = legendTop.get(p) ?? { elected: false, unelected: false };
       legendTop.set(p, t.elected ? { ...seen, elected: true } : { ...seen, unelected: true });
     }
-    const seq = sequentialScale(strengths.flatMap((x) => (x.s === null ? [] : [x.s])), (t) => String(t), v.scale);
+    const seq = sequentialScale(strengths.flatMap((x) => (x.s === null ? [] : [x.s])), (t) => String(t), v.scale, null, v.fromZero);
     for (const x of strengths) colors.set(x.code, v.shadeTop && x.s !== null ? shade(x.color, seq.t(x.s)) : x.color);
     const item = (p: string, hatch: boolean): LegendItem => ({ label: partyLabel(ctx, p), color: ctx.partyColor.get(p) ?? NEUTRAL, hatched: hatch && v.hatchUnelected });
     const parties = ctx.partiesByVote.map((p) => p.id).filter((p) => legendTop.has(p));
@@ -243,7 +243,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
   // Units where the party ran no candidate are 無候選人, not 0%, and stay out of the scale's range.
   const ran = new Set(units.filter(ranHere).map((u) => u.code));
   const values = new Map(units.filter((u) => ran.has(u.code)).map((u) => [u.code, shareOf(u)]));
-  const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.max);
+  const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.max, v.fromZero);
   for (const u of units) {
     const s = values.get(u.code);
     colors.set(u.code, !ran.has(u.code) ? NO_CANDIDATE : s === null || s === undefined ? NO_DATA : scale.color(s));

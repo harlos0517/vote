@@ -30,6 +30,8 @@ export interface ViewState {
   shadeTop: boolean;
   /** Referendum: blue / orange instead of green / red. */
   colorblind: boolean;
+  /** Sequential scales start at 0% (default) instead of the data's low end. */
+  fromZero: boolean;
   /** Legend top: null = 自動 (fit the data), else a fraction. Diverging views use it as ±. */
   max: ScaleMax;
   /** 當選候選人 view: hatch areas whose local top candidate was not elected. */
@@ -48,6 +50,7 @@ export const DEFAULT_VIEW: ViewState = {
   invalid: false,
   abstain: false,
   shadeTop: true,
+  fromZero: true,
   max: null,
   colorblind: false,
   hatchUnelected: true,
@@ -73,6 +76,7 @@ export function parseHash(hash: string): ViewState {
     invalid: bool(q.get("inv"), d.invalid),
     abstain: bool(q.get("abs"), d.abstain),
     shadeTop: bool(q.get("sh"), d.shadeTop),
+    fromZero: bool(q.get("z"), d.fromZero),
     max: (SCALE_MAXES as readonly number[]).includes(Number(q.get("mx"))) ? Number(q.get("mx")) / 100 : d.max,
     colorblind: bool(q.get("cb"), d.colorblind),
     hatchUnelected: bool(q.get("ht"), d.hatchUnelected),
@@ -94,6 +98,7 @@ export function formatHash(s: ViewState): string {
   if (s.invalid !== d.invalid) q.set("inv", s.invalid ? "1" : "0");
   if (s.abstain !== d.abstain) q.set("abs", s.abstain ? "1" : "0");
   if (s.shadeTop !== d.shadeTop) q.set("sh", s.shadeTop ? "1" : "0");
+  if (s.fromZero !== d.fromZero) q.set("z", s.fromZero ? "1" : "0");
   if (s.max !== d.max && s.max !== null) q.set("mx", String(Math.round(s.max * 100)));
   if (s.colorblind !== d.colorblind) q.set("cb", s.colorblind ? "1" : "0");
   if (s.hatchUnelected !== d.hatchUnelected) q.set("ht", s.hatchUnelected ? "1" : "0");

@@ -50,7 +50,7 @@ const d0 = { invalid: false, abstain: false };
 // --- URL state ----------------------------------------------------------------
 describe("view state hash", () => {
   it("round-trips every option and keeps defaults out of the URL", () => {
-    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "district" as const, mode: "share" as const, formula: "ratio" as const, choice: "cec-16", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, max: 0.25, colorblind: true, hatchUnelected: false, unit: "cty:63000" };
+    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "district" as const, mode: "share" as const, formula: "ratio" as const, choice: "cec-16", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, fromZero: false, max: 0.25, colorblind: true, hatchUnelected: false, unit: "cty:63000" };
     expect(parseHash(formatHash(s))).toEqual(s);
     expect(formatHash(DEFAULT_VIEW)).toBe("#/?");
     expect(parseHash("")).toEqual(DEFAULT_VIEW);
@@ -281,6 +281,14 @@ describe("scales", () => {
     expect(s.t(0)).toBe(0);
     expect(s.t(0.001)).toBeCloseTo(0.05);
     expect(s.legend.zero?.label).toBe("0%");
+  });
+  it("can start at the data's low end instead of 0%, still keeping exactly 0 apart", () => {
+    const s = sequentialScale([0.31, 0.58, 0], () => "#000", "stepped", null, false);
+    expect(s.legend.type === "stepped" && s.legend.items.map((i) => i.label).at(-1)).toBe("> 0%–10%");
+    const t = sequentialScale([0.31, 0.58], () => "#000", "stepped", null, false);
+    expect(t.legend.type === "stepped" && t.legend.items.map((i) => i.label)).toEqual(["55%–60%", "50%–55%", "45%–50%", "40%–45%", "35%–40%", "30%–35%"]);
+    expect(t.t(0.31)).toBeCloseTo(0.05);
+    expect(t.t(0)).toBe(0);
   });
   it("uses a fixed top when chosen, marking values above it", () => {
     const s = sequentialScale([0.02, 0.3], () => "#000", "continuous", 0.1);

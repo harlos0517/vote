@@ -114,6 +114,9 @@ export function ColorOptions({ ctx, view, setView }: { ctx: GroupContext; view: 
           ]}
         />
       )}
+      {mode !== "diff" && scaled && (
+        <Switch size="xs" label="色階從 0% 起算" checked={view.fromZero} onChange={(e) => setView({ fromZero: e.currentTarget.checked })} />
+      )}
       {mode !== "top" && (
         <Select
           size="xs"
