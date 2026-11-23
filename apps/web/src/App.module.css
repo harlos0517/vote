@@ -19,12 +19,17 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) 400px;
 }
 
 .mapPane {
   position: relative;
   min-height: 0;
+}
+
+.mapCanvas {
+  position: absolute;
+  inset: 0;
 }
 
 .panel {
@@ -41,11 +46,32 @@
   max-width: calc(100% - 72px);
 }
 
-.legend {
+/* Legend (left) and ring (right) float over the bottom of the map on wide screens. */
+.extras {
   position: absolute;
-  bottom: 28px;
   left: 12px;
+  right: 12px;
+  bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
   z-index: 2;
+}
+
+.extras > * {
+  pointer-events: auto;
+}
+
+.legend {
+  max-height: 60dvh;
+  overflow-y: auto;
+}
+
+.ring {
+  line-height: 0;
+  margin-left: auto;
 }
 
 .overlayCenter {
@@ -62,6 +88,7 @@
   pointer-events: auto;
 }
 
+/* Phones: map on top, legend + ring below it (not over it), then the sidebar. */
 @media (max-width: $mantine-breakpoint-sm) {
   .page {
     height: auto;
@@ -70,15 +97,23 @@
   .main {
     grid-template-columns: minmax(0, 1fr);
   }
-  .mapPane {
-    height: 62dvh;
+  .mapCanvas {
+    position: relative;
+    height: 58dvh;
+  }
+  .extras {
+    position: static;
+    padding: 8px 16px 0;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .legend {
+    max-height: none;
+    flex: 1 1 200px;
   }
   .panel {
     border-left: none;
     border-top: 1px solid var(--mantine-color-default-border);
-  }
-  .legend {
-    bottom: 24px;
-    font-size: 11px;
+    margin-top: 8px;
   }
 }
