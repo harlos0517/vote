@@ -85,11 +85,16 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       geoByLayout.set(geoKey, geo);
     }
     const unassigned: string[] = [];
+    // Indigenous-councillor groups only have districts in some counties/towns: the rest is expected to be empty.
+    const partial = def.electorate !== "general";
+    const coveredTowns = new Set(built.townParts.map((p) => p.town));
+    const coveredCounties = new Set(built.results.county!.units.map((u) => u.id.slice(4)));
+    const outside = (code: string) => partial && (/^\d{5}$/.test(code) ? !coveredCounties.has(code) : /^\d{8}$/.test(code) && !coveredTowns.has(code));
     for (const level of built.group.levels) {
       if (level === "national") continue;
       const g = geo[level as keyof Boundaries];
       if (!g) { checks.push({ id: `geo-join-${level}`, status: "fail", detail: "no geometry built" }); continue; }
-      const c = joinCheck(`geo-join-${level}`, g, built.results[level]!.units.map((u) => u.id.slice(u.id.indexOf(":") + 1)));
+      const c = joinCheck(`geo-join-${level}`, g, built.results[level]!.units.map((u) => u.id.slice(u.id.indexOf(":") + 1)), outside);
       checks.push(c.check);
       unassigned.push(...c.extraFeatures);
     }
@@ -233,18 +238,27 @@ function checkOfficialAnnouncements(repoRoot: string, built: BuiltGroup): Valida
   ];
 }
 
-function joinCheck(id: string, g: GeoJSON, unitCodes: string[]): { check: ValidationCheck; extraFeatures: string[] } {
+const list = (xs: string[], n = 12) => (xs.length > n ? `${xs.slice(0, n).join(", ")}, … (+${xs.length - n})` : xs.join(", "));
+
+/**
+ * Units ↔ polygons. `outside` marks polygons expected to have no result: areas a partial group
+ * (原住民議員) has no district in. Other unmatched polygons are warned about.
+ */
+function joinCheck(id: string, g: GeoJSON, unitCodes: string[], outside: (code: string) => boolean): { check: ValidationCheck; extraFeatures: string[] } {
   const feat = new Set(g.features.map((f) => f.properties.code!));
   const units = new Set(unitCodes);
   const noGeo = [...units].filter((c) => !feat.has(c));
-  const extra = [...feat].filter((c) => !units.has(c));
+  const extraAll = [...feat].filter((c) => !units.has(c));
+  const extra = extraAll.filter((c) => !outside(c));
+  const out = extraAll.length - extra.length;
   if (noGeo.length) {
-    return { check: { id, status: "fail", detail: `units without polygon: ${noGeo.join(",")}` }, extraFeatures: extra };
+    return { check: { id, status: "fail", detail: `units without polygon: ${list(noGeo)}` }, extraFeatures: extra };
   }
+  const outText = out ? `; ${out} polygons lie outside this group's districts (no data, as expected)` : "";
   return {
     check: extra.length
-      ? { id, status: "warn", detail: `${units.size} units matched; ${extra.length} polygons have no result and show as 無資料 (${extra.join(", ")})` }
-      : { id, status: "pass", detail: `${units.size} units ↔ ${feat.size} polygons, 1:1` },
+      ? { id, status: "warn", detail: `${units.size} units matched${outText}; ${extra.length} polygons have no result and show as 無資料 (${list(extra)})` }
+      : { id, status: "pass", detail: `${units.size} units ↔ ${units.size} polygons${outText || ", 1:1"}` },
     extraFeatures: extra,
   };
 }
