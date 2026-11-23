@@ -72,3 +72,29 @@ export async function buildBoundaries(villageShp: string, workDir: string, parts
   const read = (p: string) => JSON.parse(readFileSync(p, "utf8")) as GeoJSON;
   return { county: read(out.county), town: read(out.town), ...(withDistricts ? { district: read(out.district) } : {}) };
 }
+
+/**
+ * 村里 layer: every village polygon, coded by the unit it belongs to. `assign` maps an NLSC
+ * VILLCODE to a unit code ("63000010002" for a single village, "09007010-0A01" for a group
+ * sharing stations, whose members are dissolved into one shape). Villages not assigned keep
+ * their own VILLCODE and show as 無資料. Same simplification as buildBoundaries, so the
+ * village borders coincide with the town borders drawn from the same snapshot.
+ */
+export async function buildVillages(villageShp: string, workDir: string, assign: Map<string, string>, simplifyPct = "10%"): Promise<GeoJSON> {
+  mkdirSync(workDir, { recursive: true });
+  const q = (p: string) => JSON.stringify(p);
+  const assignCsv = join(workDir, "assign.csv");
+  writeFileSync(assignCsv, csv("VILLCODE,vunit", [...assign].map(([v, u]) => [v, u])));
+  const out = join(workDir, "village.geojson");
+  await mapshaper.runCommands(
+    [
+      `-i ${q(villageShp)} encoding=utf8 name=village`,
+      `-simplify ${simplifyPct} keep-shapes`,
+      `-join ${q(assignCsv)} keys=VILLCODE,VILLCODE string-fields=VILLCODE,vunit`,
+      `-each "var p = this.properties; code = p.vunit || VILLCODE"`,
+      `-dissolve2 code`,
+      `-o ${q(out)} format=geojson precision=0.00001`,
+    ].join(" "),
+  );
+  return JSON.parse(readFileSync(out, "utf8")) as GeoJSON;
+}
