@@ -1,47 +1,63 @@
 import { Group, Stack, Text } from "@mantine/core";
-import type { ScaleQuantize } from "d3-scale";
 import { NO_DATA } from "../lib/colors.ts";
+import type { LegendModel } from "../lib/mapView.ts";
 
-const Swatch = ({ color }: { color: string }) => (
-  <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 2, background: color, flex: "none" }} />
+const HATCH = "repeating-linear-gradient(135deg, rgba(255,255,255,.9) 0 1.5px, rgba(20,20,20,.75) 1.5px 3px, transparent 3px 8px)";
+
+export const Swatch = ({ color, hatched }: { color: string; hatched?: boolean }) => (
+  <span
+    aria-hidden
+    style={{
+      display: "inline-block",
+      width: 14,
+      height: 14,
+      borderRadius: 2,
+      flex: "none",
+      background: hatched ? `${HATCH}, ${color}` : color,
+    }}
+  />
 );
 
-export function ShareLegend({ scale, title }: { scale: ScaleQuantize<string>; title: string }) {
-  const pct = (x: number) => `${Math.round(x * 100)}%`;
+export function Legend({ model }: { model: LegendModel }) {
+  const { spec } = model;
   return (
-    <Stack gap={4}>
-      <Text size="xs" fw={600}>{title}</Text>
-      {[...scale.range()].reverse().map((c) => {
-        const [a, b] = scale.invertExtent(c);
-        return (
-          <Group key={c} gap={6} wrap="nowrap">
-            <Swatch color={c} />
-            <Text size="xs">{pct(a)}–{pct(b)}</Text>
+    <Stack gap={4} maw={240}>
+      <Text size="xs" fw={600}>{model.title}</Text>
+      {spec?.type === "stepped" &&
+        spec.items.map((it) => (
+          <Group key={it.label} gap={6} wrap="nowrap">
+            <Swatch color={it.color} />
+            <Text size="xs">{it.label}</Text>
           </Group>
-        );
-      })}
-      <Group gap={6} wrap="nowrap">
-        <Swatch color={NO_DATA} />
-        <Text size="xs">無資料</Text>
-      </Group>
-    </Stack>
-  );
-}
-
-export function LeaderLegend({ items }: { items: { label: string; color: string }[] }) {
-  return (
-    <Stack gap={4}>
-      <Text size="xs" fw={600}>得票最多者（顏色依號次，不代表政黨）</Text>
-      {items.map((it) => (
-        <Group key={it.label} gap={6} wrap="nowrap">
-          <Swatch color={it.color} />
-          <Text size="xs">{it.label}</Text>
+        ))}
+      {spec?.type === "continuous" && (
+        <Group gap={8} wrap="nowrap" align="stretch">
+          <div style={{ width: 14, height: 120, borderRadius: 2, background: spec.gradient }} aria-hidden />
+          <div style={{ position: "relative", height: 120, minWidth: 64 }}>
+            {spec.ticks.map((t) => (
+              <Text key={t.label} size="xs" style={{ position: "absolute", bottom: `calc(${t.at * 100}% - 8px)`, whiteSpace: "nowrap" }}>
+                {t.label}
+              </Text>
+            ))}
+          </div>
         </Group>
+      )}
+      {model.groups?.map((g) => (
+        <Stack key={g.title} gap={2}>
+          <Text size="xs" c="dimmed">{g.title}</Text>
+          {g.items.map((it) => (
+            <Group key={it.label} gap={6} wrap="nowrap">
+              <Swatch color={it.color} hatched={it.hatched} />
+              <Text size="xs">{it.label}</Text>
+            </Group>
+          ))}
+        </Stack>
       ))}
       <Group gap={6} wrap="nowrap">
         <Swatch color={NO_DATA} />
         <Text size="xs">無資料／同票</Text>
       </Group>
+      {model.note && <Text size="xs" c="dimmed">{model.note}</Text>}
     </Stack>
   );
 }
