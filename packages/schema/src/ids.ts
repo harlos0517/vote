@@ -44,7 +44,7 @@ export const ContestId = z.string().regex(/^\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.[a-z0-
  *   tp:63000010-07           the part of a township inside electoral district 07 (towns can be
  *                            split between districts; villages never are, so parts are exact)
  *   vil:63000010002          village that maps 1:1 to an MOI village code
- *   vgrp:09007010-0A01       CEC-defined group of villages sharing stations
+ *   vgrp:09007010-0A01       CEC-defined group of villages sharing stations (2018 rf*: "01x2")
  *   st:63000-0597            polling station; number is unique within a county
  *                            in all three samples, but NOT stable across elections
  *   st:09007-0003@09007010002  station slice (V1 village-chief contests split one
@@ -53,5 +53,5 @@ export const ContestId = z.string().regex(/^\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.[a-z0-
 export const ReportingUnitId = z
   .string()
   .regex(
-    /^(nat|cty:\d{5}|dist:\d{5}-\d{2}|town:\d{8}|tp:\d{8}-\d{2}|vil:\d{11}|vgrp:\d{8}-[0-9A-Z]{4}|st:\d{5}-\d{4}(@\d{11})?)$/,
+    /^(nat|cty:\d{5}|dist:\d{5}-\d{2}|town:\d{8}|tp:\d{8}-\d{2}|vil:\d{11}|vgrp:\d{8}-[0-9A-Za-z]{4}|st:\d{5}-\d{4}(@\d{11})?)$/,
   );
