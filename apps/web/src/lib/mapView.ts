@@ -2,7 +2,7 @@
  * ViewState + group + units → what the map, legend and ring draw.
  * Pure (no React) so every mode can be unit-tested.
  */
-import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
+import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
 import { fmtPct, type UnitView } from "./results.ts";
 import type { ViewState } from "./viewState.ts";
 import {
@@ -102,17 +102,27 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
     const multi = units.some((u) => showsSeats(u, ctx));
     const strengths: { code: string; color: string; s: number | null }[] = [];
     const legendTop = new Map<string, { elected: boolean; unelected: boolean }>(); // partyId → seen
+    let ties = 0;
     for (const u of units) {
       if (showsSeats(u, ctx)) {
         const r = seatsByParty(u, ctx);
-        if (!r.partyId) { colors.set(u.code, NO_DATA); continue; }
+        if (!r.partyId) {
+          if (r.total > 0) ties++;
+          colors.set(u.code, r.total > 0 ? TIE : NO_DATA);
+          continue;
+        }
         strengths.push({ code: u.code, color: ctx.partyColor.get(r.partyId) ?? NEUTRAL, s: r.total ? (r.seats.get(r.partyId) ?? 0) / r.total : null });
         const seen = legendTop.get(r.partyId) ?? { elected: false, unelected: false };
         legendTop.set(r.partyId, { ...seen, elected: true });
         continue;
       }
       const t = localTop(u, ctx, den);
-      if (!t.choiceId) { colors.set(u.code, NO_DATA); continue; }
+      if (!t.choiceId) {
+        const tied = Object.values(u.votes).some((x) => x > 0);
+        if (tied) ties++;
+        colors.set(u.code, tied ? TIE : NO_DATA);
+        continue;
+      }
       strengths.push({ code: u.code, color: ctx.choiceColor.get(t.choiceId)!, s: t.share });
       if (!t.elected && v.hatchUnelected) hatched.add(u.code);
       const p = ctx.choice.get(t.choiceId)?.partyId ?? "none";
@@ -129,6 +139,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
           { title: ctx.partyList ? "獲得席次" : "當選", items: parties.filter((p) => legendTop.get(p)!.elected).map((p) => item(p, false)) },
           { title: `${ctx.partyList ? "未獲席次" : "未當選"}${v.hatchUnelected ? "（斜線）" : ""}`, items: parties.filter((p) => legendTop.get(p)!.unelected).map((p) => item(p, true)) },
         ].filter((g) => g.items.length);
+    if (ties) groups.push({ title: "其他", items: [{ label: multi ? "最多席次的政黨同席次" : "得票最多者同票", color: TIE }] });
     return {
       colors,
       hatched,
@@ -147,7 +158,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
           return `當選席次（共 ${r.total} 席）：${list || "無"}`;
         }
         const t = localTop(u, ctx, den);
-        if (!t.choiceId) return "得票最多：同票或無資料";
+        if (!t.choiceId) return Object.values(u.votes).some((x) => x > 0) ? "得票最多者同票" : "得票最多：無資料";
         const c = ctx.choice.get(t.choiceId)!;
         if (ctx.partyList) {
           const n = c.partyId ? listSeats(ctx, c.partyId) : 0;

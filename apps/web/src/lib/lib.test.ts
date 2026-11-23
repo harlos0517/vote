@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GroupMetadataFile, GroupResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
-import { NEUTRAL, NO_CANDIDATE, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
+import { NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
 import { buildMapView, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
@@ -211,6 +211,13 @@ describe("multi-seat districts (議員)", () => {
     const v = buildMapView(t1, [d1], { ...DEFAULT_VIEW, mode: "top" });
     expect(v.describe(d1)).toBe("當選席次（共 2 席）：中國國民黨 2");
     expect(t1.candidatesPickable).toBe(false);
+  });
+  it("gives ties their own colour, apart from 無資料", () => {
+    const tie = unit("T", { "d1.n1": 5, "d1.n3": 5 }, ["e.d1"]);
+    const empty = unit("E", { "d1.n1": 0 }, ["e.d1"]);
+    const v = buildMapView(t1, [tie, empty], { ...DEFAULT_VIEW, mode: "top" });
+    expect([v.colors.get("T"), v.colors.get("E")]).toEqual([TIE, NO_DATA]);
+    expect(v.legend.groups!.at(-1)!.items[0]!.label).toBe("得票最多者同票");
   });
 });
 

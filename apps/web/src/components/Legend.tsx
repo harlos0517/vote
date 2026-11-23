@@ -55,7 +55,7 @@ export function Legend({ model }: { model: LegendModel }) {
       ))}
       <Group gap={6} wrap="nowrap">
         <Swatch color={NO_DATA} />
-        <Text size="xs">無資料／同票</Text>
+        <Text size="xs">無資料</Text>
       </Group>
       {model.note && <Text size="xs" c="dimmed">{model.note}</Text>}
     </Stack>
