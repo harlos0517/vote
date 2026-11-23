@@ -56,6 +56,8 @@ export interface ElDataset {
   units: ElUnit[];
   candidates: ElCandidate[];
   parties: ElParty[];
+  /** Per contest key (county code for county-wide contests). */
+  contestNotes?: Map<string, ElContestNote>;
 }
 
 const keyOf = (r: string[]): ElKey => ({
@@ -197,4 +199,48 @@ export function readElPartyList(dir: string): ElPartyList {
     seats: int(r[4], "seats"),
   }));
   return { members, results };
+}
+
+/** Contest-level facts an adapter knows beyond the el* files (keyed by county code). */
+export interface ElContestNote {
+  /** Set when the contest was held on another day than its election (e.g. a rerun). */
+  date: string | null;
+  warnings: string[];
+}
+
+/**
+ * Merge el* datasets of one office split over several directories (2022: `prv` and `city`).
+ * Their national rows sum different contests per directory, so they are dropped and one
+ * national row is rebuilt from the county rows (summary only; no candidate votes there).
+ */
+export function mergeElDatasets(parts: ElDataset[]): ElDataset {
+  const units = parts.flatMap((p) => p.units.filter((u) => u.level !== "national"));
+  const seen = new Set<string>();
+  for (const u of units) {
+    const k = keyString(u.key);
+    if (seen.has(k)) throw new Error(`merge: unit ${k} appears in two directories`);
+    seen.add(k);
+  }
+  const counties = units.filter((u) => u.level === "county");
+  const sum = (f: (u: ElUnit) => number) => counties.reduce((a, u) => a + f(u), 0);
+  const national: ElUnit = {
+    key: { prv: "00", cty: "000", dist: "00", town: "000", vil: "0000", station: "0000" },
+    level: "national",
+    name: "全國",
+    valid: sum((u) => u.valid),
+    invalid: sum((u) => u.invalid),
+    cast: sum((u) => u.cast),
+    electors: sum((u) => u.electors),
+    populationRaw: counties.some((u) => u.populationRaw === 0) ? 0 : sum((u) => u.populationRaw),
+    votes: new Map(),
+    officialRate: new Map(),
+  };
+  const parties = new Map<number, ElParty>();
+  for (const p of parts) for (const x of p.parties) parties.set(x.code, x);
+  return {
+    units: [national, ...units],
+    candidates: parts.flatMap((p) => p.candidates),
+    parties: [...parties.values()],
+    contestNotes: new Map(parts.flatMap((p) => [...(p.contestNotes ?? [])])),
+  };
 }
