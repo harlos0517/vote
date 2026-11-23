@@ -53,6 +53,33 @@ export function renumberTowns(ds: RfDataset, towns: Map<string, string>): { rena
   return { renamed: byOld.size };
 }
 
+/**
+ * 2018 rf* villages also use CEC's own numbers. `lookup(town, name)` gives the registry village
+ * code ("0xxx") for a village name in a (renumbered) township. Village groups (names with 「、」)
+ * keep their code. Fails on a name with no code, or two villages of a township on one code.
+ */
+export function renumberVillages(ds: RfDataset, lookup: (town: string, name: string) => string | undefined): { renamed: number } {
+  const byOld = new Map<string, string>(); // "<town>|<old vil>" → new vil
+  const used = new Map<string, string>();
+  for (const u of ds.units.filter((x) => x.level === "village")) {
+    const town = u.key.prv + u.key.cty + u.key.town;
+    if (u.name.includes("、")) { byOld.set(`${town}|${u.key.vil}`, u.key.vil); continue; }
+    const code = lookup(town, u.name);
+    if (!code) throw new Error(`rf: no registry code for village ${town} ${u.name}`);
+    const prev = used.get(`${town}|${code}`);
+    if (prev) throw new Error(`rf: ${u.name} and ${prev} both map to ${town}${code}`);
+    used.set(`${town}|${code}`, u.name);
+    byOld.set(`${town}|${u.key.vil}`, code);
+  }
+  for (const u of ds.units) {
+    if (u.key.vil === "0000") continue;
+    const code = byOld.get(`${u.key.prv}${u.key.cty}${u.key.town}|${u.key.vil}`);
+    if (!code) throw new Error(`rf: unit below an unknown village ${keyString(u.key)}`);
+    u.key = { ...u.key, vil: code };
+  }
+  return { renamed: byOld.size };
+}
+
 export function readRfDir(dir: string): RfDataset {
   const names = new Map<string, string>();
   for (const r of readCecCsv(join(dir, "rfarea.csv"), { header: true })) names.set(`${r[0]}${r[1]}|${r[3]}|${r[4]}`, r[5]!);

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parseCecCsv, PUA_RE } from "../src/lib/csv.ts";
 import { levelOf, mergeElDatasets, readElDir, readElPartyList } from "../src/adapters/cec-el.ts";
 import { sameVillageName } from "../src/adapters/cec-wide-chiayi.ts";
-import { readRfDir, renumberTowns } from "../src/adapters/cec-rf.ts";
+import { readRfDir, renumberTowns, renumberVillages } from "../src/adapters/cec-rf.ts";
 import { buildRfGroup } from "../src/groups/rf-group.ts";
 import { buildTimelines, proposeSlots } from "../src/lib/timelines.ts";
 import { planVillages } from "../src/geo/villages.ts";
@@ -192,6 +192,12 @@ describe("referendum (rf*)", () => {
     renumberTowns(ds, new Map([["63000|松山區", "020"]]));
     expect(ds.units.filter((u) => u.key.town !== "000").every((u) => u.key.town === "020")).toBe(true);
     expect(() => renumberTowns(readRfDir(FIX_RF), new Map())).toThrow(/no registry code/);
+  });
+  it("renumbers 2018-style village codes by name, keeping 「、」 groups and refusing unknown names", () => {
+    const ds = readRfDir(FIX_RF);
+    renumberVillages(ds, (town, name) => (town === "63000010" && name === "莊敬里" ? "0002" : undefined));
+    expect(ds.units.filter((u) => u.key.vil !== "0000").every((u) => u.key.vil === "0002")).toBe(true);
+    expect(() => renumberVillages(readRfDir(FIX_RF), () => undefined)).toThrow(/no registry code for village/);
   });
   it("fails when the published national result disagrees with the rule", () => {
     const ds = readRfDir(FIX_RF);

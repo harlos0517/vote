@@ -35,6 +35,18 @@ export async function snapshotCodes(s: Snapshot, workDir: string): Promise<Set<s
   return codes;
 }
 
+/** "<TOWNCODE>|<VILLNAME>" → VILLCODE, with NLSC's bracketed rare characters unwrapped ("瓦[磘]村" → "瓦磘村"). */
+export async function snapshotNames(s: Snapshot, workDir: string): Promise<Map<string, string>> {
+  mkdirSync(workDir, { recursive: true });
+  const out = join(workDir, `${s.versionId}-names.csv`);
+  await mapshaper.runCommands(`-i ${JSON.stringify(s.shp)} encoding=utf8 -filter-fields VILLCODE,VILLNAME,TOWNCODE -o ${JSON.stringify(out)} format=csv`);
+  const names = new Map<string, string>();
+  for (const [code, name, town] of parseCecCsv(readFileSync(out, "utf8"), { header: true, quotedCommas: true })) {
+    if (/^\d{11}$/.test(code ?? "")) names.set(`${town}|${name!.replace(/\[(.)\]/gu, "$1")}`, code!);
+  }
+  return names;
+}
+
 export interface MixPlan {
   /** Township code → snapshot it is taken from instead of the base. */
   swaps: Map<string, Snapshot>;
