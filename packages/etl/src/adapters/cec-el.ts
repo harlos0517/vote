@@ -86,11 +86,20 @@ function int(s: string | undefined, what: string): number {
 
 export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true): ElDataset {
   const base = readCecCsv(join(dir, "elbase.csv"));
-  const names = new Map<string, string>();
-  // elbase uses dist "00" even where results use "01"; key names without dist/station.
-  for (const r of base) names.set(`${r[0]}${r[1]}|${r[3]}|${r[4]}`, r[5]!);
+  // Names are looked up with the district code first ("臺北市第01選區" lives at dist 01), then
+  // without it: elbase may use dist "00" where results use "01" (總統), so the fallback key
+  // keeps the dist-"00" row and is never overwritten by a district row.
+  const exact = new Map<string, string>();
+  const loose = new Map<string, string>();
+  for (const r of base) {
+    exact.set(`${r[0]}${r[1]}|${r[2]}|${r[3]}|${r[4]}`, r[5]!);
+    const lk = `${r[0]}${r[1]}|${r[3]}|${r[4]}`;
+    if (r[2] === "00" || !loose.has(lk)) loose.set(lk, r[5]!);
+  }
   const nameOf = (k: ElKey) =>
-    levelOf(k) === "national" ? "全國" : (names.get(`${k.prv}${k.cty}|${k.town}|${k.vil}`) ?? "");
+    levelOf(k) === "national"
+      ? "全國"
+      : (exact.get(`${k.prv}${k.cty}|${k.dist}|${k.town}|${k.vil}`) ?? loose.get(`${k.prv}${k.cty}|${k.town}|${k.vil}`) ?? "");
 
   const units = new Map<string, ElUnit>();
   for (const r of readCecCsv(join(dir, "elprof.csv"))) {
