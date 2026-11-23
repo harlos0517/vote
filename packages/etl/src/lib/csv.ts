@@ -5,13 +5,19 @@ import { readFileSync } from "node:fs";
  * in double quotes, and — per the CEC format spec — no commas inside fields.
  * We still reject a quoted field containing a comma instead of mis-splitting.
  */
-export function parseCecCsv(text: string, opts: { header?: boolean } = {}): string[][] {
+export interface CsvOptions {
+  header?: boolean;
+  /** Spreadsheet exports (2022 嘉義市 rerun) quote numbers with thousands separators: "1,007". */
+  quotedCommas?: boolean;
+}
+
+export function parseCecCsv(text: string, opts: CsvOptions = {}): string[][] {
   const lines = text.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.length > 0);
-  const rows = lines.map((line, i) => splitLine(line, i + 1));
+  const rows = lines.map((line, i) => splitLine(line, i + 1, opts.quotedCommas ?? false));
   return opts.header ? rows.slice(1) : rows;
 }
 
-function splitLine(line: string, lineNo: number): string[] {
+function splitLine(line: string, lineNo: number, quotedCommas: boolean): string[] {
   const out: string[] = [];
   let cur = "";
   let quoted = false;
@@ -20,6 +26,7 @@ function splitLine(line: string, lineNo: number): string[] {
     if (quoted) {
       if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
       else if (ch === '"') quoted = false;
+      else if (ch === "," && quotedCommas) cur += ch;
       else if (ch === ",") throw new Error(`line ${lineNo}: comma inside quoted field (CEC spec forbids it)`);
       else cur += ch;
     } else if (ch === '"' && cur.trim() === "") { quoted = true; cur = ""; }
@@ -31,7 +38,7 @@ function splitLine(line: string, lineNo: number): string[] {
   return out;
 }
 
-export function readCecCsv(path: string, opts: { header?: boolean } = {}): string[][] {
+export function readCecCsv(path: string, opts: CsvOptions = {}): string[][] {
   return parseCecCsv(readFileSync(path, "utf8"), opts);
 }
 
