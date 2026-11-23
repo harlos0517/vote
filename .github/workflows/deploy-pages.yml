@@ -34,7 +34,9 @@ jobs:
           fi
       - run: pnpm --filter @tw-election/web build
         env:
-          VITE_BASE: /${{ github.event.repository.name }}/
+          # Served from the custom domain root (vote.harlos.tw). If the site ever moves
+          # back to <user>.github.io/<repo>/, set the SITE_BASE_PATH variable to /<repo>/.
+          VITE_BASE: ${{ vars.SITE_BASE_PATH || '/' }}
           VITE_DATA_BASE_URL: ${{ vars.DATA_BASE_URL }}
       - uses: actions/upload-pages-artifact@v4
         with:
