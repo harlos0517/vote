@@ -25,6 +25,34 @@ function int(s: string | undefined, what: string): number {
 
 const keyOf = (r: string[]): ElKey => ({ prv: r[0]!, cty: r[1]!, dist: r[2]!, town: r[3]!, vil: r[4]!, station: (r[5] ?? "0000").padStart(4, "0") });
 
+/**
+ * 2018 rf* files number townships in CEC's own sequence (臺北市松山區 = 001) instead of the
+ * household-registry codes used everywhere else (= 010). `towns` maps "<county code>|<name>"
+ * to the registry town code, built from a same-day el* elbase; every township must match
+ * exactly one entry or reading fails. Codes below township level stay as published (they are
+ * only used for the internal hierarchy checks; nothing below township is emitted).
+ */
+export function renumberTowns(ds: RfDataset, towns: Map<string, string>): { renamed: number } {
+  const byOld = new Map<string, string>(); // "<county>|<old town>" → new town code
+  const used = new Map<string, string>();
+  for (const u of ds.units.filter((x) => x.level === "town")) {
+    const cc = u.key.prv + u.key.cty;
+    const code = towns.get(`${cc}|${u.name}`);
+    if (!code) throw new Error(`rf: no registry code for township ${cc} ${u.name}`);
+    const prev = used.get(`${cc}|${code}`);
+    if (prev) throw new Error(`rf: ${u.name} and ${prev} both map to ${cc}${code}`);
+    used.set(`${cc}|${code}`, u.name);
+    byOld.set(`${cc}|${u.key.town}`, code);
+  }
+  for (const u of ds.units) {
+    if (u.key.town === "000") continue;
+    const code = byOld.get(`${u.key.prv}${u.key.cty}|${u.key.town}`);
+    if (!code) throw new Error(`rf: unit below an unknown township ${u.key.prv}${u.key.cty}${u.key.town}`);
+    u.key = { ...u.key, town: code };
+  }
+  return { renamed: byOld.size };
+}
+
 export function readRfDir(dir: string): RfDataset {
   const names = new Map<string, string>();
   for (const r of readCecCsv(join(dir, "rfarea.csv"), { header: true })) names.set(`${r[0]}${r[1]}|${r[3]}|${r[4]}`, r[5]!);
