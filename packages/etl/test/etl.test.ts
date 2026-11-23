@@ -7,6 +7,7 @@ import { readRfDir, renumberTowns } from "../src/adapters/cec-rf.ts";
 import { buildRfGroup } from "../src/groups/rf-group.ts";
 import { buildTimelines, proposeSlots } from "../src/lib/timelines.ts";
 import { planVillages } from "../src/geo/villages.ts";
+import { chooseSwaps } from "../src/geo/mix.ts";
 import { villageUnitId } from "../src/groups/el-group.ts";
 import { checkElDataset } from "../src/validate/el-checks.ts";
 import { buildElGroup, largestRemainder, type ElGroupDef } from "../src/groups/el-group.ts";
@@ -222,12 +223,27 @@ describe("year-slider timelines", () => {
   });
 });
 
+describe("mixed village snapshots", () => {
+  const snap = (v: string, codes: string[]) => ({ versionId: `nlsc-village-${v}`, codes: new Set(codes) });
+  const base = snap("1101214", ["10014010001", "10015040001", "10015040009"]);
+  const older = snap("1091030", ["10014010001", "10014010002", "10015040001"]);
+  const oldest = snap("1081121", ["10014010001", "10014010002", "10015040001"]);
+  it("swaps townships missing reported villages, or (general electorate) having unknown ones, to the nearest fitting snapshot", () => {
+    const vils = ["10014010001", "10014010002", "10015040001"];
+    const r = chooseSwaps("2021-12-18", base, [oldest, older], vils, new Set(vils), true);
+    expect([...r.swaps].map(([t, s]) => [t, s.versionId])).toEqual([["10014010", "nlsc-village-1091030"], ["10015040", "nlsc-village-1091030"]]);
+    // Indigenous electorates: villages without such voters are normal, so extra villages do not trigger a swap.
+    expect([...chooseSwaps("2021-12-18", base, [older], vils, new Set(vils), false).swaps.keys()]).toEqual(["10014010"]);
+    expect(chooseSwaps("2021-12-18", base, [], vils, new Set(vils), true).unresolved).toEqual(["10014010", "10015040"]);
+  });
+});
+
 describe("村里 level", () => {
   const unit = (id: string, nameZh: string) => ({ id, level: "village" as const, nameZh, parentId: "town:09007010", contestIds: ["e.c"] });
   const row = (members: string[] | "overlap") => ({ members, source: "x", reviewed: true });
   it("ids single villages by MOI code and station-sharing groups by CEC code", () => {
-    expect(villageUnitId({ prv: "09", cty: "007", dist: "00", town: "010", vil: "0002", station: "0000" })).toBe("vil:09007010002");
-    expect(villageUnitId({ prv: "09", cty: "007", dist: "00", town: "010", vil: "0A01", station: "0000" })).toBe("vgrp:09007010-0A01");
+    expect(villageUnitId({ prv: "09", cty: "007", dist: "00", town: "010", vil: "0002", station: "0000" }, "莊敬里")).toBe("vil:09007010002");
+    expect(villageUnitId({ prv: "09", cty: "007", dist: "00", town: "010", vil: "0A01", station: "0000" }, "復興村、福沃村")).toBe("vgrp:09007010-0A01");
   });
   it("merges groups, skips overlapping or clashing ones, and notes villages missing a group's votes", () => {
     const units = [unit("vil:09007010001", "甲村"), unit("vgrp:09007010-0A01", "乙村、丙村"), unit("vgrp:09007010-0A02", "甲村、丁村"), unit("vgrp:09007010-0A03", "各里原住民")];

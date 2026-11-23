@@ -8,7 +8,7 @@ import { type ElUnit, countyCode, townCode } from "../adapters/cec-el.ts";
 import { AGREE, DISAGREE, type RfDataset } from "../adapters/cec-rf.ts";
 import { PUA_RE } from "../lib/csv.ts";
 import { checkElDataset } from "../validate/el-checks.ts";
-import { type BuiltGroup, type ElGroupDef, groupId, levelsOf } from "./el-group.ts";
+import { type BuiltGroup, type ElGroupDef, groupId, levelsOf, villageUnitId } from "./el-group.ts";
 
 /** 公民投票法第29條: 有效同意票多於不同意票，且有效同意票達投票權人總額四分之一以上。 */
 export const REFERENDUM_RULE = { agreeMustExceedDisagree: true, agreeQuorumOfElectors: 0.25, legalBasis: "公民投票法第29條" };
@@ -64,6 +64,9 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
         return { id: `cty:${countyCode(u.key)}`, level: "county", nameZh: u.name, parentId: "nat", contestIds: [contestId] };
       case "town":
         return { id: `town:${townCode(u.key)}`, level: "town", nameZh: u.name, parentId: `cty:${countyCode(u.key)}`, contestIds: [contestId] };
+      case "village":
+        if (!d.villages) return null;
+        return { id: villageUnitId(u.key, u.name), level: "village", nameZh: u.name, parentId: `town:${townCode(u.key)}`, contestIds: [contestId] };
       default:
         return null;
     }

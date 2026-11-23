@@ -17,9 +17,10 @@ import { parseCecCsv } from "./lib/csv.ts";
 import { type ElDataset, countyCode, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
 import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
 import { type BuiltGroup, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
-import { GROUPS } from "./groups/defs.ts";
+import { ALL_SNAPSHOTS, GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries, buildVillages } from "./geo/build.ts";
-import { loadVillageGroups, planVillages, villageGeoCode } from "./geo/villages.ts";
+import { loadVillageGroups, planVillages, villageGeoCode, villageGroupKey } from "./geo/villages.ts";
+import { buildComposite, planMix, snapshotCodes } from "./geo/mix.ts";
 import { loadPartyColors } from "./lib/party-colors.ts";
 import { applyPuaNames, loadPuaNames } from "./lib/pua-names.ts";
 import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
@@ -50,6 +51,7 @@ interface GroupOutput {
   sources: SourceFile[];
   notes: { unit: string; note: string }[];
   village?: { geo: GeoJSON; path: string };
+  boundaryVersion: string;
 }
 
 export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseId?: string; checks: ValidationCheck[] }> {
@@ -61,7 +63,8 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const zipDirs = GROUPS.flatMap((g) => [...g.archiveDirs, ...(g.extra ? [g.extra.archiveDir, g.extra.refArchiveDir] : [])]);
   unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, [...new Set(zipDirs)].map((d) => `${d}*`));
   const shapefiles = new Map<string, string>(); // boundary versionId → village .shp
-  for (const b of new Map(GROUPS.map((g) => [g.boundary.versionId, g.boundary])).values()) {
+  const snapshotsNeeded = [...GROUPS.map((g) => g.boundary), ...(GROUPS.some((g) => g.mixSnapshots) ? ALL_SNAPSHOTS : [])];
+  for (const b of new Map(snapshotsNeeded.map((s) => [s.versionId, s])).values()) {
     const raw = RAW_SOURCES[b.raw];
     const villWork = join(o.workDir, "nlsc-village-history", raw.file.replace(/\.bin$/, ""));
     unzip(join(o.rawDir, raw.id, raw.file), villWork);
@@ -76,6 +79,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const geoByLayout = new Map<string, Boundaries>();
   const villageGeo = new Map<string, GeoJSON>();
   const villageGroups = loadVillageGroups(o.repoRoot);
+  const composites = new Map<string, string>();
   const allChecks: ValidationCheck[] = [];
   for (const def of GROUPS) {
     const gid = groupId(def);
@@ -89,12 +93,46 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       : buildElGroup(def, ds, partyColors, def.choiceKind === "party" ? readElPartyList(dir) : undefined);
     const checks = [...built.checks, puaCheck, ...checkOfficialAnnouncements(o.repoRoot, built)];
 
+    // Mixed snapshots: townships whose reported villages the year's snapshot lacks come from the nearest one that has them.
+    let boundaryVersion = def.boundary.versionId;
+    let shp = shapefiles.get(def.boundary.versionId)!;
+    if (def.mixSnapshots && built.results.village) {
+      const vils = built.results.village.units.filter((u) => u.id.startsWith("vil:") && u.id !== `vil:${MAJIA}006`).map((u) => u.id.slice(4));
+      const base = { versionId: def.boundary.versionId, shp };
+      const others = ALL_SNAPSHOTS.filter((s) => s.versionId !== base.versionId).map((s) => ({ versionId: s.versionId, shp: shapefiles.get(s.versionId)! }));
+      // Group members count as known villages (their votes are reported, just not separately).
+      const known = new Set([...vils, `${MAJIA}006`]);
+      for (const u of built.results.village.units.filter((x) => x.id.startsWith("vgrp:"))) {
+        const [town, code] = u.id.slice(5).split("-") as [string, string];
+        const row = villageGroups.get(villageGroupKey(def.election.id, town, code, u.nameZh));
+        if (row && row.members !== "overlap") for (const m of row.members) known.add(m);
+      }
+      const mix = await planMix(def.election.date, base, others, vils, known, def.electorate === "general", join(o.workDir, "geo", "codes"));
+      if (mix.swaps.size) {
+        const alts = [...new Set([...mix.swaps.values()].map((s) => s.versionId))].sort();
+        const hash = createHash("sha1").update(JSON.stringify([...mix.swaps].map(([t, s]) => [t, s.versionId]).sort())).digest("hex").slice(0, 6);
+        boundaryVersion = `${base.versionId}-mix-${alts.map((a) => a.replace("nlsc-village-", "")).join("-")}-${hash}`;
+        shp = composites.get(boundaryVersion) ?? (await buildComposite(base, mix, join(o.workDir, "geo", boundaryVersion)));
+        composites.set(boundaryVersion, shp);
+        const townName = new Map(built.results.town!.units.map((u) => [u.id.slice(u.id.indexOf(":") + 1, u.id.indexOf(":") + 9), u.nameZh.replace(/（.*）$/, "")]));
+        const countyName = new Map(built.results.county!.units.map((u) => [u.id.slice(4), u.nameZh]));
+        for (const alt of alts) {
+          const ts = [...mix.swaps].filter(([, s]) => s.versionId === alt).map(([t]) => `${countyName.get(t.slice(0, 5)) ?? ""}${townName.get(t) ?? t}`);
+          built.group.warnings.push(
+            `村里整編：${ts.join("、")}的村里依 ${alt.replace("nlsc-village-", "")} 版界線繪製（${base.versionId.replace("nlsc-village-", "")} 版已是整編後的村里，與此次選舉的村里不符），其餘地區用 ${base.versionId.replace("nlsc-village-", "")} 版。`,
+          );
+        }
+        checks.push({ id: "boundary-mix", status: "pass", detail: `${mix.swaps.size} townships drawn from ${alts.join(", ")}: ${[...mix.swaps.keys()].join(", ")}` });
+      }
+      if (mix.unresolved.length) checks.push({ id: "boundary-mix", status: "warn", detail: `no snapshot has all reported villages of ${mix.unresolved.join(", ")}` });
+    }
+
     // Groups sharing a boundary version and layout share its shapes (plain "admin" towns are the same).
-    const geoKey = `${def.boundary.versionId}/${def.layout}`;
+    const geoKey = `${boundaryVersion}/${def.layout}`;
     let geo = geoByLayout.get(geoKey);
     if (!geo) {
       log(`  boundaries (${geoKey})`);
-      geo = await buildBoundaries(shapefiles.get(def.boundary.versionId)!, join(o.workDir, "geo", geoKey), partsFor(def, ds, built), def.contests === "district");
+      geo = await buildBoundaries(shp, join(o.workDir, "geo", geoKey), partsFor(def, ds, built), def.contests === "district");
       geoByLayout.set(geoKey, geo);
     }
     const unassigned: string[] = [];
@@ -112,7 +150,9 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       unassigned.push(...c.extraFeatures);
     }
     const notes: GroupOutput["notes"] = [];
-    const majia = built.results.town!.units.filter((u) => u.id.includes(MAJIA));
+    // Later snapshots keep 三和村 in a separate disputed layer; up to 1091030 it is in the main layer and drawn.
+    const sanheApart = !(await snapshotCodes({ versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes"))).has(`${MAJIA}006`);
+    const majia = sanheApart ? built.results.town!.units.filter((u) => u.id.includes(MAJIA)) : [];
     for (const u of majia) {
       notes.push({ unit: u.id, note: "瑪家鄉三和村位於圖資另存的爭議圖層，與內埔鄉、鹽埔鄉、長治鄉圖面重疊，地圖未繪出；其票數依中選會資料計入瑪家鄉。" });
     }
@@ -122,15 +162,16 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       const plan = planVillages(def.election.id, built.results.village.units, villageGroups);
       checks.push(...plan.checks);
       const hash = createHash("sha1").update(JSON.stringify([...plan.assign].sort())).digest("hex").slice(0, 8);
-      const vKey = `${def.boundary.versionId}/vil-${hash}`;
+      const vKey = `${boundaryVersion}/vil-${hash}`;
       let g = villageGeo.get(vKey);
       if (!g) {
         log(`  villages (${vKey})`);
-        g = await buildVillages(shapefiles.get(def.boundary.versionId)!, join(o.workDir, "geo", vKey), plan.assign);
+        g = await buildVillages(shp, join(o.workDir, "geo", vKey), plan.assign);
         villageGeo.set(vKey, g);
       }
       const noShape = new Map(plan.noShape.map((x) => [x.unit, x.note]));
-      const sanhe = built.results.village.units.find((u) => u.id === `vil:${MAJIA}006`);
+      // 三和村 is drawn when the snapshot has it in its main layer (up to 1091030); later ones keep it apart.
+      const sanhe = built.results.village.units.find((u) => u.id === `vil:${MAJIA}006` && !g!.features.some((f) => f.properties.code === `${MAJIA}006`));
       if (sanhe) noShape.set(sanhe.id, "三和村位於圖資另存的爭議圖層，與內埔鄉、鹽埔鄉、長治鄉圖面重疊，地圖未繪出。");
       const drawn = built.results.village.units.filter((u) => !noShape.has(u.id)).map((u) => villageGeoCode(u.id));
       // Non-village polygons (未編定 "…S01" and NLSC's other "…P01", "…I01", "…R01" areas), members of groups
@@ -153,7 +194,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     const sources = [];
     for (const a of def.archiveDirs) sources.push(...(await sourceFiles(join(cecWork, a), a, rf ? RF_FILES : EL_FILES)));
     if (def.extra) sources.push(...(await sourceFiles(join(cecWork, def.extra.archiveDir), def.extra.archiveDir, ["cand.csv", "prof.csv"])));
-    outputs.push({ def, built, geo, checks, sources, notes, village });
+    outputs.push({ def, built, geo, checks, sources, notes, village, boundaryVersion });
   }
 
   const tl = buildTimelines(
@@ -172,7 +213,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const files: PendingFile[] = [];
   const geoWritten = new Set<string>();
   const dataSources: DataSource[] = [DATA_SOURCES.cec, DATA_SOURCES.nlscVillageHistory];
-  for (const { def, built, geo, checks, sources, notes, village } of outputs) {
+  for (const { def, built, geo, checks, sources, notes, village, boundaryVersion } of outputs) {
     const gid = groupId(def);
     const resultPaths: Record<string, string> = {};
     for (const [level, rf] of Object.entries(built.results)) {
@@ -186,7 +227,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       if (!g) continue;
       // County shapes are identical for every layout: publish them once.
       const layout = level === "county" ? "admin" : def.layout;
-      const path = `geography/${def.boundary.versionId}/${layout}/${level}.geojson`;
+      const path = `geography/${boundaryVersion}/${layout}/${level}.geojson`;
       geoPaths[level] = path;
       if (!geoWritten.has(path)) {
         files.push({ path, body: json(g) });
@@ -211,7 +252,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       persons: built.persons,
       parties: built.parties,
       sources: dataSources,
-      boundary: { versionId: def.boundary.versionId, sourceId: DATA_SOURCES.nlscVillageHistory.id, files: geoPaths, notes },
+      boundary: { versionId: boundaryVersion, sourceId: DATA_SOURCES.nlscVillageHistory.id, files: geoPaths, notes },
       results: resultPaths,
       validation: checks,
     });

@@ -53,8 +53,10 @@ export interface ElGroupDef {
   contestNameSuffix?: string;
   /** Village-boundary snapshot used for every map level. */
   boundary: BoundaryDef;
-  /** Publish the 村里 level (Phase 2; years whose villages match their snapshot). */
+  /** Publish the 村里 level (Phase 2). */
   villages?: boolean;
+  /** Take townships whose villages are missing from `boundary` from the nearest snapshot that has them (geo/mix.ts). */
+  mixSnapshots?: boolean;
   /** "party": 不分區政黨票 — the ballot lists parties; list members come from elrepm.csv. */
   choiceKind: "ticket" | "candidate" | "party" | "referendum";
   /** 2018 rf*: el* directories (same day) whose elbase gives each township's registry code by name. */
@@ -73,7 +75,7 @@ export interface BoundaryDef {
   /** Published id, e.g. "nlsc-village-1120928". */
   versionId: string;
   /** Key of the raw source in RAW_SOURCES and the shapefile name inside it. */
-  raw: "nlscVillage107" | "nlscVillage108" | "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
+  raw: "nlscVillage107" | "nlscVillage108" | "nlscVillage109" | "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
   shapefile: RegExp;
 }
 
@@ -94,10 +96,14 @@ export function levelsOf(d: ElGroupDef): ReportingLevel[] {
   return d.villages ? [...base, "village"] : base;
 }
 
-/** 村里 unit id: "vil:<MOI village code>" for a single village, "vgrp:<town>-<CEC code>" for a group sharing stations. */
-export function villageUnitId(k: ElKey): string {
+/**
+ * 村里 unit id: "vil:<MOI village code>" for a single village, "vgrp:<town>-<CEC code>" for a group
+ * sharing stations. Groups have letter codes ("0A01") or, in 2021's rf* files, numeric codes that
+ * look like villages ("0010") but are named with 「、」 (復興村、福沃村), so the name decides too.
+ */
+export function villageUnitId(k: ElKey, name: string): string {
   const tc = townCode(k);
-  return /^0\d{3}$/.test(k.vil) ? `vil:${tc}${k.vil.slice(1)}` : `vgrp:${tc}-${k.vil}`;
+  return /^0\d{3}$/.test(k.vil) && !name.includes("、") ? `vil:${tc}${k.vil.slice(1)}` : `vgrp:${tc}-${k.vil}`;
 }
 
 function contestIdOf(d: ElGroupDef, county: string | null, dist: string | null): string {
@@ -359,7 +365,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
         if (!ci || !d.villages) return null;
         const tc = townCode(u.key);
         const parentId = multi ? `tp:${tc}-${u.key.dist}` : `town:${tc}`;
-        return { unit: { id: villageUnitId(u.key), level: "village", nameZh: u.name, parentId, contestIds: [ci.id] }, contests: [ci] };
+        return { unit: { id: villageUnitId(u.key, u.name), level: "village", nameZh: u.name, parentId, contestIds: [ci.id] }, contests: [ci] };
       }
       default:
         return null;

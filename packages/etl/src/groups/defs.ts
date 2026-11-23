@@ -10,6 +10,7 @@ const B2024: BoundaryDef = { versionId: "nlsc-village-1120928", raw: "nlscVillag
 const B2018: BoundaryDef = { versionId: "nlsc-village-1071130", raw: "nlscVillage107", shapefile: /^VILLAGE_MOI_1071130\.shp$/ };
 const B2018_NOTE = "界線使用選後 6 天的 1071130 版：選前最近的 1070205 版圖檔座標損毀（國土測繪中心原檔），無法使用。";
 const B2020: BoundaryDef = { versionId: "nlsc-village-1081121", raw: "nlscVillage108", shapefile: /^VILLAGE_MOI_1081121\.shp$/ };
+const B2020_1091030: BoundaryDef = { versionId: "nlsc-village-1091030", raw: "nlscVillage109", shapefile: /^VILLAGE_MOI_1091030\.shp$/ };
 const B2021: BoundaryDef = { versionId: "nlsc-village-1101214", raw: "nlscVillage110", shapefile: /^VILLAGE_MOI_1101214\.shp$/ };
 const B2022: BoundaryDef = { versionId: "nlsc-village-1111118", raw: "nlscVillage111", shapefile: /^VILLAGE_MOI_1111118\.shp$/ };
 
@@ -60,8 +61,10 @@ export const E2018R: ElectionDef = {
 };
 
 /** One group per case: cases voted on together are still separate questions. */
-const nationalReferendum = (election: ElectionDef, boundary: BoundaryDef, rfTownCodesFrom?: string[]) => (n: number): ElGroupDef => ({
+const nationalReferendum = (election: ElectionDef, boundary: BoundaryDef, rfTownCodesFrom?: string[], villages = false) => (n: number): ElGroupDef => ({
   election,
+  villages,
+  mixSnapshots: villages,
   ...(rfTownCodesFrom ? { rfTownCodesFrom } : {}),
   local: `case-${n}`,
   nameZh: `全國性公民投票案第${n}案`,
@@ -101,13 +104,15 @@ interface PresLegDef {
   splitTowns: number;
   /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
   villages?: boolean;
+  /** Mix snapshots per township where villages were reorganised (geo/mix.ts). */
+  mix?: boolean;
 }
 
 const P2024: PresLegDef = { election: E2024, dir: "votedata/votedata/voteData/2024總統立委/", boundary: B2024, presidentTerm: 16, legislatorTerm: 11, splitTowns: 12, villages: true };
-const P2020: PresLegDef = { election: E2020, dir: "votedata/votedata/voteData/2020總統立委/", boundary: B2020, presidentTerm: 15, legislatorTerm: 10, splitTowns: 12 };
+const P2020: PresLegDef = { election: E2020, dir: "votedata/votedata/voteData/2020總統立委/", boundary: B2020, presidentTerm: 15, legislatorTerm: 10, splitTowns: 12, villages: true, mix: true };
 
 function presidentLegislative(p: PresLegDef): ElGroupDef[] {
-  const base = { election: p.election, boundary: p.boundary, villages: p.villages ?? false };
+  const base = { election: p.election, boundary: p.boundary, villages: p.villages ?? false, mixSnapshots: p.mix ?? false };
   const indigenous = (kind: "山地" | "平地"): ElGroupDef => ({
     ...base,
     local: kind === "山地" ? "legislator-highland-indigenous" : "legislator-lowland-indigenous",
@@ -280,11 +285,14 @@ function localElections(l: LocalDef): ElGroupDef[] {
   ];
 }
 
+/** Every village snapshot a mixed-snapshot group may borrow townships from. */
+export const ALL_SNAPSHOTS: BoundaryDef[] = [B2018, B2020, B2020_1091030, B2021, B2022, B2024];
+
 export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2024),
   ...presidentLegislative(P2020),
   ...localElections(L22),
   ...localElections(L18),
-  ...[17, 18, 19, 20].map(nationalReferendum(E2021R, B2021)),
+  ...[17, 18, 19, 20].map(nationalReferendum(E2021R, B2021, undefined, true)),
   ...[7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(nationalReferendum(E2018R, B2018, L18.dirs.mayor)),
 ];
