@@ -2,7 +2,7 @@
 
 開源的臺灣歷史選舉互動地圖。資料來自中央選舉委員會與內政部國土測繪中心的官方開放資料，經離線 ETL 驗證後，以版本化靜態檔發布到 Cloudflare R2。網站本身是 GitHub Pages 上的靜態頁面。
 
-**目前狀態：Phase 1（MVP）**。只收錄 2024 第16任總統副總統選舉，提供縣市與鄉鎮市區兩個層級。規格見 [開發指引](taiwan-election-map-development-guide.md)，資料可行性分析見 [Phase 0 報告](docs/phase0-report.md)。
+**目前狀態：Phase 1（MVP）已完成並上線**：<https://vote.harlos.tw>，資料版本 `r-9299d522ddd8`。目前只收錄 2024 第16任總統副總統選舉，提供縣市與鄉鎮市區兩個層級。規格見 [開發指引](taiwan-election-map-development-guide.md)，資料可行性分析見 [Phase 0 報告](docs/phase0-report.md)。
 
 ## 快速開始
 
