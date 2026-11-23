@@ -4,11 +4,12 @@
  */
 import type { z } from "zod";
 import {
-  ContestMetadataFile,
+  DATA_PREFIX,
+  GroupMetadataFile,
+  GroupResultsFile,
   Manifest,
   PartiesFile,
   ReleaseIndexFile,
-  ResultsFile,
   SCHEMA_VERSION,
 } from "@tw-election/schema";
 
@@ -32,21 +33,21 @@ export interface FeatureCollection {
 }
 
 export const paths = {
-  manifest: () => "v1/manifest.json",
-  release: (release: string, rel: string) => `v1/releases/${release}/${rel}`,
+  manifest: () => `${DATA_PREFIX}/manifest.json`,
+  release: (release: string, rel: string) => `${DATA_PREFIX}/releases/${release}/${rel}`,
   index: (release: string) => paths.release(release, "index.json"),
   parties: (release: string) => paths.release(release, "parties.json"),
-  contest: (release: string, contestId: string) => paths.release(release, `contests/${contestId}/metadata.json`),
+  group: (release: string, groupId: string) => paths.release(release, `groups/${groupId}/metadata.json`),
 };
 
 export interface DataClient {
   manifest(): Promise<z.infer<typeof Manifest>>;
   index(release: string): Promise<z.infer<typeof ReleaseIndexFile>>;
   parties(release: string): Promise<z.infer<typeof PartiesFile>>;
-  contest(release: string, contestId: string): Promise<z.infer<typeof ContestMetadataFile>>;
-  /** `path` is release-relative, taken from ContestMetadataFile.results[level]. */
-  results(release: string, path: string): Promise<z.infer<typeof ResultsFile>>;
-  /** `path` is release-relative, taken from ContestMetadataFile.boundary.files[level]. */
+  group(release: string, groupId: string): Promise<z.infer<typeof GroupMetadataFile>>;
+  /** `path` is release-relative, taken from GroupMetadataFile.results[level]. */
+  results(release: string, path: string): Promise<z.infer<typeof GroupResultsFile>>;
+  /** `path` is release-relative, taken from GroupMetadataFile.boundary.files[level]. */
   geography(release: string, path: string): Promise<FeatureCollection>;
 }
 
@@ -85,8 +86,8 @@ export function createDataClient(baseUrl: string, fetchImpl: typeof fetch = glob
     manifest: () => getParsed(Manifest, paths.manifest(), { cache: "no-cache" }),
     index: (release) => getParsed(ReleaseIndexFile, paths.index(release)),
     parties: (release) => getParsed(PartiesFile, paths.parties(release)),
-    contest: (release, id) => getParsed(ContestMetadataFile, paths.contest(release, id)),
-    results: (release, path) => getParsed(ResultsFile, paths.release(release, path)),
+    group: (release, id) => getParsed(GroupMetadataFile, paths.group(release, id)),
+    results: (release, path) => getParsed(GroupResultsFile, paths.release(release, path)),
     geography: async (release, path) => {
       const raw = (await getJson(paths.release(release, path))) as FeatureCollection;
       if (raw?.type !== "FeatureCollection" || !Array.isArray(raw.features)) {

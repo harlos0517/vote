@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDataClient, DataError } from "../src/index.ts";
 
 const manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   currentRelease: "r-abc",
   releases: [{ id: "r-abc", createdAt: "2026-11-23T00:00:00Z", etlVersion: "0.0.0+x", elections: ["2024-01-13-x"], validation: "passed" }],
 };
@@ -19,19 +19,19 @@ function fakeFetch(map: Record<string, unknown>, calls: string[] = []): typeof f
 describe("data client", () => {
   it("builds URLs from the base and parses the manifest", async () => {
     const calls: string[] = [];
-    const c = createDataClient("https://data.example", fakeFetch({ "https://data.example/v1/manifest.json": manifest }, calls));
+    const c = createDataClient("https://data.example", fakeFetch({ "https://data.example/v2/manifest.json": manifest }, calls));
     await expect(c.manifest()).resolves.toMatchObject({ currentRelease: "r-abc" });
-    expect(calls).toEqual(["https://data.example/v1/manifest.json"]);
+    expect(calls).toEqual(["https://data.example/v2/manifest.json"]);
   });
 
   it("classifies HTTP, JSON, schema and version failures", async () => {
     const base = "https://d/";
     const c = createDataClient(base, fakeFetch({
-      "https://d/v1/releases/r/index.json": "{not json",
-      "https://d/v1/releases/r/parties.json": { schemaVersion: 1, parties: [{ id: "BAD ID" }] },
-      "https://d/v1/manifest.json": { ...manifest, schemaVersion: 2 },
+      "https://d/v2/releases/r/index.json": "{not json",
+      "https://d/v2/releases/r/parties.json": { schemaVersion: 2, parties: [{ id: "BAD ID" }] },
+      "https://d/v2/manifest.json": { ...manifest, schemaVersion: 3 },
     }));
-    await expect(c.contest("r", "x")).rejects.toMatchObject({ kind: "http", status: 404 });
+    await expect(c.group("r", "x")).rejects.toMatchObject({ kind: "http", status: 404 });
     await expect(c.index("r")).rejects.toMatchObject({ kind: "parse" });
     await expect(c.parties("r")).rejects.toMatchObject({ kind: "schema" });
     await expect(c.manifest()).rejects.toBeInstanceOf(DataError);
