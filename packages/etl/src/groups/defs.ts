@@ -78,7 +78,7 @@ const nationalReferendum = (election: ElectionDef, boundary: BoundaryDef, rfTown
   choiceKind: "referendum",
   layout: "admin",
   warnings: [
-    "村里及投開票所層級資料已取得並通過驗證，但目前僅發布至鄉鎮市區層級。",
+    "投開票所層級資料已取得並通過驗證，但只發布到村里層級。",
     "通過門檻（公民投票法第29條）：有效同意票多於不同意票，且有效同意票達投票權人總額四分之一以上。門檻以全國計算，地方數值僅供參考。",
     "公投結果檔不含主文；主文另依公投公報登錄並註明出處。",
     ...(rfTownCodesFrom ? ["此屆公投結果檔的鄉鎮市區代碼為中選會自編序號，已依名稱逐一對應為戶政代碼（同日地方選舉資料），並全數核對。", B2018_NOTE] : []),
@@ -87,8 +87,9 @@ const nationalReferendum = (election: ElectionDef, boundary: BoundaryDef, rfTown
 
 const L2022 = "votedata/votedata/voteData/2022-111年地方公職人員選舉/";
 
-const COMMON_WARNINGS = [
-  "村里及投開票所層級資料已取得並通過驗證，但目前僅發布至鄉鎮市區層級。",
+/** Shared by many groups: never mutate (groups copy their warnings before the pipeline appends). */
+const COMMON_WARNINGS: readonly string[] = [
+  "投開票所層級資料已取得並通過驗證，但只發布到村里層級。",
   "人口數僅縣市以上層級有官方數值；以下層級標示為無資料。",
 ];
 
@@ -141,7 +142,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       contests: "single",
       choiceKind: "ticket",
       layout: "admin",
-      warnings: COMMON_WARNINGS,
+      warnings: [...COMMON_WARNINGS],
     },
     {
       ...base,

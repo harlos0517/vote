@@ -463,7 +463,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     : results.town!.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null }));
 
   return {
-    group: { id: gid, nameZh: d.nameZh, office: d.office, electorate: d.electorate, levels, warnings: d.warnings },
+    group: { id: gid, nameZh: d.nameZh, office: d.office, electorate: d.electorate, levels, warnings: [...d.warnings] }, // own copy: the pipeline appends to it
     contests,
     choices,
     candidacies,

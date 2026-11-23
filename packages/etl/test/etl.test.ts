@@ -267,6 +267,18 @@ describe("村里 level", () => {
   });
 });
 
+describe("group warnings", () => {
+  it("are copied per group, so notes appended to one group never leak into another sharing a definition", () => {
+    const shared = ["共同說明"];
+    const def = { ...PRES, warnings: shared };
+    const a = buildElGroup(def, readElDir(FIX), new Map());
+    const b = buildElGroup(def, readElDir(FIX), new Map());
+    a.group.warnings.push("只屬於 a");
+    expect(b.group.warnings).toEqual(["共同說明"]);
+    expect(shared).toEqual(["共同說明"]);
+  });
+});
+
 describe("release id", () => {
   it("is a content hash independent of file order", () => {
     const a = [{ path: "a.json", body: "1" }, { path: "b.json", body: "2" }];
@@ -284,6 +296,6 @@ describe("party colours", () => {
     expect(checkPartyColors([1, 999], unreviewed).status).toBe("warn");
     const reviewed = new Map([[1, { color: "#000099", reviewed: true, source: "x" }]]);
     expect(checkPartyColors([1, 999], reviewed).status).toBe("pass");
-    expect(checkPartyColors([5], reviewed).detail).toMatch(/neutral grey/);
+    expect(checkPartyColors([5], reviewed).detail).toMatch(/其他政黨 colour/);
   });
 });

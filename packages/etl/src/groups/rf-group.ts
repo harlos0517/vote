@@ -128,7 +128,7 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
   };
 
   return {
-    group: { id: gid, nameZh: d.nameZh, office: d.office, electorate: d.electorate, levels, warnings: d.warnings },
+    group: { id: gid, nameZh: d.nameZh, office: d.office, electorate: d.electorate, levels, warnings: [...d.warnings] }, // own copy: the pipeline appends to it
     contests: [contest],
     choices,
     candidacies: [],
