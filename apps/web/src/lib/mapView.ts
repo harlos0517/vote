@@ -107,9 +107,13 @@ export function buildMapView(meta: ContestMetadataFile, units: UnitView[], v: Vi
       seen.add(t.index);
       const base = colorsByChoice[t.index]!;
       colors.set(code, v.shadeTop && t.share !== null ? shade(base, seq.t(t.share)) : base);
-      if (!t.elected) hatched.add(code);
+      if (!t.elected && v.hatchUnelected) hatched.add(code);
     }
-    const item = (i: number): LegendItem => ({ label: `${choices[i]!.ballotNumber} ${choices[i]!.labelZh}`, color: colorsByChoice[i]!, hatched: !elected[i] });
+    const item = (i: number): LegendItem => ({
+      label: `${choices[i]!.ballotNumber} ${choices[i]!.labelZh}`,
+      color: colorsByChoice[i]!,
+      hatched: !elected[i] && v.hatchUnelected,
+    });
     const shown = choices.map((_, i) => i).filter((i) => seen.has(i));
     return {
       colors,
@@ -118,7 +122,7 @@ export function buildMapView(meta: ContestMetadataFile, units: UnitView[], v: Vi
         title: "各地區得票最多的候選人",
         groups: [
           { title: "當選", items: shown.filter((i) => elected[i]).map(item) },
-          { title: "未當選（斜線）", items: shown.filter((i) => !elected[i]).map(item) },
+          { title: v.hatchUnelected ? "未當選（斜線）" : "未當選", items: shown.filter((i) => !elected[i]).map(item) },
         ].filter((g) => g.items.length),
         note: v.shadeTop ? `顏色越深，該候選人得票率越高（分母：${denLabel}）。` : undefined,
       },

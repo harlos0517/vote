@@ -59,7 +59,10 @@ export function Controls({
             />
           )}
           {view.mode === "top" && (
-            <Switch size="xs" label="依得票率調整顏色深淺" checked={view.shadeTop} onChange={(e) => setView({ shadeTop: e.currentTarget.checked })} />
+            <>
+              <Switch size="xs" label="依得票率調整顏色深淺" checked={view.shadeTop} onChange={(e) => setView({ shadeTop: e.currentTarget.checked })} />
+              <Switch size="xs" label="以斜線標示未當選者" checked={view.hatchUnelected} onChange={(e) => setView({ hatchUnelected: e.currentTarget.checked })} />
+            </>
           )}
           {view.mode === "share" && (
             <>

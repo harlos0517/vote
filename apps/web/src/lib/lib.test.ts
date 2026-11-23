@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ContestMetadataFile, ResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
-import { divergingScale, sequentialScale, snapDomain } from "./colors.ts";
+import { NEUTRAL, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, choiceColors, denominatorOf, electedByChoice, localTop, shareOf, twoPartyDiff } from "./views.ts";
 import { buildMapView } from "./mapView.ts";
@@ -40,7 +40,7 @@ const meta = {
 // --- URL state ----------------------------------------------------------------
 describe("view state hash", () => {
   it("round-trips every option and keeps defaults out of the URL", () => {
-    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "county" as const, mode: "share" as const, formula: "ratio" as const, choice: "n2", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, unit: "cty:63000" };
+    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "county" as const, mode: "share" as const, formula: "ratio" as const, choice: "n2", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, hatchUnelected: false, unit: "cty:63000" };
     expect(parseHash(formatHash(s))).toEqual(s);
     expect(formatHash(DEFAULT_VIEW)).toBe("#/?");
     expect(parseHash("")).toEqual(DEFAULT_VIEW);
@@ -102,13 +102,21 @@ describe("當選候選人 view", () => {
     expect([...v.hatched]).toEqual(["A"]);
     expect(v.legend.groups?.map((g) => g.title)).toEqual(["當選", "未當選（斜線）"]);
   });
+  it("drops the hatching (map and legend) when the marker is switched off", () => {
+    const units = [unit("A", [20, 30, 50]), unit("B", [10, 60, 30])];
+    const v = buildMapView(meta, units, { ...DEFAULT_VIEW, mode: "top", hatchUnelected: false });
+    expect(v.hatched.size).toBe(0);
+    expect(v.legend.groups?.map((g) => g.title)).toEqual(["當選", "未當選"]);
+    expect(v.legend.groups?.flatMap((g) => g.items).some((i) => i.hatched)).toBe(false);
+    expect(parseHash(formatHash({ ...DEFAULT_VIEW, hatchUnelected: false })).hatchUnelected).toBe(false);
+  });
   it("uses party colours, with neutral grey for independents", () => {
     const withInd = {
       ...meta,
       choices: [...meta.choices, { ...meta.choices[0]!, id: "n4", partyId: "cec-999" }],
       parties: [...meta.parties, { id: "cec-999", nameZh: "無黨籍", color: null, isIndependent: true }],
     } as unknown as ContestMetadataFile;
-    expect(choiceColors(withInd)).toEqual(["#28C7C7", "#1B9431", "#000099", "#8c8c8c"]);
+    expect(choiceColors(withInd)).toEqual(["#28C7C7", "#1B9431", "#000099", NEUTRAL]);
   });
 });
 

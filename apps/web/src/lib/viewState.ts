@@ -24,6 +24,8 @@ export interface ViewState {
   invalid: boolean;
   abstain: boolean;
   shadeTop: boolean;
+  /** 當選候選人 view: hatch areas whose local top candidate was not elected. */
+  hatchUnelected: boolean;
   unit: string | null; // locked unit
 }
 
@@ -38,6 +40,7 @@ export const DEFAULT_VIEW: ViewState = {
   invalid: false,
   abstain: false,
   shadeTop: true,
+  hatchUnelected: true,
   unit: null,
 };
 
@@ -60,6 +63,7 @@ export function parseHash(hash: string): ViewState {
     invalid: bool(q.get("inv"), d.invalid),
     abstain: bool(q.get("abs"), d.abstain),
     shadeTop: bool(q.get("sh"), d.shadeTop),
+    hatchUnelected: bool(q.get("ht"), d.hatchUnelected),
     unit: q.get("u"),
   };
 }
@@ -78,6 +82,7 @@ export function formatHash(s: ViewState): string {
   if (s.invalid !== d.invalid) q.set("inv", s.invalid ? "1" : "0");
   if (s.abstain !== d.abstain) q.set("abs", s.abstain ? "1" : "0");
   if (s.shadeTop !== d.shadeTop) q.set("sh", s.shadeTop ? "1" : "0");
+  if (s.hatchUnelected !== d.hatchUnelected) q.set("ht", s.hatchUnelected ? "1" : "0");
   if (s.unit) q.set("u", s.unit);
   return `#/?${q.toString()}`;
 }
