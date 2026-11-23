@@ -1,52 +1,74 @@
 /**
  * Boundary pipeline (mapshaper, pure Node — no GDAL needed for SHP → GeoJSON).
  *
- * County and town polygons are dissolved from ONE village snapshot so that all
- * levels share the same version and the same simplified arcs (no slivers
- * between county and town borders). The snapshot is chosen per election; see
- * docs/phase0-report.md §10.
+ * Every level is dissolved from ONE simplified village snapshot, so county, district and
+ * town borders share the same arcs (no slivers between levels). Towns split between
+ * electoral districts are drawn as parts: villages are never split, so each part is the
+ * union of the villages CEC assigns to that district.
  *
- * Village_Sanhe (屏東縣瑪家鄉三和村) is deliberately NOT merged: its polygon
- * overlaps villages of 內埔鄉／鹽埔鄉／長治鄉 in the main layer (~5.4 km²), so
- * merging it would make towns overlap. 瑪家鄉 carries a note instead.
+ * Village_Sanhe (屏東縣瑪家鄉三和村) is deliberately NOT merged: its polygon overlaps
+ * villages of 內埔鄉／鹽埔鄉／長治鄉 in the main layer (~5.4 km²), so merging it would
+ * make towns overlap. 瑪家鄉 carries a note instead.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 // @ts-expect-error mapshaper ships no type declarations
 import mapshaper from "mapshaper";
 
-export interface GeoOutput {
-  county: GeoJSON;
-  town: GeoJSON;
-}
 export interface GeoJSON {
   type: "FeatureCollection";
   features: { type: "Feature"; properties: Record<string, string>; geometry: unknown }[];
 }
 
-export async function buildBoundaries(villageShp: string, workDir: string, simplifyPct = "3%"): Promise<GeoOutput> {
+export interface PartAssignment {
+  /** Whole towns: every village of the town → this part (and district, if any). */
+  towns: { town: string; part: string; district: string }[];
+  /** Villages of split towns → their part and district. */
+  villages: { village: string; part: string; district: string }[];
+}
+
+export interface Boundaries {
+  county: GeoJSON;
+  town: GeoJSON; // features: { code: part code, district }
+  district?: GeoJSON; // features: { code: "63000-07" }
+}
+
+const csv = (header: string, rows: string[][]) => [header, ...rows.map((r) => r.join(","))].join("\n") + "\n";
+
+export async function buildBoundaries(villageShp: string, workDir: string, parts: PartAssignment, withDistricts: boolean, simplifyPct = "3%"): Promise<Boundaries> {
   mkdirSync(workDir, { recursive: true });
-  const town = join(workDir, "town.geojson");
-  const county = join(workDir, "county.geojson");
   const q = (p: string) => JSON.stringify(p);
+  const townsCsv = join(workDir, "towns.csv");
+  const villagesCsv = join(workDir, "villages.csv");
+  writeFileSync(townsCsv, csv("TOWNCODE,tpart,tdist", parts.towns.map((t) => [t.town, t.part, t.district])));
+  writeFileSync(villagesCsv, csv("VILLCODE,vpart,vdist", parts.villages.map((v) => [v.village, v.part, v.district])));
+  const out = { county: join(workDir, "county.geojson"), town: join(workDir, "town.geojson"), district: join(workDir, "district.geojson") };
+
   await mapshaper.runCommands(
     [
       `-i ${q(villageShp)} encoding=utf8 name=village`,
       `-simplify ${simplifyPct} keep-shapes`,
-      `-dissolve2 TOWNCODE copy-fields=TOWNNAME,COUNTYCODE,COUNTYNAME + name=town`,
-      `-rename-fields code=TOWNCODE,name=TOWNNAME,county=COUNTYCODE,countyName=COUNTYNAME target=town`,
-      `-o ${q(town)} target=town format=geojson precision=0.00001`,
+      `-join ${q(townsCsv)} keys=TOWNCODE,TOWNCODE string-fields=TOWNCODE,tpart,tdist`,
+      `-join ${q(villagesCsv)} keys=VILLCODE,VILLCODE string-fields=VILLCODE,vpart,vdist`,
+      // Villages of split towns that CEC does not list (e.g. 未編定村里) keep the bare town code: no data.
+      // Joined fields may be absent entirely (e.g. no split towns), so read them via this.properties.
+      `-each "var p = this.properties; part = p.vpart || p.tpart || TOWNCODE; district = p.vdist || p.tdist || ''"`,
+      `-dissolve2 part copy-fields=district + name=town`,
+      `-rename-fields code=part target=town`,
+      `-o ${q(out.town)} target=town format=geojson precision=0.00001`,
+      ...(withDistricts
+        ? [
+            `-filter "district !== ''" target=village + name=dvill`,
+            `-dissolve2 district target=dvill + name=district`,
+            `-rename-fields code=district target=district`,
+            `-o ${q(out.district)} target=district format=geojson precision=0.00001`,
+          ]
+        : []),
       `-dissolve2 COUNTYCODE copy-fields=COUNTYNAME target=village + name=county`,
       `-rename-fields code=COUNTYCODE,name=COUNTYNAME target=county`,
-      `-o ${q(county)} target=county format=geojson precision=0.00001`,
+      `-o ${q(out.county)} target=county format=geojson precision=0.00001`,
     ].join(" "),
   );
-  return {
-    town: JSON.parse(readFileSync(town, "utf8")) as GeoJSON,
-    county: JSON.parse(readFileSync(county, "utf8")) as GeoJSON,
-  };
-}
-
-export function writeGeo(path: string, g: GeoJSON) {
-  writeFileSync(path, JSON.stringify(g));
+  const read = (p: string) => JSON.parse(readFileSync(p, "utf8")) as GeoJSON;
+  return { county: read(out.county), town: read(out.town), ...(withDistricts ? { district: read(out.district) } : {}) };
 }
