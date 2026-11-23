@@ -13,7 +13,7 @@ import {
 import { DATA_SOURCES, RAW_SOURCES } from "./config/sources.ts";
 import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
-import { type ElDataset, countyCode, readElDir, townCode } from "./adapters/cec-el.ts";
+import { type ElDataset, countyCode, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
 import { type BuiltGroup, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
 import { GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries } from "./geo/build.ts";
@@ -58,17 +58,20 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const partyColors = loadPartyColors(o.repoRoot);
 
   const outputs: GroupOutput[] = [];
+  const geoByLayout = new Map<string, Boundaries>();
   const allChecks: ValidationCheck[] = [];
   for (const def of GROUPS) {
     const gid = groupId(def);
     log(`group ${gid}`);
     const dir = join(cecWork, def.archiveDir);
     const ds = readElDir(dir);
-    const built = buildElGroup(def, ds, partyColors);
+    const built = buildElGroup(def, ds, partyColors, def.choiceKind === "party" ? readElPartyList(dir) : undefined);
     const checks = [...built.checks, ...checkOfficialAnnouncements(o.repoRoot, built)];
 
     log(`  boundaries (${def.layout})`);
-    const geo = await buildBoundaries(villageShp, join(o.workDir, "geo", BOUNDARY_VERSION, def.layout), partsFor(def, ds, built), def.contests === "district");
+    // Groups sharing a layout share its shapes (the plain "admin" towns are the same for every group).
+    const geo = geoByLayout.get(def.layout) ?? (await buildBoundaries(villageShp, join(o.workDir, "geo", BOUNDARY_VERSION, def.layout), partsFor(def, ds, built), def.contests === "district"));
+    geoByLayout.set(def.layout, geo);
     const unassigned: string[] = [];
     for (const level of built.group.levels) {
       if (level === "national") continue;
