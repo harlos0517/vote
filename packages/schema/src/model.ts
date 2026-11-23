@@ -159,6 +159,10 @@ export const Party = z.object({
   nameZh: z.string(),
   /** 999 = 無黨籍及未經政黨推薦 — not a party; map it but render differently. */
   isIndependent: z.boolean(),
+  /** Display colour from packages/etl/mappings/party-colors.csv; null = none recorded (UI uses neutral grey). */
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable(),
+  /** True only when that colour row has been human-reviewed. */
+  colorReviewed: z.boolean(),
 });
 
 export const Person = z.object({
