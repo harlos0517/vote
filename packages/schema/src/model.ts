@@ -140,6 +140,24 @@ export const Contest = z.object({
     z.object({ level: z.literal("district"), districtId: Slug }),
   ]),
   availableLevels: z.array(ReportingLevel).min(1),
+  /** 不分區政黨票: CEC's published allocation (elretks.csv), verbatim. */
+  partyList: z
+    .object({
+      /** Parties at or above this national vote share (percent) share the seats. */
+      thresholdPct: z.number(),
+      thresholdBasis: z.string(),
+      allocation: z.array(
+        z.object({
+          partyId: Slug,
+          voteSharePct: z.number(), // 得票率 (% of valid votes)
+          qualifiedSharePct: z.number().nullable(), // share among parties over the threshold; null below it
+          nominated: z.int().nonnegative(), // 登記人數
+          seats: z.int().nonnegative(),
+        }),
+      ),
+    })
+    .nullable()
+    .default(null),
   referendum: z
     .object({
       caseNumber: z.int().positive(),
@@ -179,7 +197,9 @@ export const Candidacy = z.object({
   id: Slug,
   contestId: ContestId,
   personId: Slug,
-  role: z.enum(["principal", "running-mate"]), // running-mate = 副總統 (elcand 副手=Y)
+  role: z.enum(["principal", "running-mate", "list-member"]), // running-mate = 副總統 (elcand 副手=Y); list-member = 不分區名單
+  /** Rank on the party list (list-member only). */
+  listRank: z.int().positive().nullable().default(null),
   ballotNumber: z.int().positive(),
   partyId: Slug, // affiliation AT REGISTRATION for this contest only
   gender: z.enum(["M", "F"]).nullable(),
