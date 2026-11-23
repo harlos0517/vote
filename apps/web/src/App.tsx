@@ -1,20 +1,19 @@
 import { useMemo, useState } from "react";
 import { Alert, Box, Button, Group, Loader, Paper, Select, Stack, Text, Title, useComputedColorScheme } from "@mantine/core";
 import { DataError } from "@tw-election/data-client";
-import { Controls } from "./components/Controls.tsx";
+import { Controls, LEVEL_LABEL } from "./components/Controls.tsx";
 import { ElectionMap } from "./components/ElectionMap.tsx";
 import { Legend } from "./components/Legend.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
-import { VoteRing, type RingSegment } from "./components/VoteRing.tsx";
-import { ABSTAIN_COLOR, INVALID_COLOR } from "./lib/colors.ts";
-import { buildMapView } from "./lib/mapView.ts";
-import { useContest, useGeography, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
-import { fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
+import { VoteRing } from "./components/VoteRing.tsx";
+import { buildMapView, ringSlices } from "./lib/mapView.ts";
+import { useGeography, useGroup, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
+import { codeOf, fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
 import { type MapLevel, useViewState } from "./lib/viewState.ts";
-import { abstained, choiceColors } from "./lib/views.ts";
+import { groupContext } from "./lib/views.ts";
 import classes from "./App.module.css";
 
-const LEVEL_LABEL: Record<MapLevel, string> = { county: "縣市", town: "鄉鎮市區" };
+const ALL_LEVELS: MapLevel[] = ["county", "district", "town"];
 
 export function App() {
   const [view, setView] = useViewState();
@@ -23,43 +22,49 @@ export function App() {
   const release = manifest.data?.currentRelease;
   const index = useReleaseIndex(release);
 
-  const contests = useMemo(
-    () => index.data?.elections.flatMap((e) => e.contests.map((c) => ({ value: c.id, label: `${e.nameZh}｜${c.nameZh}` }))) ?? [],
+  const groups = useMemo(
+    () => index.data?.elections.flatMap((e) => e.groups.map((g) => ({ value: g.id, label: `${e.nameZh.slice(0, 5)}｜${g.nameZh}` }))) ?? [],
     [index.data],
   );
-  const contestId = view.contest && contests.some((c) => c.value === view.contest) ? view.contest : (contests[0]?.value ?? null);
-  const meta = useContest(release, contestId);
+  const groupId = view.contest && groups.some((g) => g.value === view.contest) ? view.contest : (groups[0]?.value ?? null);
+  const meta = useGroup(release, groupId);
   const m = meta.data;
 
-  const level: MapLevel = m && !m.contest.availableLevels.includes(view.level) ? "county" : view.level;
+  const levels = (m?.group.levels.filter((l): l is MapLevel => (ALL_LEVELS as string[]).includes(l)) ?? []) as MapLevel[];
+  const level: MapLevel = m && !levels.includes(view.level) ? (levels.includes("town") ? "town" : levels[0]!) : view.level;
   const results = useResults(release, m?.results[level]);
   const national = useResults(release, m?.results.national);
-  const counties = useResults(release, level === "town" ? m?.results.county : undefined);
+  const counties = useResults(release, level !== "county" ? m?.results.county : undefined);
   const geo = useGeography(release, m?.boundary.files[level]);
+  // District outlines over the town map, for groups with electoral districts.
+  const districtGeo = useGeography(release, level === "town" ? m?.boundary.files.district : undefined);
 
   const units = useMemo(() => (results.data ? toUnitViews(results.data) : null), [results.data]);
   const nationalUnit = useMemo(() => (national.data ? [...toUnitViews(national.data).values()][0] : undefined), [national.data]);
-  const countyNames = useMemo(
-    () => new Map(counties.data?.units.map((u) => [u.id, u.nameZh]) ?? []),
-    [counties.data],
-  );
+  const countyNames = useMemo(() => new Map(counties.data?.units.map((u) => [u.id, u.nameZh]) ?? []), [counties.data]);
+  const ctx = useMemo(() => (m ? groupContext(m, nationalUnit?.votes) : null), [m, nationalUnit]);
+  const model = useMemo(() => (ctx && units ? buildMapView(ctx, [...units.values()], view) : null), [ctx, units, view]);
 
-  const model = useMemo(() => (m && units ? buildMapView(m, [...units.values()], view) : null), [m, units, view]);
+  const lockedCode = view.unit ? codeOf(view.unit) : null;
+  const shown: { unit: UnitView; status: "hover" | "locked" | "overall"; levelName: string } | null =
+    (hovered && units?.get(hovered) && { unit: units.get(hovered)!, status: "hover", levelName: LEVEL_LABEL[level] }) ||
+    (lockedCode && units?.get(lockedCode) && { unit: units.get(lockedCode)!, status: "locked", levelName: LEVEL_LABEL[level] }) ||
+    (nationalUnit ? { unit: nationalUnit, status: "overall", levelName: "全國" } : null);
 
-  const lockedCode = view.unit?.includes(":") ? view.unit.slice(view.unit.indexOf(":") + 1) : null;
-  const shown: { unit: UnitView; status: "hover" | "locked" | "overall"; level: "national" | MapLevel } | null =
-    (hovered && units?.get(hovered) && { unit: units.get(hovered)!, status: "hover", level }) ||
-    (lockedCode && units?.get(lockedCode) && { unit: units.get(lockedCode)!, status: "locked", level }) ||
-    (nationalUnit ? { unit: nationalUnit, status: "overall", level: "national" } : null);
+  /** County of a unit: walk parent ids (town part → district → county). */
+  const countyOf = (u: UnitView): string | null => {
+    if (u.id.startsWith("cty:") || u.id === "nat") return null;
+    const code = codeOf(u.id).slice(0, 5);
+    return countyNames.get(`cty:${code}`) ?? null;
+  };
+  /** Districts to outline: the shown unit's own district at town level. */
+  const highlightDistricts = useMemo(() => {
+    if (!shown || shown.status === "overall" || level !== "town" || !shown.unit.parentId?.startsWith("dist:")) return [];
+    return [codeOf(shown.unit.parentId)];
+  }, [shown, level]);
 
-  const ring: RingSegment[] = useMemo(() => {
-    if (!m || !shown) return [];
-    const cols = choiceColors(m);
-    const segs: RingSegment[] = m.choices.map((c, i) => ({ key: c.id, label: c.labelZh, value: shown.unit.votes[i] ?? 0, color: cols[i]! }));
-    if (view.invalid) segs.push({ key: "invalid", label: "無效票", value: shown.unit.summary.invalid ?? 0, color: INVALID_COLOR });
-    if (view.abstain) segs.push({ key: "abstain", label: "未投票", value: abstained(shown.unit.summary) ?? 0, color: ABSTAIN_COLOR });
-    return segs;
-  }, [m, shown, view.invalid, view.abstain]);
+  const den = { invalid: view.invalid, abstain: view.abstain };
+  const ring = shown && ctx ? ringSlices(shown.unit, ctx, den) : [];
 
   const scheme = useComputedColorScheme("light");
   const firstError = [manifest, index, meta, results, national, geo].find((q) => q.isError);
@@ -71,13 +76,13 @@ export function App() {
         <Title order={1} size="h4">臺灣歷史選舉地圖</Title>
         <Select
           aria-label="選擇選舉"
-          data={contests}
-          value={contestId}
+          data={groups}
+          value={groupId}
           onChange={(v) => setView({ contest: v, choice: null, unit: null })}
           allowDeselect={false}
           size="xs"
-          w={{ base: "100%", sm: 420 }}
-          disabled={!contests.length}
+          w={{ base: "100%", sm: 360 }}
+          disabled={!groups.length}
         />
       </header>
 
@@ -91,8 +96,10 @@ export function App() {
                 hatched={model.hatched}
                 hovered={hovered}
                 locked={lockedCode}
+                districts={level === "town" ? districtGeo.data : undefined}
+                highlightDistricts={highlightDistricts}
                 background={scheme === "dark" ? "#1f2023" : "#eef1f4"}
-                ariaLabel={`${m?.contest.nameZh ?? ""} ${LEVEL_LABEL[level]}得票地圖`}
+                ariaLabel={`${m?.group.nameZh ?? ""} ${LEVEL_LABEL[level]}得票地圖`}
                 onHover={setHovered}
                 onClick={(code) => setView({ unit: code ? (units.get(code)?.id ?? null) : null })}
               />
@@ -101,9 +108,9 @@ export function App() {
               <Group className={classes.overlayCenter} gap="xs"><Loader size="sm" /><Text size="sm">載入資料中…</Text></Group>
             )}
             {firstError && <ErrorBox error={firstError.error} onRetry={() => firstError.refetch()} />}
-            {m && (
+            {ctx && (
               <Paper className={classes.controls} shadow="sm" p="xs" radius="md" withBorder>
-                <Controls meta={m} view={view} level={level} setView={setView} />
+                <Controls ctx={ctx} view={view} level={level} levels={levels} setView={setView} />
               </Paper>
             )}
           </div>
@@ -122,16 +129,16 @@ export function App() {
         </section>
 
         <aside className={classes.panel} aria-label="詳細資料" aria-live="polite">
-          {m && shown && model ? (
+          {ctx && shown && model ? (
             <Sidebar
-              meta={m}
+              ctx={ctx}
               unit={shown.unit}
-              level={shown.level}
+              levelName={shown.levelName}
               status={shown.status}
-              parentName={shown.unit.parentId ? (countyNames.get(shown.unit.parentId) ?? null) : null}
+              countyName={countyOf(shown.unit)}
               currentView={model.describe(shown.unit)}
-              den={{ invalid: view.invalid, abstain: view.abstain }}
-              levelLabel={LEVEL_LABEL[level]}
+              den={den}
+              mapLevelLabel={LEVEL_LABEL[level]}
               onUnlock={() => setView({ unit: null })}
             />
           ) : (
