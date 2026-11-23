@@ -13,7 +13,7 @@ maplibregl.setWorkerUrl(workerUrl);
 /** Taiwan, Penghu, Kinmen and Matsu. Pratas and Taiping lie outside this default view. */
 const TAIWAN_BOUNDS: [[number, number], [number, number]] = [[118.1, 21.85], [122.05, 26.4]];
 const SRC = "units";
-
+const DSRC = "districts";
 
 export interface ElectionMapProps {
   geo: FeatureCollection;
@@ -22,6 +22,10 @@ export interface ElectionMapProps {
   hatched: Set<string>;
   hovered: string | null;
   locked: string | null;
+  /** Electoral-district outlines drawn over finer levels (towns), if the group has districts. */
+  districts?: FeatureCollection;
+  /** District codes to outline strongly (the hovered / locked unit's district). */
+  highlightDistricts: string[];
   background: string;
   onHover: (code: string | null) => void;
   /** Click on a unit (code) or on empty map (null). */
@@ -159,6 +163,29 @@ export function ElectionMap(p: ElectionMapProps) {
     map.setFilter("units-hover", ["==", ["get", "code"], p.hovered ?? ""]);
     map.setFilter("units-locked", ["==", ["get", "code"], p.locked ?? ""]);
   }, [ready, p.geo, p.hovered, p.locked]);
+
+  // district overlay (thin outlines always, strong outline for the highlighted district)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const src = map.getSource(DSRC) as GeoJSONSource | undefined;
+    if (!p.districts) {
+      for (const id of ["districts-line", "districts-hl"]) if (map.getLayer(id)) map.removeLayer(id);
+      if (src) map.removeSource(DSRC);
+      return;
+    }
+    if (src) src.setData(p.districts as never);
+    else {
+      map.addSource(DSRC, { type: "geojson", data: p.districts as never });
+      map.addLayer({ id: "districts-line", type: "line", source: DSRC, paint: { "line-color": "#1a1a1a", "line-width": 1.1, "line-opacity": 0.7 } }, "units-hover");
+      map.addLayer({ id: "districts-hl", type: "line", source: DSRC, filter: ["in", ["get", "code"], ["literal", []]], paint: { "line-color": "#ffd400", "line-width": 3 } }, "units-hover");
+    }
+  }, [ready, p.districts, p.geo]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map?.getLayer("districts-hl")) map.setFilter("districts-hl", ["in", ["get", "code"], ["literal", p.highlightDistricts]]);
+  }, [ready, p.districts, p.highlightDistricts]);
 
   return <div ref={container} role="region" aria-label={p.ariaLabel} style={{ position: "absolute", inset: 0 }} />;
 }
