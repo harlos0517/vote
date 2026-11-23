@@ -164,6 +164,9 @@ export const Contest = z.object({
     .object({
       caseNumber: z.int().positive(),
       questionZh: z.string().nullable(), // must come from 公投公報; null until sourced
+      /** Where questionZh was taken from, and whether a person has checked it against the 公報. */
+      questionSource: z.string().nullable().default(null),
+      questionReviewed: z.boolean().default(false),
       rule: ReferendumRule,
       outcome: z.enum(["passed", "failed"]).nullable(),
     })
