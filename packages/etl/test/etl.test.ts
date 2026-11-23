@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { parseCecCsv, PUA_RE } from "../src/lib/csv.ts";
 import { levelOf, mergeElDatasets, readElDir, readElPartyList } from "../src/adapters/cec-el.ts";
 import { sameVillageName } from "../src/adapters/cec-wide-chiayi.ts";
+import { readRfDir } from "../src/adapters/cec-rf.ts";
+import { buildRfGroup } from "../src/groups/rf-group.ts";
 import { checkElDataset } from "../src/validate/el-checks.ts";
 import { buildElGroup, largestRemainder, type ElGroupDef } from "../src/groups/el-group.ts";
 import { releaseIdFor } from "../src/emit/release.ts";
@@ -168,6 +170,23 @@ describe("2022 local elections", () => {
   it("matches 嘉義市 rerun village names, tolerating private-use characters only", () => {
     expect(sameVillageName("磚磘里", "磚\uE000里")).toBe(true);
     expect(sameVillageName("磚磘里", "磚瑤里")).toBe(false);
+  });
+});
+
+describe("referendum (rf*)", () => {
+  const FIX_RF = join(import.meta.dirname, "fixtures/rf-mini");
+  const REF: ElGroupDef = { ...PRES, local: "case-17", nameZh: "全國性公民投票案第17案", office: "referendum-national", format: "rf", referendumCase: 17, choiceKind: "referendum" };
+  it("reads rf* into agree/disagree units that pass the shared checks, and applies §29", () => {
+    const b = buildRfGroup(REF, readRfDir(FIX_RF), { text: "問題？", source: "x", reviewed: false });
+    expect(b.checks.filter((c) => c.status === "fail")).toEqual([]);
+    expect(b.checks.find((c) => c.id === "referendum-question")!.status).toBe("warn");
+    expect(b.results.town!.rows[0]).toMatchObject({ unit: "town:63000010", votes: { agree: 40, disagree: 60 }, summary: { electors: 200, population: 300 } });
+    expect(b.contests[0]!.referendum).toMatchObject({ caseNumber: 17, outcome: "failed", questionZh: "問題？", rule: { agreeQuorumOfElectors: 0.25 } });
+  });
+  it("fails when the published national result disagrees with the rule", () => {
+    const ds = readRfDir(FIX_RF);
+    ds.nationalResult = "Y";
+    expect(buildRfGroup(REF, ds, undefined).checks.find((c) => c.id === "referendum-outcome")!.status).toBe("fail");
   });
 });
 
