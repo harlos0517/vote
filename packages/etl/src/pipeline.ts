@@ -169,7 +169,8 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     files.push({ path: `groups/${gid}/metadata.json`, body: json(meta) });
   }
 
-  const elections = [...new Map(GROUPS.map((g) => [g.election.id, g.election])).values()];
+  // Newest election first: the order of the site's picker.
+  const elections = [...new Map(GROUPS.map((g) => [g.election.id, g.election])).values()].sort((a, b) => b.date.localeCompare(a.date));
   files.push({
     path: "index.json",
     body: json(
