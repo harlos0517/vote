@@ -78,16 +78,63 @@
 
 若想改由 GitHub 簽發憑證，把該 DNS 紀錄改成灰色雲（DNS only）即可。
 
+### 建議：把 bucket 名稱改成一般變數
+
+bucket 名稱（例如 `vote`）不是機密。放在 secret 裡時，GitHub 會把 log 中所有出現 "vote" 的地方遮成 `***`。
+
+1. 在 Environment `data-release` → **Environment variables** 新增 `R2_BUCKET`（值同 bucket 名稱）。
+2. 刪除同名的 secret。
+
+workflow 會優先使用變數；沒有變數時才讀 secret。
+
+## 3.5 Seeding the raw mirror（第一次發布前，在本機執行一次）
+
+`www.land.moi.gov.tw`（國土測繪中心圖資）從 GitHub Actions 的海外 runner 無法連線，推測是只開放臺灣 IP。因此 CI 改從公開鏡像 `vote-data.harlos.tw/raw/…` 下載原始檔，而鏡像需要先從**能連上官方網站的電腦**（例如你的電腦）上傳一次。
+
+在 repo 根目錄執行：
+
+```bash
+pnpm etl fetch
+```
+
+這會下載並以 sha256 校驗原始檔；本機已有的檔案會直接校驗，不會重新下載。
+
+```bash
+read -rp "R2_ACCOUNT_ID: " R2_ACCOUNT_ID && read -rp "R2_ACCESS_KEY_ID: " R2_ACCESS_KEY_ID && read -rsp "R2_SECRET_ACCESS_KEY: " R2_SECRET_ACCESS_KEY && echo && read -rp "R2_BUCKET: " R2_BUCKET && export R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET
+```
+
+這樣輸入金鑰，不會留在 shell 歷史中，也不會寫進任何檔案。
+
+```bash
+pnpm etl mirror-raw --dry-run
+```
+
+```bash
+pnpm etl mirror-raw
+```
+
+完成後可以確認：
+
+```bash
+curl -sI https://vote-data.harlos.tw/raw/NOTICE.md
+```
+
+預期看到 `200`。上傳完畢後關閉這個終端機視窗，環境變數就會一起清除。
+
+之後只有在 `packages/etl/src/config/sources.ts` 固定了新的原始檔版本時，才需要再執行一次。
+
 ## 4. 第一次執行 workflow
 
 1. **CI** 與 **Deploy site** 會在 push 到 `main` 時自動執行，到 **Actions** 分頁確認是否成功。
    - 如果出現 `Unable to resolve action ...@v5` 之類的錯誤，代表 action 版本不存在，請把錯誤訊息告訴我。
-2. **Publish data release (R2)** → **Run workflow**，第一次用：
+2. 先完成 3.5 的鏡像上傳，然後 **Publish data release (R2)** → **Run workflow**，第一次用：
    - `dry_run`：✅（只建置與驗證，列出將上傳的檔案）
-   - `mirror_raw`：✅
+   - `mirror_raw`：不需要勾選（已在本機上傳）
+
+   log 中的 `download https://vote-data.harlos.tw/raw/...` 應該直接成功，不會再連到官方網站。
 
    完成後在該次執行頁面下載 **etl-report**，確認沒有 `fail`。
-3. 確認無誤後再執行一次，這次 `dry_run` 取消勾選、`mirror_raw` 勾選。到 **Review deployments** 按核准後才會上傳。
+3. 確認無誤後再執行一次，這次 `dry_run` 取消勾選。到 **Review deployments** 按核准後才會上傳。
 4. 上傳完成後打開 `https://vote.harlos.tw`；資料載入後地圖就會出現。
 
 ## 5. 發布後檢查 CDN
