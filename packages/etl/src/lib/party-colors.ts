@@ -27,8 +27,8 @@ export function checkPartyColors(usedCodes: number[], colors: Map<number, PartyC
   const unreviewed = usedCodes.filter((c) => colors.get(c) && !colors.get(c)!.reviewed);
   const missing = usedCodes.filter((c) => c !== 999 && !colors.has(c));
   const parts = [
-    unreviewed.length ? `${unreviewed.length} party colours not yet human-reviewed (codes ${unreviewed.join(",")})` : "",
-    missing.length ? `${missing.length} parties have no colour and will show neutral grey (codes ${missing.join(",")})` : "",
+    unreviewed.length ? `${unreviewed.length} party colours not yet human-reviewed (codes ${unreviewed.join(", ")})` : "",
+    missing.length ? `${missing.length} parties have no colour and will show neutral grey (codes ${missing.join(", ")})` : "",
   ].filter(Boolean);
   return parts.length
     ? { id: "party-colors", status: "warn", detail: parts.join("; ") }

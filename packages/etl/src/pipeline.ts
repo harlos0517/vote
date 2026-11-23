@@ -225,7 +225,7 @@ function joinCheck(id: string, g: GeoJSON, unitCodes: string[]): { check: Valida
   }
   return {
     check: extra.length
-      ? { id, status: "warn", detail: `${units.size} units matched; ${extra.length} polygons have no result and show as 無資料 (${extra.join(",")})` }
+      ? { id, status: "warn", detail: `${units.size} units matched; ${extra.length} polygons have no result and show as 無資料 (${extra.join(", ")})` }
       : { id, status: "pass", detail: `${units.size} units ↔ ${feat.size} polygons, 1:1` },
     extraFeatures: extra,
   };
