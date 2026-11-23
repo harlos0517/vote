@@ -21,11 +21,25 @@ export async function ensureRaw(rawDir: string, s: RawSource, log = console.log)
   const dest = rawPath(rawDir, s);
   if (!existsSync(dest)) {
     mkdirSync(join(rawDir, s.id), { recursive: true });
-    log(`download ${s.url}`);
+    // Prefer our public mirror (same bytes, checked below) when RAW_MIRROR_URL is set,
+    // e.g. https://vote-data.harlos.tw — upstream URLs are overwritten in place.
+    const mirror = process.env.RAW_MIRROR_URL?.replace(/\/$/, "");
+    const urls = [...(mirror ? [`${mirror}/raw/${s.id}/${s.sha256}/${s.file}`] : []), s.url];
     // curl, not fetch(): www.land.moi.gov.tw sends an obs-folded multi-line header
     // that Node's undici rejects ("Unexpected whitespace after header value").
     const tmp = `${dest}.part`;
-    execFileSync("curl", ["-fsSL", "--retry", "3", "--retry-delay", "5", "-o", tmp, s.url], { stdio: "inherit" });
+    let lastErr: unknown;
+    for (const url of urls) {
+      log(`download ${url}`);
+      try {
+        execFileSync("curl", ["-fsSL", "--retry", "3", "--retry-delay", "5", "-o", tmp, url], { stdio: "inherit" });
+        lastErr = undefined;
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (lastErr) throw lastErr;
     await rename(tmp, dest);
   }
   const got = await sha256File(dest);
