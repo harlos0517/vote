@@ -8,7 +8,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { ScaleKind } from "./colors.ts";
 import type { DiffFormula } from "./views.ts";
 
-export type MapLevel = "county" | "district" | "town";
+export type MapLevel = "county" | "district" | "town" | "village";
 /** diff = 兩大黨差異, top = 當選候選人 (local top), share = 各候選人得票率 */
 export type ViewMode = "diff" | "top" | "share";
 export type SharePalette = "party" | "multi";
@@ -61,7 +61,7 @@ export function parseHash(hash: string): ViewState {
   const legacyMode = q.get("m") === "leader" ? "top" : q.get("m");
   return {
     contest: q.get("c"),
-    level: oneOf(q.get("lv"), ["county", "district", "town"] as const, d.level),
+    level: oneOf(q.get("lv"), ["county", "district", "town", "village"] as const, d.level),
     mode: oneOf(legacyMode, ["diff", "top", "share"] as const, d.mode),
     formula: oneOf(q.get("f"), ["pct", "ratio"] as const, d.formula),
     choice: q.get("ch"),

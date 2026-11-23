@@ -14,7 +14,7 @@ import { type MapLevel, useViewState } from "./lib/viewState.ts";
 import { groupContext } from "./lib/views.ts";
 import classes from "./App.module.css";
 
-const ALL_LEVELS: MapLevel[] = ["county", "district", "town"];
+const ALL_LEVELS: MapLevel[] = ["county", "district", "town", "village"];
 
 export function App() {
   const [view, setView] = useViewState();
@@ -37,13 +37,17 @@ export function App() {
   const results = useResults(release, m?.results[level]);
   const national = useResults(release, m?.results.national);
   const counties = useResults(release, level !== "county" ? m?.results.county : undefined);
+  // Township names for the 村里 sidebar ("所屬鄉鎮市區").
+  const towns = useResults(release, level === "village" ? m?.results.town : undefined);
   const geo = useGeography(release, m?.boundary.files[level]);
-  // District outlines over the town map, for groups with electoral districts.
-  const districtGeo = useGeography(release, level === "town" ? m?.boundary.files.district : undefined);
+  // District outlines over the town and 村里 maps, for groups with electoral districts.
+  const fine = level === "town" || level === "village";
+  const districtGeo = useGeography(release, fine ? m?.boundary.files.district : undefined);
 
   const units = useMemo(() => (results.data ? toUnitViews(results.data) : null), [results.data]);
   const nationalUnit = useMemo(() => (national.data ? [...toUnitViews(national.data).values()][0] : undefined), [national.data]);
   const countyNames = useMemo(() => new Map(counties.data?.units.map((u) => [u.id, u.nameZh]) ?? []), [counties.data]);
+  const townNames = useMemo(() => new Map(towns.data?.units.map((u) => [u.id, u.nameZh]) ?? []), [towns.data]);
   const ctx = useMemo(() => (m ? groupContext(m, nationalUnit?.votes) : null), [m, nationalUnit]);
   const model = useMemo(() => (ctx && units ? buildMapView(ctx, [...units.values()], view) : null), [ctx, units, view]);
 
@@ -59,11 +63,12 @@ export function App() {
     const code = codeOf(u.id).slice(0, 5);
     return countyNames.get(`cty:${code}`) ?? null;
   };
-  /** Districts to outline: the shown unit's own district at town level. */
+  /** Districts to outline: the shown unit's own district at town and 村里 level. */
   const highlightDistricts = useMemo(() => {
-    if (!shown || shown.status === "overall" || level !== "town" || !shown.unit.parentId?.startsWith("dist:")) return [];
-    return [codeOf(shown.unit.parentId)];
-  }, [shown, level]);
+    if (!shown || shown.status === "overall" || !fine || shown.unit.contestIds.length !== 1) return [];
+    const d = ctx?.contest.get(shown.unit.contestIds[0]!)?.districtId;
+    return d ? [d] : [];
+  }, [shown, fine, ctx]);
 
   const den = { invalid: view.invalid, abstain: view.abstain };
   const ring = shown && ctx ? ringSlices(shown.unit, ctx, den, view.colorblind) : [];
@@ -110,7 +115,7 @@ export function App() {
                 hatched={model.hatched}
                 hovered={hovered}
                 locked={lockedCode}
-                districts={level === "town" ? districtGeo.data : undefined}
+                districts={fine ? districtGeo.data : undefined}
                 highlightDistricts={highlightDistricts}
                 background={scheme === "dark" ? "#1f2023" : "#eef1f4"}
                 ariaLabel={`${m?.group.nameZh ?? ""} ${LEVEL_LABEL[level]}得票地圖`}
@@ -150,6 +155,7 @@ export function App() {
               levelName={shown.levelName}
               status={shown.status}
               countyName={countyOf(shown.unit)}
+              townName={shown.unit.parentId ? (townNames.get(shown.unit.parentId) ?? null) : null}
               currentView={model.describe(shown.unit)}
               den={den}
               colorblind={view.colorblind}

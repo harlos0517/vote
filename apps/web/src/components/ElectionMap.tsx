@@ -125,7 +125,12 @@ export function ElectionMap(p: ElectionMapProps) {
       paint: { "fill-color": ["coalesce", ["feature-state", "fill"], NO_DATA], "fill-opacity": 0.95 },
     });
     map.addLayer({ id: "units-hatch", type: "fill", source: SRC, filter: ["in", ["get", "code"], ["literal", []]], paint: { "fill-pattern": "hatch" } });
-    map.addLayer({ id: "units-line", type: "line", source: SRC, paint: { "line-color": "#ffffff", "line-width": 0.4, "line-opacity": 0.8 } });
+    map.addLayer({ id: "units-line", type: "line", source: SRC, paint: {
+      "line-color": "#ffffff",
+      // Fade borders when zoomed out so ~7,900 村里 outlines don't wash out the colours.
+      "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.2, 10, 0.6],
+      "line-opacity": ["interpolate", ["linear"], ["zoom"], 6, 0.35, 9, 0.8],
+    } });
     map.addLayer({
       id: "units-hover",
       type: "line",

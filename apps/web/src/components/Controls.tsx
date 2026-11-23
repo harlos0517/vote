@@ -5,7 +5,7 @@ import { effectiveMode, selectedTarget } from "../lib/mapView.ts";
 import type { MapLevel, ViewState } from "../lib/viewState.ts";
 import { partyLabel, type GroupContext } from "../lib/views.ts";
 
-export const LEVEL_LABEL: Record<MapLevel, string> = { county: "縣市", district: "選區", town: "鄉鎮市區" };
+export const LEVEL_LABEL: Record<MapLevel, string> = { county: "縣市", district: "選區", town: "鄉鎮市區", village: "村里" };
 
 export function Controls({
   ctx,

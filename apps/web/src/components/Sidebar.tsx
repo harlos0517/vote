@@ -24,6 +24,8 @@ export interface SidebarProps {
   /** How this unit is being shown: hover preview, locked, or the default overall view. */
   status: "hover" | "locked" | "overall";
   countyName: string | null;
+  /** 村里 level: the township (or township part) it belongs to. */
+  townName?: string | null;
   currentView: string;
   den: Denominator;
   mapLevelLabel: string;
@@ -46,7 +48,7 @@ export function Sidebar(p: SidebarProps) {
 
   return (
     <Stack gap="sm">
-      <Group gap="xs" align="baseline" wrap="nowrap">
+      <Group gap="xs" align="baseline">
         <Title order={2} size="h3">{unit.name}</Title>
         <Badge variant="light" color="gray">{p.levelName}</Badge>
         {p.status === "locked" && <Badge variant="light" color="pink">已鎖定</Badge>}
@@ -61,6 +63,7 @@ export function Sidebar(p: SidebarProps) {
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
         <Table.Tbody>
           {p.countyName && <KV k="所屬縣市" v={p.countyName} />}
+          {p.townName && <KV k="所屬鄉鎮市區" v={p.townName} />}
           {ctx.singleContest && !ctx.referendum && meta.contests[0]!.scope.level === "national" && (
             <KV k="選區" v={`全國（單一選區${(meta.contests[0]!.seats ?? 1) > 1 ? `，選出 ${meta.contests[0]!.seats} 席` : ""}）`} />
           )}
