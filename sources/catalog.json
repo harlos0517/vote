@@ -1,5 +1,5 @@
 {
-  "$comment": "Phase 0 source catalog. retrievedAt is when Phase 0 downloaded the file; re-download and compare sha256 before any ETL run.",
+  "$comment": "Phase 0 source catalog. retrievedAt is when Phase 0 downloaded the file; re-download and compare sha256 before any ETL run. Public mirror of pinned files: https://vote-data.harlos.tw/raw/<id>/<sha256>/<file> (index: /raw/index.json).",
   "sources": [
     {
       "id": "cec-votedata",
@@ -23,7 +23,8 @@
         "votedata/voteData/選舉資料庫格式.odt（選舉資料庫轉檔格式說明，民國101年4月，v4）",
         "votedata/2018_2021公投_2022修憲複決/公民投票結果檔案格式說明_v1.0.pdf",
         "votedata/voteData/2022-111年地方公職人員選舉/選舉種類代碼.xlsx"
-      ]
+      ],
+      "mirror": "https://vote-data.harlos.tw/raw/cec-votedata/84740535b1f4a9a8fec8ebfe8f7577889837b7639cd7f5e40ef8826c6ab2f69a/votedata.zip"
     },
     {
       "id": "cec-referendum-summary",
@@ -90,7 +91,7 @@
       "title": "村里界歷史圖資(TWD97經緯度)",
       "datasetUrl": "https://data.gov.tw/dataset/130549",
       "license": "政府資料開放授權條款-第1版（data.gov.tw license id 1）",
-      "note": "每年一個版次；下載檔名固定為下載當日日期（Content-Disposition），內含一層巢狀 zip。版次以 DBF 檔名為準。",
+      "note": "每年一個版次；下載檔名固定為下載當日日期（Content-Disposition），內含一層巢狀 zip。版次以 DBF 檔名為準。 海外網路（含 GitHub Actions）無法連線；CI 由公開鏡像取得。",
       "files": [
         {
           "path": "v106.bin",
@@ -146,7 +147,8 @@
           "boundaryVersion": "1120928",
           "bytes": 22164184,
           "sha256": "b4e265fe6e7ae868915c1a1f0a231296104a29c688fdbb8c9c4af9c33d37bbb0",
-          "retrievedAt": "2026-11-23"
+          "retrievedAt": "2026-11-23",
+          "mirror": "https://vote-data.harlos.tw/raw/nlsc-village-history/b4e265fe6e7ae868915c1a1f0a231296104a29c688fdbb8c9c4af9c33d37bbb0/v112.bin"
         },
         {
           "path": "v113.bin",
