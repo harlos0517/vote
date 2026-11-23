@@ -2,18 +2,18 @@
  * ViewState + group + units → what the map, legend and ring draw.
  * Pure (no React) so every mode can be unit-tested.
  */
-import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, REF_COLORS, TIE, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
+import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, REF_COLORS, TIE, blackTo, divergingScale, inferno, sequentialScale, shade, type LegendSpec } from "./colors.ts";
 import { fmtPct, turnout, type UnitView } from "./results.ts";
 import type { ViewState } from "./viewState.ts";
 import {
   DPP,
   KMT,
   abstained,
+  choiceShare,
   denominatorLabel,
   isMultiContest,
-  localTop,
-  choiceShare,
   listSeats,
+  localTop,
   partyLabel,
   partyRan,
   partyShare,
@@ -82,7 +82,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
 
   if (v.mode === "turnout") {
     // 投票率 = 投票數 ÷ 選舉人數 (無效票 and 未投票 are always counted here).
-    const interp = v.palette === "party" ? blackTo("#f2f2f2") : viridis;
+    const interp = v.palette === "party" ? blackTo("#f2f2f2") : inferno;
     const values = new Map(units.map((u) => [u.code, turnout(u.summary)]));
     const scale = sequentialScale([...values.values()].flatMap((x) => (x === null ? [] : [x])), interp, v.scale, v.max, v.fromZero);
     for (const [code, x] of values) colors.set(code, x === null ? NO_DATA : scale.color(x));
@@ -236,7 +236,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
   const pc = isChoice ? ctx.choice.get(target.id)! : null;
   const label = pc ? (ctx.referendum ? pc.labelZh : `${pc.labelZh}（${pc.partyId ? (ctx.party.get(pc.partyId)?.nameZh ?? "") : ""}）`) : partyLabel(ctx, target.id);
   const baseColor = pc ? choiceColorOf(ctx, pc.id, v.colorblind) : (ctx.partyColor.get(target.id) ?? NEUTRAL);
-  const interp = v.palette === "party" ? blackTo(baseColor) : viridis;
+  const interp = v.palette === "party" ? blackTo(baseColor) : inferno;
   const ranHere = (u: UnitView) => (pc ? u.contestIds.includes(pc.contestId) : partyRan(u, ctx, target.id));
   const shareOf = (u: UnitView) => (pc ? choiceShare(u, pc.id, den) : partyShare(u, ctx, target.id, den));
   const votesOf = (u: UnitView) => (pc ? (u.votes[pc.id] ?? 0) : partyVotes(u, ctx, target.id));
