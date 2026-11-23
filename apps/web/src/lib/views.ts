@@ -4,7 +4,7 @@
  * multi-contest groups (區域立委, 73 districts) alike.
  */
 import type { BallotChoice, Contest, GroupMetadataFile, Party, ResultSummary } from "@tw-election/schema";
-import { NEUTRAL } from "./colors.ts";
+import { NEUTRAL, OTHER_PARTY } from "./colors.ts";
 import type { UnitView } from "./results.ts";
 
 export const KMT = "cec-1";
@@ -42,7 +42,8 @@ export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<str
   const electedIds = new Set(meta.candidacies.filter((c) => c.elected).map((c) => c.id));
   const elected = new Map(meta.choices.map((c) => [c.id, c.candidacyIds.some((id) => electedIds.has(id))]));
   // Parties without a reviewed colour (and independents) are neutral grey, as the ETL report says.
-  const partyColor = new Map(meta.parties.map((p) => [p.id, p.color ?? NEUTRAL]));
+  // No recorded colour: 無黨籍 stays grey, other parties share OTHER_PARTY so they don't look like independents.
+  const partyColor = new Map(meta.parties.map((p) => [p.id, p.color ?? (p.isIndependent ? NEUTRAL : OTHER_PARTY)]));
   const choiceColor = new Map(meta.choices.map((c) => [c.id, (c.partyId && partyColor.get(c.partyId)) || NEUTRAL]));
   const totals = new Map<string, number>();
   for (const c of meta.choices) if (c.partyId) totals.set(c.partyId, (totals.get(c.partyId) ?? 0) + (nationalVotes?.[c.id] ?? 0));

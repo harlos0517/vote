@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GroupMetadataFile, GroupResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
-import { NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, ZERO_GAP, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
+import { NEUTRAL, NO_CANDIDATE, NO_DATA, OTHER_PARTY, TIE, ZERO_GAP, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, referendumStatus, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
 import { buildMapView, effectiveMode, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
@@ -194,6 +194,8 @@ describe("multi-seat and party-list groups", () => {
     expect(v.describe(a)).toContain("全國未獲席次");
     expect(v.describe(b)).toContain("全國獲 2 席");
     expect(v.legend.groups!.map((g) => g.title)).toEqual(["獲得席次", "未獲席次（斜線）"]);
+    // 丙黨 has no recorded colour: the shared 其他政黨 brown, not the 無黨籍 grey.
+    expect(list.partyColor.get("cec-79")).toBe(OTHER_PARTY);
   });
 });
 

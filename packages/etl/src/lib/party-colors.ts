@@ -28,7 +28,7 @@ export function checkPartyColors(usedCodes: number[], colors: Map<number, PartyC
   const missing = usedCodes.filter((c) => c !== 999 && !colors.has(c));
   const parts = [
     unreviewed.length ? `${unreviewed.length} party colours not yet human-reviewed (codes ${unreviewed.join(", ")})` : "",
-    missing.length ? `${missing.length} parties have no colour and will show neutral grey (codes ${missing.join(", ")})` : "",
+    missing.length ? `${missing.length} parties have no colour and will show the shared 其他政黨 colour (codes ${missing.join(", ")})` : "",
   ].filter(Boolean);
   return parts.length
     ? { id: "party-colors", status: "warn", detail: parts.join("; ") }

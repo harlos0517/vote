@@ -2,7 +2,7 @@
  * ViewState + group + units → what the map, legend and ring draw.
  * Pure (no React) so every mode can be unit-tested.
  */
-import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, REF_COLORS, TIE, blackTo, divergingScale, inferno, sequentialScale, shade, type LegendSpec } from "./colors.ts";
+import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, OTHER_PARTY, NO_DATA, REF_COLORS, TIE, blackTo, divergingScale, inferno, sequentialScale, shade, type LegendSpec } from "./colors.ts";
 import { fmtPct, turnout, type UnitView } from "./results.ts";
 import type { ViewState } from "./viewState.ts";
 import {
@@ -319,7 +319,7 @@ export function ringSlices(u: UnitView, ctx: GroupContext, d: Denominator, color
       if (valid && v / valid < 0.02) other += v;
       else big.push({ key: p.id, label: p.nameZh, value: v, color: ctx.partyColor.get(p.id) ?? NEUTRAL });
     }
-    slices = other ? [...big, { key: "other", label: "其他", value: other, color: NEUTRAL }] : big;
+    slices = other ? [...big, { key: "other", label: "其他", value: other, color: OTHER_PARTY }] : big;
   }
   if (d.invalid) slices.push({ key: "invalid", label: "無效票", value: u.summary.invalid ?? 0, color: INVALID_COLOR });
   if (d.abstain) slices.push({ key: "abstain", label: "未投票", value: abstained(u.summary) ?? 0, color: ABSTAIN_COLOR });

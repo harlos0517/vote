@@ -15,6 +15,8 @@ export const REF_COLORS = {
 export const TIE = "#c8b98c"; // 當選 view: tied for the most seats / votes (khaki: no party uses it)
 export const NO_CANDIDATE = "#cccccc"; // share view: the party ran no candidate here
 export const NEUTRAL = "#aaaaaa"; // independents / parties without a recorded colour
+/** Parties without a recorded colour (not 無黨籍, which stays NEUTRAL): one dusty brown no party uses. */
+export const OTHER_PARTY = "#8c7b6b";
 export const INVALID_COLOR = "#888888";
 export const ABSTAIN_COLOR = "#666666";
 /** Fallback hues by ballot order for choices without a party colour (avoid blue/green). */
