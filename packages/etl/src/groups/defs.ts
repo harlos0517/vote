@@ -99,13 +99,15 @@ interface PresLegDef {
   legislatorTerm: number;
   /** Townships split between two 立委 districts (counted from the data, see the ETL report). */
   splitTowns: number;
+  /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
+  villages?: boolean;
 }
 
-const P2024: PresLegDef = { election: E2024, dir: "votedata/votedata/voteData/2024總統立委/", boundary: B2024, presidentTerm: 16, legislatorTerm: 11, splitTowns: 12 };
+const P2024: PresLegDef = { election: E2024, dir: "votedata/votedata/voteData/2024總統立委/", boundary: B2024, presidentTerm: 16, legislatorTerm: 11, splitTowns: 12, villages: true };
 const P2020: PresLegDef = { election: E2020, dir: "votedata/votedata/voteData/2020總統立委/", boundary: B2020, presidentTerm: 15, legislatorTerm: 10, splitTowns: 12 };
 
 function presidentLegislative(p: PresLegDef): ElGroupDef[] {
-  const base = { election: p.election, boundary: p.boundary };
+  const base = { election: p.election, boundary: p.boundary, villages: p.villages ?? false };
   const indigenous = (kind: "山地" | "平地"): ElGroupDef => ({
     ...base,
     local: kind === "山地" ? "legislator-highland-indigenous" : "legislator-lowland-indigenous",
@@ -182,10 +184,13 @@ interface LocalDef {
   extra?: ElGroupDef["extra"];
   mayorWarnings: string[];
   councilorWarnings: string[];
+  /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
+  villages?: boolean;
 }
 
 const L22: LocalDef = {
   election: E2022,
+  villages: true,
   boundary: B2022,
   dirs: {
     mayor: [`${L2022}C1/prv/`, `${L2022}C1/city/`],
@@ -221,7 +226,7 @@ const L18: LocalDef = {
 
 function localElections(l: LocalDef): ElGroupDef[] {
   const y = l.election.date.slice(0, 4);
-  const base = { election: l.election, boundary: l.boundary, contests: "district" as const, choiceKind: "candidate" as const };
+  const base = { election: l.election, boundary: l.boundary, villages: l.villages ?? false, contests: "district" as const, choiceKind: "candidate" as const };
   const indigenous = (kind: "平地" | "山地"): ElGroupDef => {
     const code = kind === "平地" ? "T2" : "T3";
     return {

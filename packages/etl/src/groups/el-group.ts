@@ -53,6 +53,8 @@ export interface ElGroupDef {
   contestNameSuffix?: string;
   /** Village-boundary snapshot used for every map level. */
   boundary: BoundaryDef;
+  /** Publish the 村里 level (Phase 2; years whose villages match their snapshot). */
+  villages?: boolean;
   /** "party": 不分區政黨票 — the ballot lists parties; list members come from elrepm.csv. */
   choiceKind: "ticket" | "candidate" | "party" | "referendum";
   /** 2018 rf*: el* directories (same day) whose elbase gives each township's registry code by name. */
@@ -88,7 +90,14 @@ export const toParty = (p: { code: number; name: string }, colors: Map<number, P
 export const groupId = (d: ElGroupDef) => `${d.election.id}.${d.local}`;
 
 export function levelsOf(d: ElGroupDef): ReportingLevel[] {
-  return d.contests === "district" ? ["national", "county", "district", "town"] : ["national", "county", "town"];
+  const base: ReportingLevel[] = d.contests === "district" ? ["national", "county", "district", "town"] : ["national", "county", "town"];
+  return d.villages ? [...base, "village"] : base;
+}
+
+/** 村里 unit id: "vil:<MOI village code>" for a single village, "vgrp:<town>-<CEC code>" for a group sharing stations. */
+export function villageUnitId(k: ElKey): string {
+  const tc = townCode(k);
+  return /^0\d{3}$/.test(k.vil) ? `vil:${tc}${k.vil.slice(1)}` : `vgrp:${tc}-${k.vil}`;
 }
 
 function contestIdOf(d: ElGroupDef, county: string | null, dist: string | null): string {
@@ -345,6 +354,12 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
         if (!multi) return { unit: { id: `town:${tc}`, level: "town", nameZh: u.name, parentId: `cty:${cc}`, contestIds: [ci.id] }, contests: [ci] };
         const name = splitTowns.has(tc) ? `${u.name}（第${u.key.dist}選區部分）` : u.name;
         return { unit: { id: `tp:${tc}-${u.key.dist}`, level: "town", nameZh: name, parentId: `dist:${cc}-${u.key.dist}`, contestIds: [ci.id] }, contests: [ci] };
+      }
+      case "village": {
+        if (!ci || !d.villages) return null;
+        const tc = townCode(u.key);
+        const parentId = multi ? `tp:${tc}-${u.key.dist}` : `town:${tc}`;
+        return { unit: { id: villageUnitId(u.key), level: "village", nameZh: u.name, parentId, contestIds: [ci.id] }, contests: [ci] };
       }
       default:
         return null;

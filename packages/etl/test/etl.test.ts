@@ -6,6 +6,8 @@ import { sameVillageName } from "../src/adapters/cec-wide-chiayi.ts";
 import { readRfDir, renumberTowns } from "../src/adapters/cec-rf.ts";
 import { buildRfGroup } from "../src/groups/rf-group.ts";
 import { buildTimelines, proposeSlots } from "../src/lib/timelines.ts";
+import { planVillages } from "../src/geo/villages.ts";
+import { villageUnitId } from "../src/groups/el-group.ts";
 import { checkElDataset } from "../src/validate/el-checks.ts";
 import { buildElGroup, largestRemainder, type ElGroupDef } from "../src/groups/el-group.ts";
 import { releaseIdFor } from "../src/emit/release.ts";
@@ -217,6 +219,29 @@ describe("year-slider timelines", () => {
     expect(timelines.find((t) => t.office === "mayor-or-magistrate")!.slots.map((x) => [x.label, x.groupIds])).toEqual([["2018", ["c.mayor"]], ["2022", ["a.mayor"]], ["2023", ["b.mayor"]]]);
     expect(checks.map((c) => [c.id, c.status])).toEqual([["election-groups", "warn"], ["election-groups-rule", "warn"]]);
     expect(checks[0]!.detail).toContain("d.pres,president,2024,unreviewed");
+  });
+});
+
+describe("村里 level", () => {
+  const unit = (id: string, nameZh: string) => ({ id, level: "village" as const, nameZh, parentId: "town:09007010", contestIds: ["e.c"] });
+  const row = (members: string[] | "overlap") => ({ members, source: "x", reviewed: true });
+  it("ids single villages by MOI code and station-sharing groups by CEC code", () => {
+    expect(villageUnitId({ prv: "09", cty: "007", dist: "00", town: "010", vil: "0002", station: "0000" })).toBe("vil:09007010002");
+    expect(villageUnitId({ prv: "09", cty: "007", dist: "00", town: "010", vil: "0A01", station: "0000" })).toBe("vgrp:09007010-0A01");
+  });
+  it("merges groups, skips overlapping or clashing ones, and notes villages missing a group's votes", () => {
+    const units = [unit("vil:09007010001", "甲村"), unit("vgrp:09007010-0A01", "乙村、丙村"), unit("vgrp:09007010-0A02", "甲村、丁村"), unit("vgrp:09007010-0A03", "各里原住民")];
+    const groups = new Map([
+      ["e|09007010|0A01|乙村、丙村", row(["09007010002", "09007010003"])],
+      ["e|09007010|0A02|甲村、丁村", row(["09007010001", "09007010004"])],
+      ["e|09007010|0A03|各里原住民", row("overlap")],
+    ]);
+    const p = planVillages("e", units, groups);
+    expect(Object.fromEntries(p.assign)).toEqual({ "09007010001": "09007010001", "09007010002": "09007010-0A01", "09007010003": "09007010-0A01" });
+    expect(p.noShape.map((x) => x.unit).sort()).toEqual(["vgrp:09007010-0A02", "vgrp:09007010-0A03"]);
+    expect([...p.covered]).toEqual(["09007010004"]);
+    expect(p.notes.find((n) => n.unit === "vil:09007010001")!.note).toContain("甲村、丁村");
+    expect(p.checks.map((c) => [c.id, c.status])).toEqual([["village-groups", "pass"], ["village-group-clash", "warn"]]);
   });
 });
 
