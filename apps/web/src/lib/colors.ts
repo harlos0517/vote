@@ -12,9 +12,9 @@ export const REF_COLORS = {
   normal: { agree: "#1a9850", disagree: "#d73027" },
   colorblind: { agree: "#2166ac", disagree: "#e66101" },
 } as const;
-export const TIE = "#c8b98c"; // 當選 view: tied for the most seats / votes (khaki: no party uses it)
-export const NO_CANDIDATE = "#cccccc"; // share view: the party ran no candidate here
-export const NEUTRAL = "#aaaaaa"; // independents / parties without a recorded colour
+export const TIE = "#888888"; // 當選 view: tied for the most seats / votes
+export const NO_CANDIDATE = "#444444"; // share view: the party ran no candidate here
+export const NEUTRAL = "#cccccc"; // independents / parties without a recorded colour
 /** Parties without a recorded colour (not 無黨籍, which stays NEUTRAL): one dusty brown no party uses. */
 export const OTHER_PARTY = "#8c7b6b";
 export const INVALID_COLOR = "#888888";
@@ -68,7 +68,7 @@ export function quantile(xs: number[], q: number): number {
 export type ScaleMax = number | null;
 
 /** Non-zero values start this far up the ramp, so a true 0% stays distinguishable from "almost 0". */
-export const ZERO_GAP = 0.05;
+export const ZERO_GAP = 0.1;
 
 /**
  * Sequential: low → high; interp(0) is reserved for exactly 0 (non-zero values start ZERO_GAP up
