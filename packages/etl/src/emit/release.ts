@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Manifest } from "@tw-election/schema";
+import { DATA_PREFIX, Manifest } from "@tw-election/schema";
 
 export const RELEASE_TOKEN = "r-pending-release-id"; // valid Slug, replaced on write
 
@@ -26,25 +26,25 @@ export function json(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** Write v1/releases/<id>/... and (re)write v1/manifest.json with this release as current. */
+/** Write <prefix>/releases/<id>/... and (re)write <prefix>/manifest.json with this release as current. */
 export function writeRelease(
   outDir: string,
   files: PendingFile[],
   meta: { etlVersion: string; elections: string[]; validation: "passed" | "passed-with-warnings"; now: string },
 ): { releaseId: string; root: string } {
   const releaseId = releaseIdFor(files);
-  const root = join(outDir, "v1", "releases", releaseId);
+  const root = join(outDir, DATA_PREFIX, "releases", releaseId);
   if (existsSync(root)) rmSync(root, { recursive: true });
   for (const f of files) {
     const p = join(root, f.path);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, f.body.replaceAll(RELEASE_TOKEN, releaseId));
   }
-  const manifestPath = join(outDir, "v1", "manifest.json");
+  const manifestPath = join(outDir, DATA_PREFIX, "manifest.json");
   const prev = existsSync(manifestPath) ? Manifest.parse(JSON.parse(readFileSync(manifestPath, "utf8"))) : null;
   const others = (prev?.releases ?? []).filter((r) => r.id !== releaseId);
   const manifest = Manifest.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     currentRelease: releaseId,
     releases: [...others, { id: releaseId, createdAt: meta.now, etlVersion: meta.etlVersion, elections: meta.elections, validation: meta.validation }],
   });

@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3";
-import { Manifest, type ValidationCheck } from "@tw-election/schema";
+import { DATA_PREFIX, Manifest, type ValidationCheck } from "@tw-election/schema";
 import { DATA_SOURCES, RAW_SOURCES } from "../config/sources.ts";
 import { rawPath, sha256File } from "../lib/raw.ts";
 
@@ -54,7 +54,7 @@ async function headEtag(s3: S3Client, bucket: string, key: string): Promise<stri
 
 export async function publishRelease(outDir: string, opts: { dryRun: boolean; log?: (s: string) => void }) {
   const log = opts.log ?? console.log;
-  const local = Manifest.parse(JSON.parse(readFileSync(join(outDir, "v1/manifest.json"), "utf8")));
+  const local = Manifest.parse(JSON.parse(readFileSync(join(outDir, DATA_PREFIX, "manifest.json"), "utf8")));
   const releaseId = local.currentRelease;
   const entry = local.releases.find((r) => r.id === releaseId)!;
   const reportPath = join(outDir, "reports", `${releaseId}.json`);
@@ -62,19 +62,19 @@ export async function publishRelease(outDir: string, opts: { dryRun: boolean; lo
   const checks = JSON.parse(readFileSync(reportPath, "utf8")) as ValidationCheck[];
   if (checks.some((c) => c.status === "fail")) throw new Error(`release ${releaseId} has failed checks; refusing to publish`);
 
-  const root = join(outDir, "v1/releases", releaseId);
+  const root = join(outDir, DATA_PREFIX, "releases", releaseId);
   const files = walk(root).sort();
   log(`release ${releaseId}: ${files.length} files`);
   if (opts.dryRun) {
-    for (const f of files) log(`  would upload v1/releases/${releaseId}/${relative(root, f)}`);
-    log("  would update v1/manifest.json");
+    for (const f of files) log(`  would upload ${DATA_PREFIX}/releases/${releaseId}/${relative(root, f)}`);
+    log(`  would update ${DATA_PREFIX}/manifest.json`);
     return;
   }
 
   const s3 = client();
   const bucket = env("R2_BUCKET");
   for (const f of files) {
-    const key = `v1/releases/${releaseId}/${relative(root, f).split("\\").join("/")}`;
+    const key = `${DATA_PREFIX}/releases/${releaseId}/${relative(root, f).split("\\").join("/")}`;
     const body = readFileSync(f);
     const md5 = createHash("md5").update(body).digest("hex");
     const existing = await headEtag(s3, bucket, key);
@@ -87,17 +87,17 @@ export async function publishRelease(outDir: string, opts: { dryRun: boolean; lo
   // Merge into the remote manifest (other releases are kept for rollback / old links).
   let remote: Manifest | null = null;
   try {
-    const r = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: "v1/manifest.json" }));
+    const r = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${DATA_PREFIX}/manifest.json` }));
     remote = Manifest.parse(JSON.parse(await r.Body!.transformToString()));
   } catch (e) {
     if (!(e instanceof S3ServiceException && (e.$metadata.httpStatusCode === 404 || e.name === "NoSuchKey"))) throw e;
   }
   const releases = [...(remote?.releases ?? []).filter((r) => r.id !== releaseId), entry];
-  const manifest = Manifest.parse({ schemaVersion: 1, currentRelease: releaseId, releases });
+  const manifest = Manifest.parse({ schemaVersion: 2, currentRelease: releaseId, releases });
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
-      Key: "v1/manifest.json",
+      Key: `${DATA_PREFIX}/manifest.json`,
       Body: JSON.stringify(manifest, null, 2),
       ContentType: "application/json; charset=utf-8",
       CacheControl: MANIFEST_CACHE,

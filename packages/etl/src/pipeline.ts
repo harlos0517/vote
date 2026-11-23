@@ -2,20 +2,21 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
-  ContestMetadataFile,
   type DataSource,
+  GroupMetadataFile,
+  GroupResultsFile,
   PartiesFile,
   ReleaseIndexFile,
-  ResultsFile,
+  type SourceFile,
   type ValidationCheck,
 } from "@tw-election/schema";
 import { DATA_SOURCES, RAW_SOURCES } from "./config/sources.ts";
 import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
-import { readElDir } from "./adapters/cec-el.ts";
-import { checkElDataset } from "./validate/el-checks.ts";
-import { ARCHIVE_DIR, CONTEST_ID, ELECTION, buildPresident2024, toParty } from "./contests/president-2024.ts";
-import { buildBoundaries, type GeoJSON } from "./geo/build.ts";
+import { type ElDataset, countyCode, readElDir, townCode } from "./adapters/cec-el.ts";
+import { type BuiltGroup, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
+import { GROUPS } from "./groups/defs.ts";
+import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries } from "./geo/build.ts";
 import { loadPartyColors } from "./lib/party-colors.ts";
 import { RELEASE_TOKEN, json, writeRelease, type PendingFile } from "./emit/release.ts";
 
@@ -28,167 +29,215 @@ export interface PipelineOptions {
 }
 
 const BOUNDARY_VERSION = "nlsc-village-1120928";
+const MAJIA = "10013280";
 
 export async function fetchAll(o: PipelineOptions) {
   for (const s of Object.values(RAW_SOURCES)) await ensureRaw(o.rawDir, s, o.log);
+}
+
+interface GroupOutput {
+  def: ElGroupDef;
+  built: BuiltGroup;
+  geo: Boundaries;
+  checks: ValidationCheck[];
+  sources: SourceFile[];
+  notes: { unit: string; note: string }[];
 }
 
 export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseId?: string; checks: ValidationCheck[] }> {
   const log = o.log ?? console.log;
   await fetchAll(o);
 
-  // 1. extract
+  // extract
   const cecWork = join(o.workDir, "cec-votedata");
-  unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, [`${ARCHIVE_DIR}*`]);
-  const contestDir = join(cecWork, ARCHIVE_DIR);
+  unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, GROUPS.map((g) => `${g.archiveDir}*`));
   const villWork = join(o.workDir, "nlsc-village-history", "v112");
   unzip(join(o.rawDir, "nlsc-village-history", "v112.bin"), villWork);
   unzip(findFile(villWork, /\.zip$/), villWork);
   const villageShp = findFile(villWork, /^VILLAGE_NLSC_1120928\.shp$/);
-
-  // 2. parse + validate source
-  log("parse CEC el* files");
-  const ds = readElDir(contestDir);
-  const numbers = [...new Set(ds.candidates.map((c) => c.ballotNumber))].sort((a, b) => a - b);
-  const checks: ValidationCheck[] = checkElDataset(ds, numbers);
   const partyColors = loadPartyColors(o.repoRoot);
-  const built = buildPresident2024(ds, partyColors);
-  checks.push(...built.checks);
-  checks.push(...checkOfficialAnnouncements(o.repoRoot, built));
 
-  // 3. geography
-  log("build boundaries (mapshaper)");
-  const geo = await buildBoundaries(villageShp, join(o.workDir, "geo", BOUNDARY_VERSION));
-  checks.push(joinCheck("geo-join-county", geo.county, built.results.county.units.map((u) => u.id.slice(4))));
-  checks.push(joinCheck("geo-join-town", geo.town, built.results.town.units.map((u) => u.id.slice(5))));
+  const outputs: GroupOutput[] = [];
+  const allChecks: ValidationCheck[] = [];
+  for (const def of GROUPS) {
+    const gid = groupId(def);
+    log(`group ${gid}`);
+    const dir = join(cecWork, def.archiveDir);
+    const ds = readElDir(dir);
+    const built = buildElGroup(def, ds, partyColors);
+    const checks = [...built.checks, ...checkOfficialAnnouncements(o.repoRoot, built)];
 
-  const failed = checks.filter((c) => c.status === "fail");
-  for (const c of checks) log(`  [${c.status}] ${c.id}: ${c.detail}`);
-  if (failed.length) {
-    writeReport(o.outDir, "failed", checks);
-    return { ok: false, checks };
+    log(`  boundaries (${def.layout})`);
+    const geo = await buildBoundaries(villageShp, join(o.workDir, "geo", BOUNDARY_VERSION, def.layout), partsFor(def, ds, built), def.contests === "district");
+    const unassigned: string[] = [];
+    for (const level of built.group.levels) {
+      if (level === "national") continue;
+      const g = geo[level as keyof Boundaries];
+      if (!g) { checks.push({ id: `geo-join-${level}`, status: "fail", detail: "no geometry built" }); continue; }
+      const c = joinCheck(`geo-join-${level}`, g, built.results[level]!.units.map((u) => u.id.slice(u.id.indexOf(":") + 1)));
+      checks.push(c.check);
+      unassigned.push(...c.extraFeatures);
+    }
+    const notes: GroupOutput["notes"] = [];
+    const majia = built.results.town!.units.filter((u) => u.id.includes(MAJIA));
+    for (const u of majia) {
+      notes.push({ unit: u.id, note: "瑪家鄉三和村位於圖資另存的爭議圖層，與內埔鄉、鹽埔鄉、長治鄉圖面重疊，地圖未繪出；其票數依中選會資料計入瑪家鄉。" });
+    }
+    if (unassigned.length) {
+      built.group.warnings.push(`分屬兩個選區的鄉鎮中，有 ${unassigned.length} 塊圖面（未編定村里，例如河道）無法對應到選區，以「無資料」顯示。`);
+    }
+    for (const c of checks) log(`  [${c.status}] ${c.id}: ${c.detail}`);
+    allChecks.push(...checks.map((c) => ({ ...c, id: `${def.local}:${c.id}` })));
+    outputs.push({ def, built, geo, checks, sources: await sourceFiles(dir, def.archiveDir), notes });
   }
 
-  // 4. emit
-  const sources = await sourceFiles(contestDir);
+  if (allChecks.some((c) => c.status === "fail")) {
+    writeReport(o.outDir, "failed", allChecks);
+    return { ok: false, checks: allChecks };
+  }
+
+  // emit
   const files: PendingFile[] = [];
-  const resultPaths: Record<string, string> = {};
-  for (const [level, rf] of Object.entries(built.results)) {
-    const path = `contests/${CONTEST_ID}/results/${level}.json`;
-    resultPaths[level] = path;
-    files.push({ path, body: json(ResultsFile.parse(rf)) });
-  }
-  const geoPaths = {
-    county: `geography/${BOUNDARY_VERSION}/county.geojson`,
-    town: `geography/${BOUNDARY_VERSION}/town.geojson`,
-  };
-  files.push({ path: geoPaths.county, body: json(geo.county) });
-  files.push({ path: geoPaths.town, body: json(geo.town) });
-
+  const geoWritten = new Set<string>();
   const dataSources: DataSource[] = [DATA_SOURCES.cec, DATA_SOURCES.nlscVillageHistory];
-  const meta = ContestMetadataFile.parse({
-    schemaVersion: 1,
-    release: RELEASE_TOKEN,
-    election: { ...ELECTION, kinds: [...ELECTION.kinds], sources },
-    contest: built.contest,
-    choices: built.choices,
-    candidacies: built.candidacies,
-    persons: built.persons,
-    parties: built.parties,
-    sources: dataSources,
-    boundary: {
-      versionId: BOUNDARY_VERSION,
-      sourceId: DATA_SOURCES.nlscVillageHistory.id,
-      files: geoPaths,
-      notes: [
-        {
-          unit: "town:10013280",
-          note: "瑪家鄉三和村位於圖資另存的爭議圖層，與內埔鄉、鹽埔鄉、長治鄉圖面重疊，地圖未繪出；其票數依中選會資料計入瑪家鄉。",
-        },
-      ],
-    },
-    results: resultPaths,
-    validation: checks,
-  });
-  files.push({ path: `contests/${CONTEST_ID}/metadata.json`, body: json(meta) });
+  for (const { def, built, geo, checks, sources, notes } of outputs) {
+    const gid = groupId(def);
+    const resultPaths: Record<string, string> = {};
+    for (const [level, rf] of Object.entries(built.results)) {
+      const path = `groups/${gid}/results/${level}.json`;
+      resultPaths[level] = path;
+      files.push({ path, body: json(GroupResultsFile.parse(rf)) });
+    }
+    const geoPaths: Record<string, string> = {};
+    for (const level of built.group.levels) {
+      const g = geo[level as keyof Boundaries];
+      if (!g) continue;
+      // County shapes are identical for every layout: publish them once.
+      const layout = level === "county" ? "admin" : def.layout;
+      const path = `geography/${BOUNDARY_VERSION}/${layout}/${level}.geojson`;
+      geoPaths[level] = path;
+      if (!geoWritten.has(path)) {
+        files.push({ path, body: json(g) });
+        geoWritten.add(path);
+      }
+    }
+    const meta = GroupMetadataFile.parse({
+      schemaVersion: 2,
+      release: RELEASE_TOKEN,
+      election: { ...def.election, kinds: [...def.election.kinds], sources },
+      group: built.group,
+      contests: built.contests,
+      choices: built.choices,
+      candidacies: built.candidacies,
+      persons: built.persons,
+      parties: built.parties,
+      sources: dataSources,
+      boundary: { versionId: BOUNDARY_VERSION, sourceId: DATA_SOURCES.nlscVillageHistory.id, files: geoPaths, notes },
+      results: resultPaths,
+      validation: checks,
+    });
+    files.push({ path: `groups/${gid}/metadata.json`, body: json(meta) });
+  }
+
+  const elections = [...new Map(GROUPS.map((g) => [g.election.id, g.election])).values()];
   files.push({
     path: "index.json",
     body: json(
       ReleaseIndexFile.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         release: RELEASE_TOKEN,
-        elections: [
-          {
-            id: ELECTION.id,
-            date: ELECTION.date,
-            nameZh: ELECTION.nameZh,
-            contests: [
-              {
-                id: CONTEST_ID,
-                nameZh: built.contest.nameZh,
-                office: built.contest.office,
-                availableLevels: built.contest.availableLevels,
-              },
-            ],
-          },
-        ],
+        elections: elections.map((e) => ({
+          id: e.id,
+          date: e.date,
+          nameZh: e.nameZh,
+          groups: outputs.filter((x) => x.def.election.id === e.id).map((x) => ({ id: x.built.group.id, nameZh: x.built.group.nameZh, office: x.built.group.office, levels: x.built.group.levels })),
+        })),
       }),
     ),
   });
-  files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 1, parties: ds.parties.map((p) => toParty(p, partyColors)) })) });
+  const allParties = new Map<number, { code: number; name: string }>();
+  for (const g of GROUPS) for (const p of readElDir(join(cecWork, g.archiveDir)).parties) allParties.set(p.code, p);
+  files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 2, parties: [...allParties.values()].map((p) => toParty(p, partyColors)) })) });
 
-  const warn = checks.some((c) => c.status === "warn");
+  const warn = allChecks.some((c) => c.status === "warn");
   const { releaseId, root } = writeRelease(o.outDir, files, {
     etlVersion: etlVersion(o.repoRoot),
-    elections: [ELECTION.id],
+    elections: elections.map((e) => e.id),
     validation: warn ? "passed-with-warnings" : "passed",
     now: new Date().toISOString(),
   });
-  writeReport(o.outDir, releaseId, checks, root);
+  writeReport(o.outDir, releaseId, allChecks, root);
   log(`release ${releaseId} written to ${root}`);
-  return { ok: true, releaseId, checks };
+  return { ok: true, releaseId, checks: allChecks };
 }
 
-function checkOfficialAnnouncements(repoRoot: string, built: ReturnType<typeof buildPresident2024>): ValidationCheck[] {
-  const rows = parseCecCsv(readFileSync(join(repoRoot, "packages/etl/mappings/official-announcements.csv"), "utf8"), { header: true })
-    .filter((r) => r[0] === CONTEST_ID);
-  const nat = built.results.national.rows[0]!;
+/** Which village/town goes into which map part (town, or town-within-district). */
+function partsFor(def: ElGroupDef, ds: ElDataset, built: BuiltGroup): PartAssignment {
+  if (def.contests === "single") return { towns: built.townParts.map((p) => ({ town: p.town, part: p.code, district: "" })), villages: [] };
+  const byTown = new Map<string, typeof built.townParts>();
+  for (const p of built.townParts) byTown.set(p.town, [...(byTown.get(p.town) ?? []), p]);
+  const towns: PartAssignment["towns"] = [];
+  const split = new Set<string>();
+  for (const [town, ps] of byTown) {
+    if (ps.length === 1) towns.push({ town, part: ps[0]!.code, district: ps[0]!.district ?? "" });
+    else split.add(town);
+  }
+  const villages: PartAssignment["villages"] = ds.units
+    .filter((u) => u.level === "village" && split.has(townCode(u.key)) && /^0\d{3}$/.test(u.key.vil))
+    .map((u) => ({ village: townCode(u.key) + u.key.vil.slice(1), part: `${townCode(u.key)}-${u.key.dist}`, district: `${countyCode(u.key)}-${u.key.dist}` }));
+  return { towns, villages };
+}
+
+function checkOfficialAnnouncements(repoRoot: string, built: BuiltGroup): ValidationCheck[] {
+  const contestIds = new Set(built.contests.map((c) => c.id));
+  const rows = parseCecCsv(readFileSync(join(repoRoot, "packages/etl/mappings/official-announcements.csv"), "utf8"), { header: true }).filter((r) =>
+    contestIds.has(r[0]!),
+  );
+  if (rows.length === 0) {
+    return [{ id: "official-announcement", status: "warn", detail: "no official announcement totals recorded for this group yet" }];
+  }
+  // Compare with each contest's own top row (national for 總統).
+  const top = built.results.national!.rows[0]!.votes;
   const bad: string[] = [];
   let unreviewed = 0;
-  for (const [, n, label, votes, , status] of rows) {
-    const i = built.choices.findIndex((c) => c.ballotNumber === Number(n));
-    if (i < 0) { bad.push(`no choice #${n}`); continue; }
-    if (built.choices[i]!.labelZh !== label) bad.push(`#${n} label ${built.choices[i]!.labelZh}≠${label}`);
-    if (nat.votes[i] !== Number(votes)) bad.push(`#${n} votes ${nat.votes[i]}≠${votes}`);
+  for (const [cid, n, label, votes, , status] of rows) {
+    const ch = built.choices.find((c) => c.contestId === cid && c.ballotNumber === Number(n));
+    if (!ch) { bad.push(`no choice #${n} in ${cid}`); continue; }
+    if (ch.labelZh !== label) bad.push(`#${n} label ${ch.labelZh}≠${label}`);
+    if (top[ch.id] !== Number(votes)) bad.push(`#${n} votes ${top[ch.id]}≠${votes}`);
     if (status !== "reviewed") unreviewed++;
   }
-  if (rows.length !== built.choices.length) bad.push(`announcement rows ${rows.length} ≠ choices ${built.choices.length}`);
   if (bad.length) return [{ id: "official-announcement", status: "fail", detail: bad.join("; ") }];
   return [
     unreviewed
-      ? { id: "official-announcement", status: "warn", detail: `national totals match the announcement table, but ${unreviewed} rows are not yet human-reviewed` }
-      : { id: "official-announcement", status: "pass", detail: "national totals match the reviewed official announcement" },
+      ? { id: "official-announcement", status: "warn", detail: `totals match, but ${unreviewed} rows are not yet human-reviewed` }
+      : { id: "official-announcement", status: "pass", detail: `${rows.length} totals match the reviewed official announcement` },
   ];
 }
 
-function joinCheck(id: string, g: GeoJSON, unitCodes: string[]): ValidationCheck {
+function joinCheck(id: string, g: GeoJSON, unitCodes: string[]): { check: ValidationCheck; extraFeatures: string[] } {
   const feat = new Set(g.features.map((f) => f.properties.code!));
   const units = new Set(unitCodes);
   const noGeo = [...units].filter((c) => !feat.has(c));
-  const noData = [...feat].filter((c) => !units.has(c));
-  if (noGeo.length || noData.length) {
-    return { id, status: "fail", detail: `units without polygon: ${noGeo.join(",") || "-"}; polygons without result: ${noData.join(",") || "-"}` };
+  const extra = [...feat].filter((c) => !units.has(c));
+  if (noGeo.length) {
+    return { check: { id, status: "fail", detail: `units without polygon: ${noGeo.join(",")}` }, extraFeatures: extra };
   }
-  return { id, status: "pass", detail: `${units.size} units ↔ ${feat.size} polygons, 1:1` };
+  return {
+    check: extra.length
+      ? { id, status: "warn", detail: `${units.size} units matched; ${extra.length} polygons have no result and show as 無資料 (${extra.join(",")})` }
+      : { id, status: "pass", detail: `${units.size} units ↔ ${feat.size} polygons, 1:1` },
+    extraFeatures: extra,
+  };
 }
 
-async function sourceFiles(contestDir: string) {
-  const out = [];
+async function sourceFiles(dir: string, archiveDir: string): Promise<SourceFile[]> {
+  const out: SourceFile[] = [];
   for (const f of ["elbase.csv", "elcand.csv", "elctks.csv", "elpaty.csv", "elprof.csv"]) {
-    const p = join(contestDir, f);
+    const p = join(dir, f);
     out.push({
       sourceId: RAW_SOURCES.cecVotedata.id,
-      path: `${RAW_SOURCES.cecVotedata.file}:${ARCHIVE_DIR}${f}`,
+      path: `${RAW_SOURCES.cecVotedata.file}:${archiveDir}${f}`,
       sha256: await sha256File(p),
       bytes: statSync(p).size,
       retrievedAt: RAW_SOURCES.cecVotedata.retrievedAt,
@@ -229,4 +278,3 @@ function writeReport(outDir: string, name: string, checks: ValidationCheck[], ro
   writeFileSync(join(dir, `${name}.md`), md);
   writeFileSync(join(dir, `${name}.json`), JSON.stringify(checks, null, 2));
 }
-
