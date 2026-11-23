@@ -11,6 +11,7 @@
 ```bash
 pnpm install
 pnpm etl build        # 下載並驗證官方原始檔（約 130 MB，sha256 固定），產出 data/out/
+                      # 設定 RAW_MIRROR_URL=https://vote-data.harlos.tw 時會優先從公開鏡像下載
 pnpm --filter @tw-election/web dev
 ```
 
@@ -76,38 +77,19 @@ v1/releases/<release-id>/geography/<boundary-version>/{county,town}.geojson
 - 修正資料時會產生新的 release，舊檔不會被覆寫。發布程式偵測到同一路徑內容不同時，會直接中止。
 - `manifest.json` 最後才上傳，讀者不會看到檔案不完整的 release。
 
-### 一次性設定（人工）
+### 設定與發布
 
-1. 建立公開 bucket（例如 `tw-election-data`），綁定自訂網域並開啟公開讀取。
-2. 建立私有 bucket（例如 `tw-election-raw`），存放原始檔鏡像；**不開放公開存取**。
-3. 建立 R2 API Token：限定上述兩個 bucket，權限為 Object Read & Write。
-4. 公開 bucket 的 CORS 設定：
+逐步操作說明見 [docs/deployment.md](docs/deployment.md)，涵蓋 R2 bucket、自訂網域、CORS、API token、GitHub Environment 與 secrets、第一次發布，以及發布後的 CDN 檢查。
 
-   ```json
-   [
-     {
-       "AllowedOrigins": ["https://<github-user>.github.io", "http://localhost:5173", "http://localhost:4173"],
-       "AllowedMethods": ["GET", "HEAD"],
-       "AllowedHeaders": ["*"],
-       "MaxAgeSeconds": 86400
-     }
-   ]
-   ```
+| 項目 | 值 |
+|---|---|
+| 網站 | `https://vote.harlos.tw` |
+| 資料 | `https://vote-data.harlos.tw`（repo 變數 `DATA_BASE_URL`） |
+| 原始檔鏡像 | 同一個 bucket 的 `raw/`，公開；授權聲明見 `raw/NOTICE.md` |
 
-5. GitHub 設定：
-   - Environment `data-release`：設定 required reviewers，並加入 secrets `R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`R2_BUCKET`、`R2_RAW_BUCKET`。
-   - Repository variable `DATA_BASE_URL`：公開 bucket 的自訂網域，例如 `https://data.example.org/`。
-   - Pages 的來源設為 **GitHub Actions**。
-
-金鑰只放在 GitHub Secrets，不得提交到 Repository。
-
-### 發布流程
-
-1. 在 Actions 中執行 **Publish data release (R2)**，先保持 `dry_run: true`，檢查產出的 `etl-report` 是否有失敗項目。
-2. 確認無誤後，以 `dry_run: false` 重新執行，並經 `data-release` 環境核准。
-3. 推送到 `main` 時，網站會自動部署到 GitHub Pages：
-   - `VITE_BASE` 設為 `/<repo>/`。
-   - 網站狀態放在 URL hash（例如 `#/?lv=town&ch=n2`），所以深層連結不需要 SPA fallback。
+- 網站部署在自訂網域的根路徑，`VITE_BASE` 預設為 `/`。若改回 `<user>.github.io/<repo>/`，請設定 repo 變數 `SITE_BASE_PATH`。
+- 網站狀態放在 URL hash，所以深層連結不需要 SPA fallback。
+- 金鑰只放在 GitHub Environment `data-release` 的 secrets 中，不得提交到 Repository。
 
 ## 驗證
 
