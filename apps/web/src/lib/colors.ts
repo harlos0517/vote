@@ -4,7 +4,7 @@
  * switching between the two never changes the range the colours cover.
  */
 import { interpolateLab } from "d3-interpolate";
-import { interpolatePlasma } from "d3-scale-chromatic";
+import { interpolateInferno } from "d3-scale-chromatic";
 
 export const NO_DATA = "#444444";
 export const NO_CANDIDATE = "#cccccc"; // share view: the party ran no candidate here
@@ -148,7 +148,7 @@ export function divergingScale(
   return { color: (v) => interp(t(v)), t, legend };
 }
 
-export const viridis = (t: number) => interpolatePlasma(0.1 + 0.85 * t); // lighter = higher
+export const viridis = (t: number) => interpolateInferno(t); // lighter = higher
 export const blackTo = (c: string) => (t: number) => interpolateLab("#000000", c)(t);
 /** Shade a colour by strength t∈[0,1]: weak → pale, strong → full colour. */
 export const shade = (c: string, t: number) => interpolateLab("#f2f2f2", c)(0.2 + 0.8 * t);
