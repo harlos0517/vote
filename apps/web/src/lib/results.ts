@@ -4,31 +4,23 @@ export interface UnitView {
   id: string;
   code: string; // county / town code used by the boundary features
   name: string;
+  parentId: string | null;
   summary: ResultSummary;
   votes: number[];
-  /** votes ÷ valid ballots; null when valid is unknown or zero */
-  shares: (number | null)[];
-  /** index of the leading choice; null on a tie or no votes */
-  leader: number | null;
 }
 
 export function toUnitViews(rf: ResultsFile): Map<string, UnitView> {
-  const names = new Map(rf.units.map((u) => [u.id, u.nameZh]));
+  const units = new Map(rf.units.map((u) => [u.id, u]));
   const out = new Map<string, UnitView>();
   for (const row of rf.rows) {
-    const valid = row.summary.valid;
-    const shares = row.votes.map((v) => (valid ? v / valid : null));
-    const max = Math.max(...row.votes);
-    const leaders = row.votes.flatMap((v, i) => (v === max ? [i] : []));
     const code = row.unit.includes(":") ? row.unit.slice(row.unit.indexOf(":") + 1) : row.unit;
     out.set(code, {
       id: row.unit,
       code,
-      name: names.get(row.unit) ?? row.unit,
+      name: units.get(row.unit)?.nameZh ?? row.unit,
+      parentId: units.get(row.unit)?.parentId ?? null,
       summary: row.summary,
       votes: row.votes,
-      shares,
-      leader: max > 0 && leaders.length === 1 ? leaders[0]! : null,
     });
   }
   return out;
