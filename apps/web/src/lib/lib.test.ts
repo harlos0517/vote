@@ -306,6 +306,16 @@ describe("scales", () => {
     const s2 = sequentialScale([...Array.from({ length: 98 }, (_, i) => 0.3 + (0.2 * i) / 97), 0.05, 0.95], () => "#000", "continuous");
     expect(s2.legend.type === "continuous" && s2.legend.ticks.map((t) => t.label)).toEqual(["> 0%", "25%", "≥ 50%"]);
   });
+  it("diverging scales keep black for an exact tie: any lead starts 5% toward its side, also when stepped", () => {
+    const c = divergingScale([-0.2, 0.2], "#0000ff", "#00ff00", "continuous", (pt) => `${pt}`);
+    expect(c.t(0.0001)).toBeCloseTo(0.05, 2);
+    expect(c.t(-0.0001)).toBeCloseTo(-0.05, 2);
+    const s = divergingScale([-0.2, 0.2], "#0000ff", "#00ff00", "stepped", (pt) => (pt === 0 ? "平手" : `${pt}`));
+    expect(s.t(0)).toBe(0);
+    expect(s.color(0)).toBe("rgb(0, 0, 0)");
+    expect(s.t(0.001)).toBeGreaterThan(0.05);
+    expect(s.legend.zero?.label).toBe("平手");
+  });
   it("diverging scale is symmetric and black at zero", () => {
     const s = divergingScale([-0.12, 0.3], "#0000ff", "#00ff00", "continuous", (pt) => `${pt}`);
     expect(s.t(0)).toBe(0);

@@ -122,6 +122,8 @@ export function sequentialScale(values: number[], interp: (t: number) => string,
 
 /**
  * Diverging around 0 (fractions in [-1, 1]): negative → `neg`, 0 → black, positive → `pos`.
+ * Black is reserved for an exact tie: any non-zero lead starts ZERO_GAP toward its side, in both
+ * continuous and stepped mode (the legend lists the tie separately, labelled `label(0)`).
  * Symmetric: equal distances from 0 get equal strength. Its size is `max` when fixed, else the
  * 95th percentile of |value| (snapped), so a few landslide areas don't turn the rest black;
  * beyond it values take the end colour and the legend ends read ≥.
@@ -148,7 +150,10 @@ export function divergingScale(
     const mid = -mPt + (b + 0.5) * stepPt;
     return mid / mPt;
   };
-  const t = kind === "stepped" ? binT : linT;
+  const raw = kind === "stepped" ? binT : linT;
+  const lift = (x: number) => Math.sign(x) * (ZERO_GAP + (1 - ZERO_GAP) * Math.abs(x));
+  const t = (v: number) => (v === 0 ? 0 : lift(raw(v)));
+  const zero = { color: interp(0), label: label(0) };
   const legend: LegendSpec =
     kind === "stepped"
       ? {
@@ -157,13 +162,19 @@ export function divergingScale(
             const a = clean(-mPt + b * stepPt);
             const text =
               open && b === 0 ? end(a + stepPt) : open && b === bins - 1 ? end(a) : `${label(a)} ～ ${label(clean(a + stepPt))}`;
-            return { color: interp((a + stepPt / 2) / mPt), label: text };
+            return { color: interp(lift((a + stepPt / 2) / mPt)), label: text };
           }),
+          zero,
         }
       : {
           type: "continuous",
-          gradient: `linear-gradient(to top, ${Array.from({ length: 21 }, (_, i) => `${interp(i / 10 - 1)} ${i * 5}%`).join(", ")})`,
+          // Black only at the very middle (exact tie); either side starts ZERO_GAP from black.
+          gradient: `linear-gradient(to top, ${[
+            ...Array.from({ length: 11 }, (_, i) => `${interp(lift(Math.min(i / 10 - 1, -1e-9)))} ${i * 5}%`),
+            ...Array.from({ length: 11 }, (_, i) => `${interp(lift(Math.max(i / 10, 1e-9)))} ${50 + i * 5}%`),
+          ].join(", ")})`,
           ticks: [{ at: 0, label: end(-mPt) }, { at: 0.5, label: label(0) }, { at: 1, label: end(mPt) }],
+          zero,
         };
   return { color: (v) => interp(t(v)), t, legend };
 }
