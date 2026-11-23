@@ -13,11 +13,13 @@ import {
 import { DATA_SOURCES, RAW_SOURCES } from "./config/sources.ts";
 import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
-import { type ElDataset, countyCode, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
+import { type ElDataset, countyCode, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
+import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
 import { type BuiltGroup, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
 import { GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries } from "./geo/build.ts";
 import { loadPartyColors } from "./lib/party-colors.ts";
+import { applyPuaNames, loadPuaNames } from "./lib/pua-names.ts";
 import { RELEASE_TOKEN, json, writeRelease, type PendingFile } from "./emit/release.ts";
 
 export interface PipelineOptions {
@@ -28,7 +30,6 @@ export interface PipelineOptions {
   log?: (s: string) => void;
 }
 
-const BOUNDARY_VERSION = "nlsc-village-1120928";
 const MAJIA = "10013280";
 
 export async function fetchAll(o: PipelineOptions) {
@@ -50,12 +51,18 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
 
   // extract
   const cecWork = join(o.workDir, "cec-votedata");
-  unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, GROUPS.map((g) => `${g.archiveDir}*`));
-  const villWork = join(o.workDir, "nlsc-village-history", "v112");
-  unzip(join(o.rawDir, "nlsc-village-history", "v112.bin"), villWork);
-  unzip(findFile(villWork, /\.zip$/), villWork);
-  const villageShp = findFile(villWork, /^VILLAGE_NLSC_1120928\.shp$/);
+  const zipDirs = GROUPS.flatMap((g) => [...g.archiveDirs, ...(g.extra ? [g.extra.archiveDir, g.extra.refArchiveDir] : [])]);
+  unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, [...new Set(zipDirs)].map((d) => `${d}*`));
+  const shapefiles = new Map<string, string>(); // boundary versionId → village .shp
+  for (const b of new Map(GROUPS.map((g) => [g.boundary.versionId, g.boundary])).values()) {
+    const raw = RAW_SOURCES[b.raw];
+    const villWork = join(o.workDir, "nlsc-village-history", raw.file.replace(/\.bin$/, ""));
+    unzip(join(o.rawDir, raw.id, raw.file), villWork);
+    unzip(findFile(villWork, /\.zip$/), villWork);
+    shapefiles.set(b.versionId, findFile(villWork, b.shapefile));
+  }
   const partyColors = loadPartyColors(o.repoRoot);
+  const puaNames = loadPuaNames(o.repoRoot);
 
   const outputs: GroupOutput[] = [];
   const geoByLayout = new Map<string, Boundaries>();
@@ -63,15 +70,20 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   for (const def of GROUPS) {
     const gid = groupId(def);
     log(`group ${gid}`);
-    const dir = join(cecWork, def.archiveDir);
-    const ds = readElDir(dir);
+    const ds = readGroupData(def, cecWork);
+    const puaCheck = applyPuaNames(ds, puaNames);
+    const dir = join(cecWork, def.archiveDirs[0]!);
     const built = buildElGroup(def, ds, partyColors, def.choiceKind === "party" ? readElPartyList(dir) : undefined);
-    const checks = [...built.checks, ...checkOfficialAnnouncements(o.repoRoot, built)];
+    const checks = [...built.checks, puaCheck, ...checkOfficialAnnouncements(o.repoRoot, built)];
 
-    log(`  boundaries (${def.layout})`);
-    // Groups sharing a layout share its shapes (the plain "admin" towns are the same for every group).
-    const geo = geoByLayout.get(def.layout) ?? (await buildBoundaries(villageShp, join(o.workDir, "geo", BOUNDARY_VERSION, def.layout), partsFor(def, ds, built), def.contests === "district"));
-    geoByLayout.set(def.layout, geo);
+    // Groups sharing a boundary version and layout share its shapes (plain "admin" towns are the same).
+    const geoKey = `${def.boundary.versionId}/${def.layout}`;
+    let geo = geoByLayout.get(geoKey);
+    if (!geo) {
+      log(`  boundaries (${geoKey})`);
+      geo = await buildBoundaries(shapefiles.get(def.boundary.versionId)!, join(o.workDir, "geo", geoKey), partsFor(def, ds, built), def.contests === "district");
+      geoByLayout.set(geoKey, geo);
+    }
     const unassigned: string[] = [];
     for (const level of built.group.levels) {
       if (level === "national") continue;
@@ -90,8 +102,11 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       built.group.warnings.push(`分屬兩個選區的鄉鎮中，有 ${unassigned.length} 塊圖面（未編定村里，例如河道）無法對應到選區，以「無資料」顯示。`);
     }
     for (const c of checks) log(`  [${c.status}] ${c.id}: ${c.detail}`);
-    allChecks.push(...checks.map((c) => ({ ...c, id: `${def.local}:${c.id}` })));
-    outputs.push({ def, built, geo, checks, sources: await sourceFiles(dir, def.archiveDir), notes });
+    allChecks.push(...checks.map((c) => ({ ...c, id: `${def.election.date.slice(0, 4)}/${def.local}:${c.id}` })));
+    const sources = [];
+    for (const a of def.archiveDirs) sources.push(...(await sourceFiles(join(cecWork, a), a, EL_FILES)));
+    if (def.extra) sources.push(...(await sourceFiles(join(cecWork, def.extra.archiveDir), def.extra.archiveDir, ["cand.csv", "prof.csv"])));
+    outputs.push({ def, built, geo, checks, sources, notes });
   }
 
   if (allChecks.some((c) => c.status === "fail")) {
@@ -117,7 +132,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       if (!g) continue;
       // County shapes are identical for every layout: publish them once.
       const layout = level === "county" ? "admin" : def.layout;
-      const path = `geography/${BOUNDARY_VERSION}/${layout}/${level}.geojson`;
+      const path = `geography/${def.boundary.versionId}/${layout}/${level}.geojson`;
       geoPaths[level] = path;
       if (!geoWritten.has(path)) {
         files.push({ path, body: json(g) });
@@ -135,7 +150,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       persons: built.persons,
       parties: built.parties,
       sources: dataSources,
-      boundary: { versionId: BOUNDARY_VERSION, sourceId: DATA_SOURCES.nlscVillageHistory.id, files: geoPaths, notes },
+      boundary: { versionId: def.boundary.versionId, sourceId: DATA_SOURCES.nlscVillageHistory.id, files: geoPaths, notes },
       results: resultPaths,
       validation: checks,
     });
@@ -159,7 +174,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     ),
   });
   const allParties = new Map<number, { code: number; name: string }>();
-  for (const g of GROUPS) for (const p of readElDir(join(cecWork, g.archiveDir)).parties) allParties.set(p.code, p);
+  for (const g of GROUPS) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a)).parties) allParties.set(p.code, p);
   files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 2, parties: [...allParties.values()].map((p) => toParty(p, partyColors)) })) });
 
   const warn = allChecks.some((c) => c.status === "warn");
@@ -176,7 +191,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
 
 /** Which village/town goes into which map part (town, or town-within-district). */
 function partsFor(def: ElGroupDef, ds: ElDataset, built: BuiltGroup): PartAssignment {
-  if (def.contests === "single") return { towns: built.townParts.map((p) => ({ town: p.town, part: p.code, district: "" })), villages: [] };
+  if (def.contests !== "district") return { towns: built.townParts.map((p) => ({ town: p.town, part: p.code, district: "" })), villages: [] };
   const byTown = new Map<string, typeof built.townParts>();
   for (const p of built.townParts) byTown.set(p.town, [...(byTown.get(p.town) ?? []), p]);
   const towns: PartAssignment["towns"] = [];
@@ -234,9 +249,22 @@ function joinCheck(id: string, g: GeoJSON, unitCodes: string[]): { check: Valida
   };
 }
 
-async function sourceFiles(dir: string, archiveDir: string): Promise<SourceFile[]> {
+const EL_FILES = ["elbase.csv", "elcand.csv", "elctks.csv", "elpaty.csv", "elprof.csv"];
+
+/** All el* directories of a group (merged when there are several), plus any extra adapter. */
+function readGroupData(def: ElGroupDef, cecWork: string): ElDataset {
+  const parts = def.archiveDirs.map((a) => readElDir(join(cecWork, a)));
+  if (def.extra?.adapter === "chiayi-2022-rerun") {
+    const ref = readElDir(join(cecWork, def.extra.refArchiveDir), (k) => countyCode(k) === CHIAYI_CITY);
+    const parties = parts.flatMap((p) => p.parties);
+    parts.push(readChiayiRerun(join(cecWork, def.extra.archiveDir), ref, parties, def.extra.date));
+  }
+  return parts.length === 1 ? parts[0]! : mergeElDatasets(parts);
+}
+
+async function sourceFiles(dir: string, archiveDir: string, names: string[]): Promise<SourceFile[]> {
   const out: SourceFile[] = [];
-  for (const f of ["elbase.csv", "elcand.csv", "elctks.csv", "elpaty.csv", "elprof.csv"]) {
+  for (const f of names) {
     const p = join(dir, f);
     out.push({
       sourceId: RAW_SOURCES.cecVotedata.id,

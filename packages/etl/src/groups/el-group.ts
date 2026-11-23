@@ -36,10 +36,23 @@ export interface ElGroupDef {
   nameZh: string;
   office: Office;
   electorate: Electorate;
-  /** Path of the contest files inside votedata.zip. */
-  archiveDir: string;
-  /** "single": one nationwide contest. "district": one contest per (county, 選區). */
-  contests: "single" | "district";
+  /** Paths of the el* directories inside votedata.zip (2022 splits an office into prv/ and city/). */
+  archiveDirs: string[];
+  /** Extra non-el* source merged into the group (adapter name + its path in the zip). */
+  extra?: { adapter: "chiayi-2022-rerun"; archiveDir: string; refArchiveDir: string; date: string };
+  /**
+   * "single": one nationwide contest. "county": one contest per county (縣市長).
+   * "district": one contest per (county, 選區).
+   */
+  contests: "single" | "county" | "district";
+  /** CEC 選舉種類代碼 (2022: "C1", "T1"); none for 2024's national elections. */
+  cecTypeCode?: string;
+  /** Contest id infix, e.g. "ly" → `<election>.ly-63000-d01`, "c1" → `<election>.c1-63000`. */
+  contestPrefix?: string;
+  /** Contest name after the county name for "county" groups, e.g. "長" → 臺北市長. */
+  contestNameSuffix?: string;
+  /** Village-boundary snapshot used for every map level. */
+  boundary: BoundaryDef;
   /** "party": 不分區政黨票 — the ballot lists parties; list members come from elrepm.csv. */
   choiceKind: "ticket" | "candidate" | "party";
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
@@ -47,6 +60,14 @@ export interface ElGroupDef {
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */
   layout: string;
   warnings: string[];
+}
+
+export interface BoundaryDef {
+  /** Published id, e.g. "nlsc-village-1120928". */
+  versionId: string;
+  /** Key of the raw source in RAW_SOURCES and the shapefile name inside it. */
+  raw: "nlscVillage111" | "nlscVillage112";
+  shapefile: RegExp;
 }
 
 export const partyId = (code: number) => `cec-${code}`;
@@ -63,6 +84,13 @@ export const groupId = (d: ElGroupDef) => `${d.election.id}.${d.local}`;
 
 export function levelsOf(d: ElGroupDef): ReportingLevel[] {
   return d.contests === "district" ? ["national", "county", "district", "town"] : ["national", "county", "town"];
+}
+
+function contestIdOf(d: ElGroupDef, county: string | null, dist: string | null): string {
+  const prefix = d.contestPrefix ?? "ly";
+  if (d.contests === "district") return `${d.election.id}.${prefix}-${county}-d${dist}`;
+  if (d.contests === "county") return `${d.election.id}.${prefix}-${county}`;
+  return groupId(d);
 }
 
 interface ContestInfo {
@@ -109,11 +137,13 @@ export function largestRemainder(votes: Map<number, number>, seats: number, thre
 
 export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, PartyColor>, list?: ElPartyList): BuiltGroup {
   const gid = groupId(d);
-  const seats = d.seats ?? 1;
+  const seats = d.seats ?? 1; // party list only; candidate contests use seatsOf()
   const isList = d.choiceKind === "party";
   if (isList && !list) throw new Error(`${gid}: party-list group needs elrepm/elretks`);
   const multi = d.contests === "district";
-  const contestKeyOf = (k: ElKey): string | null => (multi ? (k.dist === "00" ? null : `${countyCode(k)}-${k.dist}`) : "main");
+  const byCounty = d.contests === "county";
+  const contestKeyOf = (k: ElKey): string | null =>
+    multi ? (k.dist === "00" ? null : `${countyCode(k)}-${k.dist}`) : byCounty ? (k.prv === "00" ? null : countyCode(k)) : "main";
 
   // ---- contests
   const countyName = new Map(ds.units.filter((u) => u.level === "county").map((u) => [countyCode(u.key), u.name]));
@@ -122,14 +152,14 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   for (const c of ds.candidates) {
     const key = contestKeyOf(c.key);
     if (!key || infos.has(key)) continue;
-    const county = multi ? countyCode(c.key) : null;
+    const county = multi || byCounty ? countyCode(c.key) : null;
     const dist = multi ? c.key.dist : null;
     infos.set(key, {
       key,
-      id: multi ? `${d.election.id}.ly-${county}-d${dist}` : gid,
+      id: contestIdOf(d, county, dist),
       county,
       dist,
-      choicePrefix: multi ? `${county}-d${dist}.` : "",
+      choicePrefix: multi ? `${county}-d${dist}.` : byCounty ? `${county}.` : "",
     });
   }
   const contestList = [...infos.values()].sort((a, b) => a.key.localeCompare(b.key));
@@ -221,9 +251,15 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     }
   }
 
-  // ---- winners: the marked candidates must be the contest's top `seats` (ties fail loudly)
+  // Seats per contest: fixed by the definition, else the number CEC marks elected (議員 districts vary).
+  const seatsOf = (ci: ContestInfo) =>
+    d.seats ?? Math.max(1, candidacies.filter((c) => c.contestId === ci.id && c.role === "principal" && c.elected).length);
+
+  // ---- winners: the marked candidates must be the contest's top seats (ties fail loudly)
   const topRowOf = (ci: ContestInfo) =>
-    ds.units.find((u) => (multi ? u.level === "district" && contestKeyOf(u.key) === ci.key : u.level === "national"));
+    ds.units.find((u) =>
+      multi ? u.level === "district" && contestKeyOf(u.key) === ci.key : byCounty ? u.level === "county" && countyCode(u.key) === ci.key : u.level === "national",
+    );
   const winnerBad: string[] = [];
   let partyList: Contest["partyList"] = null;
   for (const ci of contestList) {
@@ -233,19 +269,34 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       partyList = checkPartyList(ci, row, list!, candidacies, seats, ballotsByContest.get(ci.key)!, ds, winnerBad);
       continue;
     }
+    const n = seatsOf(ci);
     const nums = [...ballotsByContest.get(ci.key)!].sort((a, b) => (row.votes.get(b) ?? 0) - (row.votes.get(a) ?? 0));
-    const cut = row.votes.get(nums[seats - 1]!) ?? 0;
-    if (nums.length > seats && (row.votes.get(nums[seats]!) ?? 0) === cut) winnerBad.push(`${ci.id}: tie for the last seat`);
-    const top = nums.slice(0, seats).sort((a, b) => a - b);
-    const marked = candidacies.filter((c) => c.contestId === ci.id && c.elected).map((c) => c.ballotNumber).sort((a, b) => a - b);
-    if (marked.join(",") !== top.join(",")) winnerBad.push(`${ci.id}: marked ${marked.join(",") || "none"} vs top ${top.map((n) => `#${n}`).join(",")}`);
+    const cut = row.votes.get(nums[n - 1]!) ?? 0;
+    if (nums.length > n && (row.votes.get(nums[n]!) ?? 0) === cut) winnerBad.push(`${ci.id}: tie for the last seat`);
+    const top = new Set(nums.slice(0, n));
+    const mine = candidacies.filter((c) => c.contestId === ci.id && c.role === "principal");
+    // 婦女保障名額: a woman outside the top n ("!") takes the place of the lowest-ranked man in it.
+    const quota = mine.filter((c) => c.electedNote === "women-quota");
+    const regular = mine.filter((c) => c.elected && c.electedNote !== "women-quota");
+    const bad =
+      regular.length + quota.length !== n ||
+      regular.some((c) => !top.has(c.ballotNumber)) ||
+      quota.some((c) => c.gender !== "F" || top.has(c.ballotNumber));
+    if (bad) {
+      const marked = mine.filter((c) => c.elected).map((c) => c.ballotNumber).sort((a, b) => a - b);
+      winnerBad.push(`${ci.id}: marked ${marked.join(",") || "none"} vs top ${[...top].sort((a, b) => a - b).map((x) => `#${x}`).join(",")}`);
+    }
   }
   checks.push(
     winnerBad.length
       ? { id: "winner-consistent", status: "fail", detail: winnerBad.slice(0, 5).join("; ") }
       : isList
         ? { id: "winner-consistent", status: "pass", detail: `${seats} seats: CEC's per-party seats match the elected list members, the ${PARTY_LIST_THRESHOLD.pct}% threshold and a largest-remainder recount; published vote shares reproduce` }
-        : { id: "winner-consistent", status: "pass", detail: `${contestList.length} contests: the ${seats === 1 ? "elected candidate has" : `${seats} elected candidates have`} the most votes` },
+        : {
+            id: "winner-consistent",
+            status: "pass",
+            detail: `${contestList.length} contests, ${contestList.reduce((a, ci) => a + seatsOf(ci), 0)} seats: the elected candidates have the most votes${candidacies.some((c) => c.electedNote === "women-quota") ? " (women-quota seats replace the lowest-ranked man)" : ""}`,
+          },
   );
 
   // ---- units and results per level
@@ -254,7 +305,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     const row = topRowOf(ci)!;
     contestTopVotes.set(ci.key, Object.fromEntries([...row.votes].map(([n, v]) => [choiceId(ci, n), v])));
   }
-  const contestsInCounty = (cc: string) => contestList.filter((ci) => !multi || ci.county === cc);
+  const contestsInCounty = (cc: string) => contestList.filter((ci) => !(multi || byCounty) || ci.county === cc);
   const splitTowns = new Set<string>();
   if (multi) {
     const distsPerTown = new Map<string, Set<string>>();
@@ -303,7 +354,8 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
         const m = unitOf(u);
         if (!m) return [];
         let votes: Record<string, number>;
-        if (u.votes.size > 0) {
+        // A 2022 directory's national row sums different counties' contests: never use it.
+        if (u.votes.size > 0 && !(byCounty && m.contests.length > 1)) {
           const ci = m.contests.length === 1 ? m.contests[0]! : null;
           if (!ci) throw new Error(`${keyString(u.key)} has candidate rows but spans several contests`);
           votes = Object.fromEntries([...u.votes].map(([n, v]) => [choiceId(ci, n), v]));
@@ -355,17 +407,26 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     id: ci.id,
     electionId: d.election.id,
     office: d.office,
-    cecTypeCode: null,
-    nameZh: multi ? (districtName.get(ci.key) ?? `${countyName.get(ci.county!) ?? ""}第${ci.dist}選區`) : d.nameZh,
+    cecTypeCode: d.cecTypeCode ?? null,
+    nameZh: multi
+      ? (districtName.get(ci.key) ?? `${countyName.get(ci.county!) ?? ""}第${ci.dist}選區`)
+      : byCounty
+        ? `${countyName.get(ci.county!) ?? ci.county}${d.contestNameSuffix ?? ""}`
+        : d.nameZh,
     electorate: d.electorate,
-    seats,
+    seats: isList ? seats : seatsOf(ci),
     choiceKind: d.choiceKind,
     districtId: multi ? `${ci.county}-${ci.dist}` : null,
-    scope: multi ? { level: "district", districtId: `${ci.county}-${ci.dist}` } : { level: "national" },
+    scope: multi
+      ? { level: "district", districtId: `${ci.county}-${ci.dist}` }
+      : byCounty
+        ? { level: "county", code: ci.county! }
+        : { level: "national" },
     availableLevels: levels,
+    date: ds.contestNotes?.get(ci.key)?.date ?? null,
     partyList: isList ? partyList : null,
     referendum: null,
-    warnings: [],
+    warnings: ds.contestNotes?.get(ci.key)?.warnings ?? [],
   }));
 
   const townParts = multi

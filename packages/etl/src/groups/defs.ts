@@ -1,5 +1,8 @@
 /** Contest groups published in this release. Add an entry to add an election. */
-import type { ElectionDef, ElGroupDef } from "./el-group.ts";
+import type { BoundaryDef, ElectionDef, ElGroupDef } from "./el-group.ts";
+
+const B2024: BoundaryDef = { versionId: "nlsc-village-1120928", raw: "nlscVillage112", shapefile: /^VILLAGE_NLSC_1120928\.shp$/ };
+const B2022: BoundaryDef = { versionId: "nlsc-village-1111118", raw: "nlscVillage111", shapefile: /^VILLAGE_MOI_1111118\.shp$/ };
 
 export const E2024: ElectionDef = {
   id: "2024-01-13-president-legislative",
@@ -7,6 +10,15 @@ export const E2024: ElectionDef = {
   nameZh: "2024年 第16任總統副總統及第11屆立法委員選舉",
   kinds: ["president", "legislative"],
 };
+
+export const E2022: ElectionDef = {
+  id: "2022-11-26-local",
+  date: "2022-11-26",
+  nameZh: "2022年 地方公職人員選舉",
+  kinds: ["local"],
+};
+
+const L2022 = "votedata/votedata/voteData/2022-111年地方公職人員選舉/";
 
 const COMMON_WARNINGS = [
   "村里及投開票所層級資料已取得並通過驗證，但目前僅發布至鄉鎮市區層級。",
@@ -20,7 +32,8 @@ export const GROUPS: ElGroupDef[] = [
     nameZh: "第16任總統副總統選舉",
     office: "president",
     electorate: "general",
-    archiveDir: "votedata/votedata/voteData/2024總統立委/總統/",
+    archiveDirs: ["votedata/votedata/voteData/2024總統立委/總統/"],
+    boundary: B2024,
     contests: "single",
     choiceKind: "ticket",
     layout: "admin",
@@ -32,8 +45,10 @@ export const GROUPS: ElGroupDef[] = [
     nameZh: "第11屆區域立法委員選舉",
     office: "legislator-district",
     electorate: "general",
-    archiveDir: "votedata/votedata/voteData/2024總統立委/區域立委/",
+    archiveDirs: ["votedata/votedata/voteData/2024總統立委/區域立委/"],
+    boundary: B2024,
     contests: "district",
+    contestPrefix: "ly",
     choiceKind: "candidate",
     layout: "ly2024",
     warnings: [
@@ -48,7 +63,8 @@ export const GROUPS: ElGroupDef[] = [
     nameZh: "第11屆山地原住民立法委員選舉",
     office: "legislator-highland-indigenous",
     electorate: "highland-indigenous",
-    archiveDir: "votedata/votedata/voteData/2024總統立委/山地立委/",
+    archiveDirs: ["votedata/votedata/voteData/2024總統立委/山地立委/"],
+    boundary: B2024,
     contests: "single",
     choiceKind: "candidate",
     seats: 3,
@@ -65,7 +81,8 @@ export const GROUPS: ElGroupDef[] = [
     nameZh: "第11屆平地原住民立法委員選舉",
     office: "legislator-lowland-indigenous",
     electorate: "lowland-indigenous",
-    archiveDir: "votedata/votedata/voteData/2024總統立委/平地立委/",
+    archiveDirs: ["votedata/votedata/voteData/2024總統立委/平地立委/"],
+    boundary: B2024,
     contests: "single",
     choiceKind: "candidate",
     seats: 3,
@@ -82,7 +99,8 @@ export const GROUPS: ElGroupDef[] = [
     nameZh: "第11屆全國不分區及僑居國外國民立法委員選舉（政黨票）",
     office: "legislator-party-list",
     electorate: "general",
-    archiveDir: "votedata/votedata/voteData/2024總統立委/不分區政黨/",
+    archiveDirs: ["votedata/votedata/voteData/2024總統立委/不分區政黨/"],
+    boundary: B2024,
     contests: "single",
     choiceKind: "party",
     seats: 34,
@@ -90,6 +108,47 @@ export const GROUPS: ElGroupDef[] = [
     warnings: [
       ...COMMON_WARNINGS,
       "選票上為政黨；席次依全國得票率分配給得票率達 5% 的政黨，地方層級只呈現得票，不分配席次。",
+    ],
+  },
+  {
+    election: E2022,
+    local: "mayor",
+    nameZh: "直轄市長及縣市長選舉",
+    office: "mayor-or-magistrate",
+    electorate: "general",
+    cecTypeCode: "C1",
+    archiveDirs: [`${L2022}C1/prv/`, `${L2022}C1/city/`],
+    extra: { adapter: "chiayi-2022-rerun", archiveDir: "votedata/votedata/2022年_嘉義市長重行選舉/", refArchiveDir: `${L2022}T1/city/`, date: "2022-12-18" },
+    boundary: B2022,
+    contests: "county",
+    contestPrefix: "c1",
+    contestNameSuffix: "長",
+    choiceKind: "candidate",
+    layout: "admin",
+    warnings: [
+      ...COMMON_WARNINGS,
+      "22 個縣市各選出 1 位首長。全國層級跨多個縣市，以各政黨當選席次與得票合計呈現。",
+      "嘉義市長選舉於 2022-12-18 舉行，與其他縣市不同日，並以不同格式另行發布。",
+    ],
+  },
+  {
+    election: E2022,
+    local: "councilor-district",
+    nameZh: "直轄市議員及縣市議員選舉（區域）",
+    office: "councilor-district",
+    electorate: "general",
+    cecTypeCode: "T1",
+    archiveDirs: [`${L2022}T1/prv/`, `${L2022}T1/city/`],
+    boundary: B2022,
+    contests: "district",
+    contestPrefix: "t1",
+    choiceKind: "candidate",
+    layout: "t1-2022",
+    warnings: [
+      ...COMMON_WARNINGS,
+      "160 個選舉區共選出 841 席，每區 1 至 13 席。縣市與全國層級跨多個選區，以政黨合計呈現；選區層級顯示當選席次最多的政黨。",
+      "新竹市東區、北區分屬不同選區，在鄉鎮層級依選區拆成數塊，界線由村里合併而成。",
+      "原住民議員（平地、山地）不在此地圖，將另以獨立檢視呈現。",
     ],
   },
 ];

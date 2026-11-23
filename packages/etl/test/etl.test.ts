@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { parseCecCsv, PUA_RE } from "../src/lib/csv.ts";
-import { levelOf, readElDir, readElPartyList } from "../src/adapters/cec-el.ts";
+import { levelOf, mergeElDatasets, readElDir, readElPartyList } from "../src/adapters/cec-el.ts";
+import { sameVillageName } from "../src/adapters/cec-wide-chiayi.ts";
 import { checkElDataset } from "../src/validate/el-checks.ts";
 import { buildElGroup, largestRemainder, type ElGroupDef } from "../src/groups/el-group.ts";
 import { releaseIdFor } from "../src/emit/release.ts";
@@ -9,7 +10,7 @@ import { releaseIdFor } from "../src/emit/release.ts";
 const FIX = join(import.meta.dirname, "fixtures/el-mini");
 const FIX_LY = join(import.meta.dirname, "fixtures/el-mini-ly");
 const E = { id: "2024-01-13-test", date: "2024-01-13", nameZh: "測試", kinds: ["president" as const] };
-const PRES: ElGroupDef = { election: E, local: "president", nameZh: "總統", office: "president", electorate: "general", archiveDir: "", contests: "single", choiceKind: "ticket", layout: "admin", warnings: [] };
+const PRES: ElGroupDef = { election: E, local: "president", nameZh: "總統", office: "president", electorate: "general", archiveDirs: [], boundary: { versionId: "nlsc-village-1120928", raw: "nlscVillage112", shapefile: /x/ }, contests: "single", choiceKind: "ticket", layout: "admin", warnings: [] };
 const LY: ElGroupDef = { ...PRES, local: "legislator-district", nameZh: "區域立委", office: "legislator-district", contests: "district", choiceKind: "candidate", layout: "ly" };
 const FIX_LIST = join(import.meta.dirname, "fixtures/el-mini-list");
 const LIST: ElGroupDef = { ...PRES, local: "legislator-party-list", nameZh: "不分區", office: "legislator-party-list", choiceKind: "party", seats: 3 };
@@ -129,6 +130,44 @@ describe("multi-seat and party-list groups", () => {
     list.results[1]!.seats = 0;
     const b = buildElGroup(LIST, readElDir(FIX_LIST), new Map(), list);
     expect(b.checks.find((c) => c.id === "winner-consistent")!.status).toBe("fail");
+  });
+});
+
+describe("2022 local elections", () => {
+  it("builds one contest per county with county-level units as single contests", () => {
+    const ds = readElDir(FIX);
+    // 2022 C1 lists candidates on the county row, not the national one.
+    for (const c of ds.candidates) c.key = { ...c.key, prv: "63", cty: "000", dist: "00" };
+    const b = buildElGroup({ ...PRES, local: "mayor", contests: "county", contestPrefix: "c1", contestNameSuffix: "長" }, mergeElDatasets([ds]), new Map());
+    expect(b.contests.map((c) => [c.id, c.nameZh, c.scope])).toEqual([["2024-01-13-test.c1-63000", "臺北市長", { level: "county", code: "63000" }]]);
+    expect(b.results.county!.units[0]!.contestIds).toEqual(["2024-01-13-test.c1-63000"]);
+    expect(b.results.county!.rows[0]!.votes).toEqual({ "63000.n1": 70, "63000.n2": 30 });
+    expect(b.checks.filter((c) => c.status === "fail")).toEqual([]);
+  });
+  it("merges directories, rebuilding the national row from counties", () => {
+    const a = readElDir(FIX);
+    const m = mergeElDatasets([a]);
+    const nat = m.units.find((u) => u.level === "national")!;
+    const cty = a.units.find((u) => u.level === "county")!;
+    expect([nat.valid, nat.electors, nat.votes.size]).toEqual([cty.valid, cty.electors, 0]);
+    expect(() => mergeElDatasets([a, a])).toThrow(/two directories/);
+  });
+  it("accepts a women-quota winner outside the top only for a woman", () => {
+    const run = (gender: "F" | "M") => {
+      const ds = readElDir(FIX_LY);
+      const d1 = ds.candidates.filter((c) => c.key.dist === "01");
+      d1.find((c) => c.ballotNumber === 1)!.electedMark = "";
+      const q = d1.find((c) => c.ballotNumber === 2)!;
+      q.electedMark = "!";
+      q.gender = gender;
+      return buildElGroup(LY, ds, new Map()).checks.find((c) => c.id === "winner-consistent")!.status;
+    };
+    expect(run("F")).toBe("pass");
+    expect(run("M")).toBe("fail");
+  });
+  it("matches 嘉義市 rerun village names, tolerating private-use characters only", () => {
+    expect(sameVillageName("磚磘里", "磚\uE000里")).toBe(true);
+    expect(sameVillageName("磚磘里", "磚瑤里")).toBe(false);
   });
 });
 
