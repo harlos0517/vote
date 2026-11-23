@@ -1,7 +1,9 @@
 import { Group, SegmentedControl, Select } from "@mantine/core";
 import type { ReleaseIndexFile } from "@tw-election/schema";
 import { available, categoryOf, nearestGroup, pickerGroups } from "../lib/picker.ts";
-import { YearSlider, timelineOf } from "./YearSlider.tsx";
+import { THIRD_TIER, YearSlider, timelineOf } from "./YearSlider.tsx";
+
+const caseNo = (g: { nameZh: string }) => Number(/第(\d+)案/.exec(g.nameZh)?.[1] ?? 0);
 
 /** 大分類 → 中分類 → year slider (and the case, for 公投). Keeps the year when switching office. */
 export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseIndexFile; groupId: string; onChange: (groupId: string) => void }) {
@@ -16,9 +18,10 @@ export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseInd
     if (g && g.id !== groupId) onChange(g.id);
   };
   const timeline = timelineOf(index.timelines, groupId);
-  const slot = timeline?.slots.find((s) => s.groupIds.includes(groupId));
+  // 公投: one chooser over every case of every year instead of a year slider.
+  const cases = cat.key === "referendum" ? groups.filter((g) => g.office === current.office).sort((a, b) => b.date.localeCompare(a.date) || caseNo(a) - caseNo(b)) : [];
   return (
-    <Group gap="sm" wrap="wrap" style={{ flex: "1 1 auto", justifyContent: "flex-end" }}>
+    <Group gap="sm" wrap="wrap" style={{ flex: "0 1 auto", justifyContent: "flex-start" }}>
       <SegmentedControl
         size="xs"
         aria-label="選舉類別"
@@ -35,20 +38,22 @@ export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseInd
           data={subs.map((s) => ({ value: s.office, label: s.label }))}
         />
       )}
-      {timeline && timeline.slots.length > 1 && <YearSlider timeline={timeline} groupId={groupId} onChange={onChange} />}
-      {timeline && timeline.slots.length === 1 && (
-        <span style={{ fontSize: 12, color: "var(--mantine-color-dimmed)" }}>{timeline.slots[0]!.label} 年</span>
-      )}
-      {slot && slot.groupIds.length > 1 && (
+      {cat.key === "referendum" ? (
         <Select
           size="xs"
-          w={180}
+          style={THIRD_TIER}
           aria-label="公投案"
           value={groupId}
           onChange={(v) => v && onChange(v)}
           allowDeselect={false}
-          data={slot.groupIds.map((id) => ({ value: id, label: groups.find((g) => g.id === id)?.nameZh.replace("全國性公民投票案", "") ?? id }))}
+          searchable
+          maxDropdownHeight={320}
+          data={cases.map((g) => ({ value: g.id, label: `${g.date.slice(0, 4)}｜${g.nameZh.replace("全國性公民投票案", "")}` }))}
         />
+      ) : timeline && timeline.slots.length > 1 ? (
+        <YearSlider timeline={timeline} groupId={groupId} onChange={onChange} />
+      ) : (
+        timeline && <span style={{ ...THIRD_TIER, fontSize: 12, color: "var(--mantine-color-dimmed)" }}>{timeline.slots[0]!.label} 年</span>
       )}
     </Group>
   );

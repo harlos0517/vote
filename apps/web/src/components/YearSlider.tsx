@@ -1,7 +1,10 @@
-import { Group, Slider, Text } from "@mantine/core";
+import { Group, Slider } from "@mantine/core";
 import type { ReleaseIndexFile } from "@tw-election/schema";
 
 type Timeline = ReleaseIndexFile["timelines"][number];
+
+/** Shared box of the third picker tier (year slider, or the 公投 case chooser), so switching keeps the layout. */
+export const THIRD_TIER = { flex: "0 0 auto", width: 300, maxWidth: "100%", boxSizing: "border-box" } as const;
 
 /** The timeline (election type) a group belongs to. */
 export const timelineOf = (timelines: Timeline[], groupId: string | null) =>
@@ -16,8 +19,7 @@ export function YearSlider({ timeline, groupId, onChange }: { timeline: Timeline
   const within = Math.max(0, timeline.slots[at]?.groupIds.indexOf(groupId) ?? 0);
   return (
     // Side padding keeps the first/last year labels (centred on the ends) inside the header.
-    <Group gap="md" wrap="nowrap" style={{ flex: "1 1 200px", minWidth: 180, maxWidth: 360, paddingInline: 16, boxSizing: "border-box" }}>
-      <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>{timeline.nameZh}</Text>
+    <Group gap="md" wrap="nowrap" style={{ ...THIRD_TIER, paddingInline: 16 }}>
       <Slider
         aria-label={`${timeline.nameZh}年份`}
         style={{ flex: 1 }}
