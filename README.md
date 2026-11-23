@@ -2,7 +2,7 @@
 
 開源的臺灣歷史選舉互動地圖。資料來自中央選舉委員會與內政部國土測繪中心的官方開放資料，經離線 ETL 驗證後，以版本化靜態檔發布到 Cloudflare R2。網站本身是 GitHub Pages 上的靜態頁面。
 
-**目前狀態：Phase 1（MVP）已完成並上線**：<https://vote.harlos.tw>，資料版本 `r-9299d522ddd8`。目前只收錄 2024 第16任總統副總統選舉，提供縣市與鄉鎮市區兩個層級。規格見 [開發指引](taiwan-election-map-development-guide.md)，資料可行性分析見 [Phase 0 報告](docs/phase0-report.md)。
+**目前狀態：Phase 1（MVP）已完成並上線**：<https://vote.harlos.tw>，資料版本 `r-9299d522ddd8`。目前收錄 2024 總統副總統選舉（縣市、鄉鎮市區），以及 2024 區域立委（縣市、選區、鄉鎮市區）。規格見 [開發指引](taiwan-election-map-development-guide.md)，資料可行性分析見 [Phase 0 報告](docs/phase0-report.md)。
 
 ## 快速開始
 
@@ -67,13 +67,15 @@ docs/                  Phase 0 報告
 
 ### R2 上的檔案結構
 
+資料以「選舉群組」（contest group）為單位發布：同一場選舉中同一職位的所有選區，例如 2024 總統（1 個選區）、2024 區域立委（73 個選區）。格式改版時使用新的前綴（目前為 `v2/`），舊版前綴保留，讓部署期間的舊網站仍能讀取。
+
 ```text
-v1/manifest.json                                    可變；Cache-Control: max-age=60
-v1/releases/<release-id>/index.json                 以下皆不可變；max-age=31536000, immutable
-v1/releases/<release-id>/parties.json
-v1/releases/<release-id>/contests/<contest-id>/metadata.json
-v1/releases/<release-id>/contests/<contest-id>/results/{national,county,town}.json
-v1/releases/<release-id>/geography/<boundary-version>/{county,town}.geojson
+v2/manifest.json                                         可變；Cache-Control: max-age=60
+v2/releases/<release-id>/index.json                      以下皆不可變；max-age=31536000, immutable
+v2/releases/<release-id>/parties.json
+v2/releases/<release-id>/groups/<group-id>/metadata.json
+v2/releases/<release-id>/groups/<group-id>/results/{national,county,district,town}.json
+v2/releases/<release-id>/geography/<boundary-version>/<layout>/{county,district,town}.geojson
 ```
 
 - `release-id` 是內容雜湊（例如 `r-f6d69f002ab0`）：同樣的輸入與程式碼，一定產生同樣的 ID 和檔案。

@@ -142,19 +142,19 @@ curl -sI https://vote-data.harlos.tw/raw/NOTICE.md
 可以請我來檢查（我能直接存取公開網址），或自己執行：
 
 ```bash
-curl -sI https://vote-data.harlos.tw/v1/manifest.json
+curl -sI https://vote-data.harlos.tw/v2/manifest.json
 ```
 
 預期看到 `200`，以及 `cache-control: public, max-age=60, must-revalidate`。
 
 ```bash
-curl -sI -H 'Origin: https://vote.harlos.tw' https://vote-data.harlos.tw/v1/manifest.json | grep -i access-control-allow-origin
+curl -sI -H 'Origin: https://vote.harlos.tw' https://vote-data.harlos.tw/v2/manifest.json | grep -i access-control-allow-origin
 ```
 
 預期看到 `access-control-allow-origin: https://vote.harlos.tw`。
 
 ```bash
-curl -sI -H 'Accept-Encoding: br, gzip' "https://vote-data.harlos.tw/v1/releases/$(curl -s https://vote-data.harlos.tw/v1/manifest.json | sed -E 's/.*"currentRelease": "([^"]+)".*/\1/' | head -1)/geography/nlsc-village-1120928/town.geojson" | grep -iE 'content-encoding|cf-cache-status'
+curl -sI -H 'Accept-Encoding: br, gzip' "https://vote-data.harlos.tw/v2/releases/$(curl -s https://vote-data.harlos.tw/v2/manifest.json | sed -E 's/.*"currentRelease": "([^"]+)".*/\1/' | head -1)/geography/nlsc-village-1120928/admin/town.geojson" | grep -iE 'content-encoding|cf-cache-status'
 ```
 
 預期有 `content-encoding: br` 或 `gzip`；若沒有，告訴我，我會改用 `application/json` 上傳。
