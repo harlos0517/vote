@@ -32,6 +32,8 @@ export interface GroupContext {
   candidatesPickable: boolean;
   /** Contest id → contest. */
   contest: Map<string, Contest>;
+  /** National referendum case (choices "agree" / "disagree"), else null. */
+  referendum: NonNullable<Contest["referendum"]> | null;
 }
 
 export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<string, number>): GroupContext {
@@ -57,6 +59,7 @@ export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<str
     singleContest: meta.contests.length === 1,
     partyList: meta.contests.find((c) => c.partyList)?.partyList ?? null,
     contest: new Map(meta.contests.map((c) => [c.id, c])),
+    referendum: meta.contests[0]?.referendum ?? null,
     candidatesPickable: meta.contests.length === 1 && meta.contests.some((ct) => {
       const ps = meta.choices.filter((c) => c.contestId === ct.id && c.partyId && !party.get(c.partyId)?.isIndependent).map((c) => c.partyId);
       return new Set(ps).size < ps.length;
@@ -90,8 +93,8 @@ export function denominatorOf(s: ResultSummary, d: Denominator): number | null {
   return total > 0 ? total : null;
 }
 
-export function denominatorLabel(d: Denominator): string {
-  if (d.invalid && d.abstain) return "選舉人數";
+export function denominatorLabel(d: Denominator, referendum = false): string {
+  if (d.invalid && d.abstain) return referendum ? "投票權人數" : "選舉人數";
   if (d.invalid) return "投票數";
   if (d.abstain) return "有效票＋未投票";
   return "有效票數";
@@ -136,6 +139,23 @@ export function twoPartyDiff(u: UnitView, ctx: GroupContext, f: DiffFormula, d: 
   if (f === "ratio") return { value: dpp + kmt > 0 ? (dpp - kmt) / (dpp + kmt) : null, dpp, kmt, den: dpp + kmt || null };
   const den = denominatorOf(u.summary, d);
   return { value: den === null ? null : (dpp - kmt) / den, dpp, kmt, den };
+}
+
+/** Referendum: (1) 同意% − 不同意% over the chosen denominator; (2) (同意 − 不同意) ÷ (同意 + 不同意). */
+export function referendumDiff(u: UnitView, f: DiffFormula, d: Denominator): DiffResult {
+  const a = u.votes.agree ?? 0;
+  const b = u.votes.disagree ?? 0;
+  if (f === "ratio") return { value: a + b > 0 ? (a - b) / (a + b) : null, dpp: a, kmt: b, den: a + b || null };
+  const den = denominatorOf(u.summary, d);
+  return { value: den === null ? null : (a - b) / den, dpp: a, kmt: b, den };
+}
+
+/** 公民投票法第29條 applied to one unit (only the national result counts; local values are for reference). */
+export function referendumStatus(u: UnitView, quorum: number) {
+  const a = u.votes.agree ?? 0;
+  const b = u.votes.disagree ?? 0;
+  const e = u.summary.electors;
+  return { agreeMore: a > b, quorumMet: e !== null && a >= quorum * e, agreeOfElectors: e ? a / e : null, needed: e === null ? null : Math.ceil(quorum * e) };
 }
 
 export interface TopResult {

@@ -64,7 +64,15 @@ export function App() {
   }, [shown, level]);
 
   const den = { invalid: view.invalid, abstain: view.abstain };
-  const ring = shown && ctx ? ringSlices(shown.unit, ctx, den) : [];
+  const ring = shown && ctx ? ringSlices(shown.unit, ctx, den, view.colorblind) : [];
+  // Referendum threshold: 同意 must reach 25% of electors; 同意 is the first slice, so mark that point.
+  const ringTotal = ring.reduce((x, s) => x + s.value, 0);
+  const quorum = ctx?.referendum?.rule.agreeQuorumOfElectors;
+  const electors = shown?.unit.summary.electors;
+  const marker =
+    quorum && electors && ringTotal
+      ? { at: (quorum * electors) / ringTotal, label: `通過門檻：同意票達投票權人數 ${quorum * 100}%（${Math.ceil(quorum * electors).toLocaleString("zh-TW")} 票）` }
+      : null;
 
   const scheme = useComputedColorScheme("light");
   const firstError = [manifest, index, meta, results, national, geo].find((q) => q.isError);
@@ -122,7 +130,7 @@ export function App() {
             )}
             {shown && ring.length > 0 && (
               <Paper className={classes.ring} shadow="sm" p={6} radius="xl" withBorder>
-                <VoteRing segments={ring} title={shown.unit.name} subtitle={`投票率 ${fmtPct(turnout(shown.unit.summary), 1)}`} />
+                <VoteRing segments={ring} title={shown.unit.name} subtitle={`投票率 ${fmtPct(turnout(shown.unit.summary), 1)}`} marker={marker} />
               </Paper>
             )}
           </div>
@@ -138,6 +146,7 @@ export function App() {
               countyName={countyOf(shown.unit)}
               currentView={model.describe(shown.unit)}
               den={den}
+              colorblind={view.colorblind}
               mapLevelLabel={LEVEL_LABEL[level]}
               onUnlock={() => setView({ unit: null })}
             />

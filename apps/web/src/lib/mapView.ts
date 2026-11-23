@@ -2,7 +2,7 @@
  * ViewState + group + units → what the map, legend and ring draw.
  * Pure (no React) so every mode can be unit-tested.
  */
-import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
+import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, NO_DATA, REF_COLORS, TIE, blackTo, divergingScale, sequentialScale, shade, viridis, type LegendSpec } from "./colors.ts";
 import { fmtPct, type UnitView } from "./results.ts";
 import type { ViewState } from "./viewState.ts";
 import {
@@ -18,6 +18,7 @@ import {
   partyRan,
   partyShare,
   partyVotes,
+  referendumDiff,
   seatsByParty,
   showsSeats,
   twoPartyDiff,
@@ -58,15 +59,53 @@ export function selectedParty(ctx: GroupContext, v: ViewState): string {
 export type ShareTarget = { kind: "party"; id: string } | { kind: "choice"; id: string };
 
 export function selectedTarget(ctx: GroupContext, v: ViewState): ShareTarget {
+  if (ctx.referendum) return { kind: "choice", id: v.choice === "disagree" ? "disagree" : "agree" };
   if (ctx.candidatesPickable && v.choice && ctx.choice.has(v.choice)) return { kind: "choice", id: v.choice };
   return { kind: "party", id: selectedParty(ctx, v) };
 }
 
-export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState): MapViewModel {
+/** Colour of a choice: referendum 同意 / 不同意 by palette, else its party's colour. */
+export function choiceColorOf(ctx: GroupContext, id: string, colorblind: boolean): string {
+  if (ctx.referendum && (id === "agree" || id === "disagree")) return REF_COLORS[colorblind ? "colorblind" : "normal"][id];
+  return ctx.choiceColor.get(id) ?? NEUTRAL;
+}
+
+/** Referendums have no 當選 view: a stale "top" falls back to the 同意／不同意 difference. */
+export const effectiveMode = (ctx: GroupContext, v: ViewState): ViewState["mode"] => (ctx.referendum && v.mode === "top" ? "diff" : v.mode);
+
+export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewState): MapViewModel {
+  const v = { ...vIn, mode: effectiveMode(ctx, vIn) };
   const den: Denominator = { invalid: v.invalid, abstain: v.abstain };
-  const denLabel = denominatorLabel(den);
+  const denLabel = denominatorLabel(den, ctx.referendum !== null);
   const colors = new Map<string, string>();
   const hatched = new Set<string>();
+
+  if (v.mode === "diff" && ctx.referendum) {
+    const c = REF_COLORS[v.colorblind ? "colorblind" : "normal"];
+    const values = new Map(units.map((u) => [u.code, referendumDiff(u, v.formula, den)]));
+    const scale = divergingScale(
+      [...values.values()].flatMap((r) => (r.value === null ? [] : [r.value])),
+      c.disagree,
+      c.agree,
+      v.scale,
+      (pt) => (pt === 0 ? "相同" : pt < 0 ? `不同意 +${-pt}%` : `同意 +${pt}%`),
+    );
+    for (const [code, r] of values) colors.set(code, r.value === null ? NO_DATA : scale.color(r.value));
+    const formulaText = v.formula === "pct" ? `同意% − 不同意%（分母：${denLabel}）` : "(同意 − 不同意) ÷ (同意 + 不同意)";
+    return {
+      colors,
+      hatched,
+      legend: { title: `同意與不同意差異：${formulaText}`, spec: scale.legend, note: "地方數值僅供參考；是否通過以全國計算。" },
+      describe: (u) => {
+        const r = referendumDiff(u, v.formula, den);
+        if (r.value === null) return "同意與不同意差異：無資料";
+        const lead = r.value > 0 ? "同意較多" : r.value < 0 ? "不同意較多" : "相同";
+        return v.formula === "pct"
+          ? `同意與不同意差異 ${signedPt(r.value)} 個百分點（${lead}）：同意 ${fmtPct(r.dpp / r.den!)} − 不同意 ${fmtPct(r.kmt / r.den!)}，分母為${denLabel}`
+          : `同意與不同意相對差距 ${signedPt(r.value)}%（${lead}）：(${r.dpp.toLocaleString("zh-TW")} − ${r.kmt.toLocaleString("zh-TW")}) ÷ ${(r.dpp + r.kmt).toLocaleString("zh-TW")}`;
+      },
+    };
+  }
 
   if (v.mode === "diff") {
     const kmtName = ctx.party.get(KMT)?.nameZh ?? "中國國民黨";
@@ -173,8 +212,8 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], v: ViewState)
   const target = selectedTarget(ctx, v);
   const isChoice = target.kind === "choice";
   const pc = isChoice ? ctx.choice.get(target.id)! : null;
-  const label = pc ? `${pc.labelZh}（${pc.partyId ? (ctx.party.get(pc.partyId)?.nameZh ?? "") : ""}）` : partyLabel(ctx, target.id);
-  const baseColor = (pc ? ctx.choiceColor.get(pc.id) : ctx.partyColor.get(target.id)) ?? NEUTRAL;
+  const label = pc ? (ctx.referendum ? pc.labelZh : `${pc.labelZh}（${pc.partyId ? (ctx.party.get(pc.partyId)?.nameZh ?? "") : ""}）`) : partyLabel(ctx, target.id);
+  const baseColor = pc ? choiceColorOf(ctx, pc.id, v.colorblind) : (ctx.partyColor.get(target.id) ?? NEUTRAL);
   const interp = v.palette === "party" ? blackTo(baseColor) : viridis;
   const ranHere = (u: UnitView) => (pc ? u.contestIds.includes(pc.contestId) : partyRan(u, ctx, target.id));
   const shareOf = (u: UnitView) => (pc ? choiceShare(u, pc.id, den) : partyShare(u, ctx, target.id, den));
@@ -214,11 +253,13 @@ export interface RingSlice {
  * Ring for one unit: candidates for a single-contest unit; parties for a unit spanning several
  * contests or for 不分區政黨票 (parties under 2% are grouped as 其他); plus 無效 / 未投票 when counted.
  */
-export function ringSlices(u: UnitView, ctx: GroupContext, d: Denominator): RingSlice[] {
+export function ringSlices(u: UnitView, ctx: GroupContext, d: Denominator, colorblind = false): RingSlice[] {
   let slices: RingSlice[];
   if (!isMultiContest(u) && !ctx.partyList) {
-    slices = Object.entries(u.votes).map(([id, v]) => ({ key: id, label: ctx.choice.get(id)?.labelZh ?? id, value: v, color: ctx.choiceColor.get(id) ?? NEUTRAL }));
-    slices.sort((a, b) => (ctx.choice.get(a.key)?.ballotNumber ?? 0) - (ctx.choice.get(b.key)?.ballotNumber ?? 0));
+    slices = Object.entries(u.votes).map(([id, v]) => ({ key: id, label: ctx.choice.get(id)?.labelZh ?? id, value: v, color: choiceColorOf(ctx, id, colorblind) }));
+    // Ballot order; referendums: 同意 first so the threshold marker measures from the start.
+    const order = (k: string) => (k === "agree" ? 0 : k === "disagree" ? 1 : (ctx.choice.get(k)?.ballotNumber ?? 0));
+    slices.sort((a, b) => order(a.key) - order(b.key));
   } else {
     const valid = u.summary.valid ?? 0;
     const big: RingSlice[] = [];

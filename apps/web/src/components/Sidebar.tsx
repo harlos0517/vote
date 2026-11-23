@@ -8,10 +8,12 @@ import {
   isMultiContest,
   listSeats,
   partyVotes,
+  referendumStatus,
   seatsByParty,
   type Denominator,
   type GroupContext,
 } from "../lib/views.ts";
+import { choiceColorOf } from "../lib/mapView.ts";
 import { Swatch } from "./Legend.tsx";
 import { SourceNotes } from "./SourceNotes.tsx";
 
@@ -25,6 +27,8 @@ export interface SidebarProps {
   currentView: string;
   den: Denominator;
   mapLevelLabel: string;
+  /** Referendum palette (blue / orange). */
+  colorblind: boolean;
   onUnlock: () => void;
 }
 
@@ -57,7 +61,7 @@ export function Sidebar(p: SidebarProps) {
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
         <Table.Tbody>
           {p.countyName && <KV k="所屬縣市" v={p.countyName} />}
-          {ctx.singleContest && meta.contests[0]!.scope.level === "national" && (
+          {ctx.singleContest && !ctx.referendum && meta.contests[0]!.scope.level === "national" && (
             <KV k="選區" v={`全國（單一選區${(meta.contests[0]!.seats ?? 1) > 1 ? `，選出 ${meta.contests[0]!.seats} 席` : ""}）`} />
           )}
           {contestName && <KV k={contest?.scope.level === "district" ? "選區" : "選舉"} v={seats > 1 && !ctx.singleContest ? `${contestName}（應選 ${seats} 席）` : contestName} />}
@@ -69,17 +73,17 @@ export function Sidebar(p: SidebarProps) {
       <Text size="sm" fw={600}>目前檢視</Text>
       <Text size="sm">{p.currentView}</Text>
 
-      {ctx.partyList ? <PartyListTable {...p} d={d} abst={abst} /> : multi ? <PartyTable {...p} d={d} abst={abst} /> : <CandidateTable {...p} d={d} abst={abst} />}
+      {ctx.referendum ? <ReferendumTable {...p} d={d} abst={abst} /> : ctx.partyList ? <PartyListTable {...p} d={d} abst={abst} /> : multi ? <PartyTable {...p} d={d} abst={abst} /> : <CandidateTable {...p} d={d} abst={abst} />}
 
       <Text size="sm" fw={600}>概況</Text>
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
         <Table.Tbody>
-          <KV k="選舉人數" v={fmtInt(s.electors)} />
+          <KV k={ctx.referendum ? "投票權人數" : "選舉人數"} v={fmtInt(s.electors)} />
           <KV k="投票數" v={fmtInt(s.ballotsCast)} />
-          <KV k="投票率（投票數 ÷ 選舉人數）" v={fmtPct(turnout(s))} />
+          <KV k={ctx.referendum ? "投票率（投票數 ÷ 投票權人數）" : "投票率（投票數 ÷ 選舉人數）"} v={fmtPct(turnout(s))} />
           <KV k="有效票數" v={fmtInt(s.valid)} />
           <KV k="無效票數" v={fmtInt(s.invalid)} />
-          <KV k="未投票（選舉人數 − 投票數）" v={fmtInt(abst)} />
+          <KV k={ctx.referendum ? "未投票（投票權人數 − 投票數）" : "未投票（選舉人數 − 投票數）"} v={fmtInt(abst)} />
         </Table.Tbody>
       </Table>
 
@@ -298,10 +302,71 @@ function multiLabel(ctx: GroupContext, unit: UnitView): string {
   return seats === cs.length ? `${cs.length} 個${kind}，各選 1 席` : `${cs.length} 個${kind}，共 ${seats} 席`;
 }
 
+/** National referendum: 主文, 同意／不同意, and the 公民投票法第29條 test (binding only nationally). */
+function ReferendumTable({ ctx, unit, den, d, abst, colorblind }: TableProps) {
+  const r = ctx.referendum!;
+  const quorum = r.rule.agreeQuorumOfElectors ?? 0;
+  const st = referendumStatus(unit, quorum);
+  const national = unit.id === "nat";
+  const mark = (ok: boolean) => (ok ? "✓ 達成" : "✗ 未達成");
+  return (
+    <>
+      <Text size="sm" fw={600}>主文</Text>
+      <Text size="sm">{r.questionZh ?? "（尚未登錄）"}</Text>
+      {r.questionSource && (
+        <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
+          出處：{r.questionSource}
+          {!r.questionReviewed && "（尚未人工核對）"}
+        </Text>
+      )}
+      <Text size="sm" fw={600}>得票（分母：{denominatorLabel(den, true)}）</Text>
+      <Table verticalSpacing={3} fz="xs" striped style={{ whiteSpace: "nowrap" }}>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>選項</Table.Th>
+            <Table.Th ta="right">票數</Table.Th>
+            <Table.Th ta="right">比率</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {(["agree", "disagree"] as const).map((id) => (
+            <Table.Tr key={id}>
+              <Table.Td><Group gap={6} wrap="nowrap"><Swatch color={choiceColorOf(ctx, id, colorblind)} />{id === "agree" ? "同意" : "不同意"}</Group></Table.Td>
+              <Num v={fmtInt(unit.votes[id] ?? 0)} />
+              <Num v={fmtPct(d === null ? null : (unit.votes[id] ?? 0) / d)} />
+            </Table.Tr>
+          ))}
+          {den.invalid && <RefExtra label="無效票" color={INVALID_COLOR} n={unit.summary.invalid} d={d} />}
+          {den.abstain && <RefExtra label="未投票" color={ABSTAIN_COLOR} n={abst} d={d} />}
+        </Table.Tbody>
+      </Table>
+      <Text size="sm" fw={600}>通過門檻（{r.rule.legalBasis}）{national ? "" : "：此地區若單獨計算"}</Text>
+      <Table withRowBorders={false} verticalSpacing={1} fz="xs">
+        <Table.Tbody>
+          <KV k="同意票多於不同意票" v={mark(st.agreeMore)} />
+          <KV k={`同意票達投票權人數 ${quorum * 100}%（${fmtInt(st.needed)} 票）`} v={`${fmtPct(st.agreeOfElectors)}　${mark(st.quorumMet)}`} />
+          {national && <KV k="投票結果" v={r.outcome === "passed" ? "通過" : r.outcome === "failed" ? "不通過" : "—"} />}
+        </Table.Tbody>
+      </Table>
+      {!national && <Text size="xs" c="dimmed">公投是否通過以全國計算；地方數值僅供參考。</Text>}
+    </>
+  );
+}
+
+function RefExtra({ label, color, n, d }: { label: string; color: string; n: number | null; d: number | null }) {
+  return (
+    <Table.Tr>
+      <Table.Td><Group gap={6} wrap="nowrap"><Swatch color={color} />{label}</Group></Table.Td>
+      <Num v={fmtInt(n)} />
+      <Num v={fmtPct(n === null || d === null ? null : n / d)} />
+    </Table.Tr>
+  );
+}
+
 const KV = ({ k, v }: { k: string; v: string }) => (
   <Table.Tr>
     <Table.Td c="dimmed">{k}</Table.Td>
-    <Table.Td ta="right" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</Table.Td>
+    <Table.Td ta="right" style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{v}</Table.Td>
   </Table.Tr>
 );
 

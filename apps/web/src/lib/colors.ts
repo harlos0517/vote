@@ -7,6 +7,11 @@ import { interpolateLab } from "d3-interpolate";
 import { interpolateInferno } from "d3-scale-chromatic";
 
 export const NO_DATA = "#444444";
+/** Referendum: green = 同意, red = 不同意; colour-blind-safe alternative blue / orange. */
+export const REF_COLORS = {
+  normal: { agree: "#1a9850", disagree: "#d73027" },
+  colorblind: { agree: "#2166ac", disagree: "#e66101" },
+} as const;
 export const TIE = "#c8b98c"; // 當選 view: tied for the most seats / votes (khaki: no party uses it)
 export const NO_CANDIDATE = "#cccccc"; // share view: the party ran no candidate here
 export const NEUTRAL = "#aaaaaa"; // independents / parties without a recorded colour

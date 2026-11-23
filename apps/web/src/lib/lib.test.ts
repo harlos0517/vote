@@ -3,8 +3,8 @@ import type { GroupMetadataFile, GroupResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
 import { NEUTRAL, NO_CANDIDATE, NO_DATA, TIE, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
-import { abstained, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
-import { buildMapView, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
+import { abstained, referendumStatus, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
+import { buildMapView, effectiveMode, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
 
 // --- fixtures -----------------------------------------------------------------
 const unit = (code: string, votes: Record<string, number>, contestIds = ["e.president"], s: Partial<UnitView["summary"]> = {}): UnitView => {
@@ -49,7 +49,7 @@ const d0 = { invalid: false, abstain: false };
 // --- URL state ----------------------------------------------------------------
 describe("view state hash", () => {
   it("round-trips every option and keeps defaults out of the URL", () => {
-    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "district" as const, mode: "share" as const, formula: "ratio" as const, choice: "cec-16", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, fromZero: false, hatchUnelected: false, unit: "cty:63000" };
+    const s = { ...DEFAULT_VIEW, contest: "x.president", level: "district" as const, mode: "share" as const, formula: "ratio" as const, choice: "cec-16", palette: "multi" as const, scale: "stepped" as const, invalid: true, abstain: true, shadeTop: false, fromZero: false, colorblind: true, hatchUnelected: false, unit: "cty:63000" };
     expect(parseHash(formatHash(s))).toEqual(s);
     expect(formatHash(DEFAULT_VIEW)).toBe("#/?");
     expect(parseHash("")).toEqual(DEFAULT_VIEW);
@@ -218,6 +218,28 @@ describe("multi-seat districts (議員)", () => {
     const v = buildMapView(t1, [tie, empty], { ...DEFAULT_VIEW, mode: "top" });
     expect([v.colors.get("T"), v.colors.get("E")]).toEqual([TIE, NO_DATA]);
     expect(v.legend.groups!.at(-1)!.items[0]!.label).toBe("得票最多者同票");
+  });
+});
+
+describe("referendum", () => {
+  const ref = groupContext({
+    contests: [{ id: "e.r", nameZh: "第17案", scope: { level: "national" }, seats: null, referendum: { caseNumber: 17, questionZh: "?", rule: { agreeMustExceedDisagree: true, agreeQuorumOfElectors: 0.25, legalBasis: "公民投票法第29條" }, outcome: "failed" } }],
+    choices: [{ id: "agree", contestId: "e.r", kind: "agree", ballotNumber: null, candidacyIds: [], partyId: null, labelZh: "同意" }, { id: "disagree", contestId: "e.r", kind: "disagree", ballotNumber: null, candidacyIds: [], partyId: null, labelZh: "不同意" }],
+    candidacies: [],
+    parties: [],
+  } as unknown as GroupMetadataFile);
+  const u = unit("A", { agree: 30, disagree: 20 }, ["e.r"], { electors: 100 });
+  it("colours 同意 − 不同意 and has no 當選 view", () => {
+    expect(effectiveMode(ref, { ...DEFAULT_VIEW, mode: "top" })).toBe("diff");
+    const v = buildMapView(ref, [u], { ...DEFAULT_VIEW, mode: "top" });
+    expect(v.describe(u)).toContain("同意與不同意差異 +20.00 個百分點（同意較多）");
+    expect(selectedTarget(ref, { ...DEFAULT_VIEW, choice: "disagree" })).toEqual({ kind: "choice", id: "disagree" });
+    expect(buildMapView(ref, [u], { ...DEFAULT_VIEW, mode: "share" }).describe(u)).toContain("同意 得票率 60.00%");
+  });
+  it("tests §29 locally and orders the ring 同意 first, with the colour-blind palette on request", () => {
+    expect(referendumStatus(u, 0.25)).toMatchObject({ agreeMore: true, quorumMet: true, needed: 25 });
+    const ring = ringSlices(u, ref, { invalid: false, abstain: true }, true);
+    expect(ring.map((s) => [s.key, s.color])).toEqual([["agree", "#2166ac"], ["disagree", "#e66101"], ["abstain", ring[2]!.color]]);
   });
 });
 
