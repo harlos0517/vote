@@ -6,6 +6,7 @@ import { ElectionMap } from "./components/ElectionMap.tsx";
 import { Legend } from "./components/Legend.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { VoteRing } from "./components/VoteRing.tsx";
+import { YearSlider, timelineOf } from "./components/YearSlider.tsx";
 import { buildMapView, ringSlices } from "./lib/mapView.ts";
 import { useGeography, useGroup, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
 import { codeOf, fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
@@ -28,6 +29,7 @@ export function App() {
   );
   const groupId = view.contest && groups.some((g) => g.value === view.contest) ? view.contest : (groups[0]?.value ?? null);
   const meta = useGroup(release, groupId);
+  const timeline = timelineOf(index.data?.timelines ?? [], groupId);
   const m = meta.data;
 
   const levels = (m?.group.levels.filter((l): l is MapLevel => (ALL_LEVELS as string[]).includes(l)) ?? []) as MapLevel[];
@@ -92,6 +94,10 @@ export function App() {
           w={{ base: "100%", sm: 360 }}
           disabled={!groups.length}
         />
+        {timeline && groupId && timeline.slots.length > 1 && (
+          // Keeps the view (mode, party, level, locked area) so years can be compared directly.
+          <YearSlider timeline={timeline} groupId={groupId} onChange={(g) => setView({ contest: g })} />
+        )}
       </header>
 
       <main className={classes.main}>
