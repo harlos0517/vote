@@ -16,7 +16,7 @@ import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
 import { type ElDataset, countyCode, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
 import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
-import { type BuiltGroup, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
+import { type BuiltGroup, isLocalContests, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
 import { ALL_SNAPSHOTS, GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries, buildVillages } from "./geo/build.ts";
 import { loadVillageGroups, planVillages, villageGeoCode, villageGroupKey } from "./geo/villages.ts";
@@ -111,6 +111,11 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
         const row = villageGroups.get(villageGroupKey(def.election.id, town, code, u.nameZh));
         if (row && row.members !== "overlap") for (const m of row.members) known.add(m);
       }
+      // Villages without a race of this office (a 村里長 nobody ran for) still exist that day: count the
+      // villages the same election's other groups reported as known, so the right snapshot is still chosen.
+      for (const prev of outputs.filter((x) => x.def.election.id === def.election.id && x.built.results.village)) {
+        for (const u of prev.built.results.village!.units) if (u.id.startsWith("vil:")) known.add(u.id.slice(4));
+      }
       const mix = await planMix(def.election.date, base, others, vils, known, def.electorate === "general", join(o.workDir, "geo", "codes"));
       if (mix.swaps.size) {
         const alts = [...new Set([...mix.swaps.values()].map((s) => s.versionId))].sort();
@@ -140,8 +145,9 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       geoByLayout.set(geoKey, geo);
     }
     const unassigned: string[] = [];
-    // Indigenous-councillor groups only have districts in some counties/towns: the rest is expected to be empty.
-    const partial = def.electorate !== "general";
+    // Indigenous-councillor groups only have districts in some counties/towns, and township / village
+    // offices exist only where they are elected (no 鄉鎮市長 in 直轄市): the rest is expected to be empty.
+    const partial = def.electorate !== "general" || isLocalContests(def.contests);
     const coveredTowns = new Set(built.townParts.map((p) => p.town));
     const coveredCounties = new Set(built.results.county!.units.map((u) => u.id.slice(4)));
     const outside = (code: string) => partial && (/^\d{5}$/.test(code) ? !coveredCounties.has(code) : /^\d{8}$/.test(code) && !coveredTowns.has(code));

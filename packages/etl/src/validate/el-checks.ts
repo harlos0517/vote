@@ -2,7 +2,7 @@
  * Numeric checks for an el* dataset holding one or more contests (e.g. 73 district races).
  *
  * Hierarchy (parent of each row): station → village → town → district (if the file has
- * district rows) else county → national. Every parent must equal the sum of its children
+ * district rows) else county → national. A 選區 inside a township (代表) → the whole township. Every parent must equal the sum of its children
  * on every summary field, and on every candidate where the parent row carries candidate
  * votes (CEC publishes none above district level for multi-contest files).
  */
@@ -24,7 +24,11 @@ export function parentKey(u: ElUnit, has: (k: ElKey) => boolean): ElKey | null {
       return k6(k.prv, k.cty, k.dist, k.town, "0000", "0000");
     case "town": {
       const d = k6(k.prv, k.cty, k.dist, "000", "0000", "0000");
-      return has(d) ? d : k6(k.prv, k.cty, "00", "000", "0000", "0000");
+      if (has(d)) return d;
+      // 鄉鎮市民代表: a 選區 inside a township (dist ≠ "00") sums to the whole-township row.
+      const whole = k6(k.prv, k.cty, "00", k.town, "0000", "0000");
+      if (k.dist !== "00" && has(whole)) return whole;
+      return k6(k.prv, k.cty, "00", "000", "0000", "0000");
     }
     case "district":
       return k6(k.prv, k.cty, "00", "000", "0000", "0000");

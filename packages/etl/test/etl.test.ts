@@ -307,3 +307,42 @@ describe("party colours", () => {
     expect(checkPartyColors([5], reviewed).detail).toMatch(/其他政黨 colour/);
   });
 });
+
+describe("township and village offices", () => {
+  // One township (10013080) with two villages; each village elects its own chief. Village 0002's
+  // two candidates tied and CEC marks both "?" (decided by lot).
+  const key = (vil: string, station = "0000") => ({ prv: "10", cty: "013", dist: "00", town: vil === "0000" && station === "T" ? "000" : "080", vil, station: station === "T" ? "0000" : station });
+  const unit = (k: ReturnType<typeof key>, level: "national" | "county" | "town" | "village", votes: [number, number][], electors: number) => {
+    const valid = votes.reduce((a, [, v]) => a + v, 0);
+    return { key: k, level, name: level === "village" ? `村${k.vil}` : level === "town" ? "某鄉" : level === "county" ? "屏東縣" : "全國", valid, invalid: 1, cast: valid + 1, electors, populationRaw: 0, votes: new Map(votes), officialRate: new Map(votes.map(([n, v]) => [n, Math.round((v / valid) * 10000) / 100])) };
+  };
+  const cand = (vil: string, n: number, mark: string, partyCode = 999) => ({ key: key(vil), ballotNumber: n, name: `候選人${vil}-${n}`, partyCode, gender: "M" as const, birthYearROC: 50, incumbent: false, electedMark: mark, isRunningMate: false });
+  const ds = {
+    units: [
+      unit({ prv: "00", cty: "000", dist: "00", town: "000", vil: "0000", station: "0000" }, "national", [], 300),
+      unit(key("0000", "T"), "county", [], 300),
+      unit(key("0000"), "town", [], 300),
+      unit(key("0001"), "village", [[1, 60], [2, 40]], 150),
+      unit(key("0002"), "village", [[1, 50], [2, 50]], 150),
+    ],
+    candidates: [cand("0001", 1, "*", 1), cand("0001", 2, ""), cand("0002", 1, "?"), cand("0002", 2, "?")],
+    parties: [{ code: 1, name: "中國國民黨" }, { code: 999, name: "無黨籍及未經政黨推薦" }],
+  };
+  // Summary rows above the village are the sums of the villages.
+  for (const u of ds.units.slice(0, 3)) Object.assign(u, { valid: 200, invalid: 2, cast: 202 });
+  const V1: ElGroupDef = { ...PRES, local: "village-chief", nameZh: "村里長", office: "village-chief", contests: "village", choiceKind: "candidate", contestPrefix: "v1", contestNameSuffix: "長", villages: true };
+  const b = buildElGroup(V1, ds, new Map());
+  it("builds one contest per village, named after the place", () => {
+    expect(b.contests.map((c) => [c.id, c.nameZh, c.seats, c.scope])).toEqual([
+      ["2024-01-13-test.v1-10013080-0001", "屏東縣某鄉村0001長", 1, { level: "village", code: "10013080001" }],
+      ["2024-01-13-test.v1-10013080-0002", "屏東縣某鄉村0002長", 1, { level: "village", code: "10013080002" }],
+    ]);
+    expect(b.results.town!.units[0]!.contestIds).toHaveLength(2);
+    expect(b.results.village!.rows.find((r) => r.unit === "vil:10013080001")!.votes).toEqual({ "10013080-0001.n1": 60, "10013080-0001.n2": 40 });
+  });
+  it("accepts a tie decided by lot and leaves both candidates' result open", () => {
+    expect(b.checks.find((c) => c.id === "winner-consistent")!.status).toBe("pass");
+    const lot = b.candidacies.filter((c) => c.contestId.endsWith("0002"));
+    expect(lot.map((c) => [c.elected, c.electedNote])).toEqual([[null, "tied-decided-by-lot"], [null, "tied-decided-by-lot"]]);
+  });
+});

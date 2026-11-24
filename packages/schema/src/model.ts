@@ -213,7 +213,8 @@ export const Candidacy = z.object({
   birthYearROC: z.int().nullable(),
   incumbent: z.boolean().nullable(),
   elected: z.boolean().nullable(),
-  electedNote: z.enum(["women-quota", "displaced-by-women-quota"]).nullable(),
+  /** "tied-decided-by-lot": tied for the last seat (CEC mark "?"); the draw's result is not in the data, so elected is null. */
+  electedNote: z.enum(["women-quota", "displaced-by-women-quota", "tied-decided-by-lot"]).nullable(),
 });
 
 export const BallotChoice = z.object({
