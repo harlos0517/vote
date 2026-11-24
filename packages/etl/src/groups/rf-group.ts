@@ -3,7 +3,7 @@
  * 同意 ("agree") and 不同意 ("disagree"). The question text is never in the files; it comes
  * from packages/etl/mappings/referendum-questions.csv with its source and review status.
  */
-import type { BallotChoice, Contest, GroupResultsFile, GroupUnit, ReportingLevel, ValidationCheck } from "@tw-election/schema";
+import type { BallotChoice, Contest, GroupResultsFile, GroupUnit, ReferendumRule, ReportingLevel, ValidationCheck } from "@tw-election/schema";
 import { type ElUnit, countyCode, townCode } from "../adapters/cec-el.ts";
 import { AGREE, DISAGREE, type RfDataset } from "../adapters/cec-rf.ts";
 import { PUA_RE } from "../lib/csv.ts";
@@ -11,7 +11,17 @@ import { checkElDataset } from "../validate/el-checks.ts";
 import { type BuiltGroup, type ElGroupDef, groupId, levelsOf, villageUnitId } from "./el-group.ts";
 
 /** 公民投票法第29條: 有效同意票多於不同意票，且有效同意票達投票權人總額四分之一以上。 */
-export const REFERENDUM_RULE = { agreeMustExceedDisagree: true, agreeQuorumOfElectors: 0.25, legalBasis: "公民投票法第29條" };
+export const REFERENDUM_RULE: ReferendumRule = { agreeMustExceedDisagree: true, agreeQuorumOfElectors: 0.25, quorumStrict: false, legalBasis: "公民投票法第29條" };
+/** 憲法增修條文第12條: 經中華民國自由地區選舉人投票複決，有效同意票過選舉人總額之半數，即通過之。 */
+export const CONSTITUTIONAL_RULE: ReferendumRule = { agreeMustExceedDisagree: false, agreeQuorumOfElectors: 0.5, quorumStrict: true, legalBasis: "中華民國憲法增修條文第12條" };
+
+export const ruleOf = (d: ElGroupDef): ReferendumRule => (d.office === "constitutional-referendum" ? CONSTITUTIONAL_RULE : REFERENDUM_RULE);
+
+/** The rule applied to counts: agree vs disagree, and agree vs quorum × electors. */
+export function rulePasses(rule: ReferendumRule, agree: number, disagree: number, electors: number): boolean {
+  const q = (rule.agreeQuorumOfElectors ?? 0) * electors;
+  return (!rule.agreeMustExceedDisagree || agree > disagree) && (rule.quorumStrict ? agree > q : agree >= q);
+}
 
 export interface ReferendumQuestion {
   text: string;
@@ -27,7 +37,8 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
   const nat = ds.units.find((u) => u.level === "national")!;
   const agree = nat.votes.get(AGREE)!;
   const disagree = nat.votes.get(DISAGREE)!;
-  const passed = agree > disagree && agree >= REFERENDUM_RULE.agreeQuorumOfElectors * nat.electors;
+  const rule = ruleOf(d);
+  const passed = rulePasses(rule, agree, disagree, nat.electors);
   const pub = ds.nationalPublished;
   const bad = [
     pub.agree !== agree || pub.disagree !== disagree || pub.electors !== nat.electors ? "rftckt national counts differ from rfprof" : "",
@@ -39,7 +50,7 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
       : {
           id: "referendum-outcome",
           status: "pass",
-          detail: `${passed ? "passed" : "failed"}: 同意 ${agree} vs 不同意 ${disagree}; 同意 is ${((agree / nat.electors) * 100).toFixed(2)}% of ${nat.electors} electors (quorum 25%); matches rftckt (${ds.nationalResult})`,
+          detail: `${passed ? "passed" : "failed"}: 同意 ${agree} vs 不同意 ${disagree}; 同意 is ${((agree / nat.electors) * 100).toFixed(2)}% of ${nat.electors} electors (quorum ${(rule.agreeQuorumOfElectors ?? 0) * 100}%${rule.quorumStrict ? ", strictly more" : ""}; ${rule.legalBasis}); matches rftckt (${ds.nationalResult})`,
         },
   );
   checks.push(
@@ -121,7 +132,7 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
       questionZh: question?.text ?? null,
       questionSource: question?.source ?? null,
       questionReviewed: question?.reviewed ?? false,
-      rule: REFERENDUM_RULE,
+      rule,
       outcome: passed ? "passed" : "failed",
     },
     warnings: [],

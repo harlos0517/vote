@@ -4,7 +4,7 @@ import { parseCecCsv, PUA_RE } from "../src/lib/csv.ts";
 import { levelOf, mergeElDatasets, readElDir, readElPartyList } from "../src/adapters/cec-el.ts";
 import { sameVillageName } from "../src/adapters/cec-wide-chiayi.ts";
 import { readRfDir, renumberTowns, renumberVillages } from "../src/adapters/cec-rf.ts";
-import { buildRfGroup } from "../src/groups/rf-group.ts";
+import { CONSTITUTIONAL_RULE, REFERENDUM_RULE, buildRfGroup, ruleOf, rulePasses } from "../src/groups/rf-group.ts";
 import { buildTimelines, proposeSlots } from "../src/lib/timelines.ts";
 import { planVillages } from "../src/geo/villages.ts";
 import { chooseSwaps } from "../src/geo/mix.ts";
@@ -203,6 +203,14 @@ describe("referendum (rf*)", () => {
     const ds = readRfDir(FIX_RF);
     ds.nationalResult = "Y";
     expect(buildRfGroup(REF, ds, undefined).checks.find((c) => c.id === "referendum-outcome")!.status).toBe("fail");
+  });
+  it("applies 憲法增修條文第12條 to 修憲複決: 同意 must be more than half of electors", () => {
+    expect(ruleOf({ ...REF, office: "constitutional-referendum" })).toBe(CONSTITUTIONAL_RULE);
+    expect(rulePasses(CONSTITUTIONAL_RULE, 50, 0, 100)).toBe(false); // exactly half is not 過半數
+    expect(rulePasses(CONSTITUTIONAL_RULE, 51, 49, 100)).toBe(true);
+    expect(rulePasses(CONSTITUTIONAL_RULE, 51, 60, 140)).toBe(false);
+    expect(rulePasses(REFERENDUM_RULE, 25, 24, 100)).toBe(true); // 達四分之一以上
+    expect(rulePasses(REFERENDUM_RULE, 30, 30, 100)).toBe(false); // 同意 must exceed 不同意
   });
 });
 

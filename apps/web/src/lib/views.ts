@@ -3,7 +3,7 @@
  * Pure functions: no React, no MapLibre. Works for single-contest groups (總統) and
  * multi-contest groups (區域立委, 73 districts) alike.
  */
-import type { BallotChoice, Contest, GroupMetadataFile, Party, ResultSummary } from "@tw-election/schema";
+import type { BallotChoice, Contest, GroupMetadataFile, Party, ReferendumRule, ResultSummary } from "@tw-election/schema";
 import { NEUTRAL, OTHER_PARTY } from "./colors.ts";
 import type { UnitView } from "./results.ts";
 
@@ -151,13 +151,26 @@ export function referendumDiff(u: UnitView, f: DiffFormula, d: Denominator): Dif
   return { value: den === null ? null : (a - b) / den, dpp: a, kmt: b, den };
 }
 
-/** 公民投票法第29條 applied to one unit (only the national result counts; local values are for reference). */
-export function referendumStatus(u: UnitView, quorum: number) {
+/**
+ * The case's rule applied to one unit (only the national result counts; local values are for
+ * reference): 公民投票法第29條 (同意 > 不同意, 同意 ≥ 25% of electors) or 憲法增修條文第12條
+ * (同意 > half of electors). `needed` is the smallest 同意 count that meets the quorum.
+ */
+export function referendumStatus(u: UnitView, rule: Pick<ReferendumRule, "agreeQuorumOfElectors" | "quorumStrict">) {
   const a = u.votes.agree ?? 0;
   const b = u.votes.disagree ?? 0;
   const e = u.summary.electors;
-  return { agreeMore: a > b, quorumMet: e !== null && a >= quorum * e, agreeOfElectors: e ? a / e : null, needed: e === null ? null : Math.ceil(quorum * e) };
+  const q = rule.agreeQuorumOfElectors ?? 0;
+  const needed = e === null ? null : quorumVotes(q, e, rule.quorumStrict ?? false);
+  return { agreeMore: a > b, quorumMet: needed !== null && a >= needed, agreeOfElectors: e ? a / e : null, needed };
 }
+
+/** Smallest vote count meeting quorum × electors: "≥" (達…以上) or strictly "more than" (過…半數). */
+export const quorumVotes = (q: number, electors: number, strict: boolean) => (strict ? Math.floor(q * electors) + 1 : Math.ceil(q * electors));
+
+/** "同意票達投票權人數 25%" / "同意票過投票權人數 50%". */
+export const quorumLabel = (rule: Pick<ReferendumRule, "agreeQuorumOfElectors" | "quorumStrict">) =>
+  `同意票${rule.quorumStrict ? "過" : "達"}投票權人數 ${(rule.agreeQuorumOfElectors ?? 0) * 100}%`;
 
 export interface TopResult {
   choiceId: string | null; // null on a tie or no votes

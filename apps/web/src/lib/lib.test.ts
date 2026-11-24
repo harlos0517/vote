@@ -256,7 +256,10 @@ describe("referendum", () => {
     expect(buildMapView(ref, [u], { ...DEFAULT_VIEW, mode: "share" }).describe(u)).toContain("同意 得票率 60.00%");
   });
   it("tests §29 locally and orders the ring 同意 first, with the colour-blind palette on request", () => {
-    expect(referendumStatus(u, 0.25)).toMatchObject({ agreeMore: true, quorumMet: true, needed: 25 });
+    expect(referendumStatus(u, { agreeQuorumOfElectors: 0.25, quorumStrict: false })).toMatchObject({ agreeMore: true, quorumMet: true, needed: 25 });
+    // 修憲複決: 同意 must be more than half — exactly half (50 of 100) is not enough.
+    const half = unit("B", { agree: 50, disagree: 10 }, ["e.r"], { electors: 100 });
+    expect(referendumStatus(half, { agreeQuorumOfElectors: 0.5, quorumStrict: true })).toMatchObject({ quorumMet: false, needed: 51 });
     const ring = ringSlices(u, ref, { invalid: false, abstain: true }, true);
     expect(ring.map((s) => [s.key, s.color])).toEqual([["agree", "#2166ac"], ["disagree", "#e66101"], ["abstain", ring[2]!.color]]);
   });

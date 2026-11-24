@@ -22,6 +22,7 @@ export const OFFICE_LABEL: Partial<Record<Office, string>> = {
   "councilor-lowland-indigenous": "平地原住民議員",
   "councilor-highland-indigenous": "山地原住民議員",
   "referendum-national": "全國性公投",
+  "constitutional-referendum": "修憲複決",
 };
 
 export interface TimelineGroup {

@@ -118,6 +118,8 @@ export const ReferendumRule = z.object({
   /** 公民投票法 §29 (2019+): agree > disagree AND agree >= quorum × electors. */
   agreeMustExceedDisagree: z.boolean(),
   agreeQuorumOfElectors: z.number().min(0).max(1).nullable(),
+  /** true: 同意 must be strictly more than the quorum (修憲複決「過選舉人總額之半數」); false: at least (公投「達…四分之一以上」). */
+  quorumStrict: z.boolean().default(false),
   legalBasis: z.string(),
 });
 
@@ -322,6 +324,7 @@ export type ReportingLevel = z.infer<typeof ReportingLevel>;
 export type ReviewedMapping = z.infer<typeof ReviewedMapping>;
 export type Election = z.infer<typeof Election>;
 export type Contest = z.infer<typeof Contest>;
+export type ReferendumRule = z.infer<typeof ReferendumRule>;
 export type Party = z.infer<typeof Party>;
 export type Person = z.infer<typeof Person>;
 export type Candidacy = z.infer<typeof Candidacy>;

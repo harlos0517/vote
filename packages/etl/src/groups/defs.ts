@@ -85,6 +85,40 @@ const nationalReferendum = (election: ElectionDef, boundary: BoundaryDef, rfTown
   ],
 });
 
+export const E2022C: ElectionDef = {
+  id: "2022-11-26-constitutional-referendum",
+  date: "2022-11-26",
+  nameZh: "2022年 憲法修正案公民複決",
+  kinds: ["referendum"],
+};
+
+/**
+ * 憲法修正案公民複決第1案 (18 歲公民權), held with the 2022 local elections. Same rf* files as
+ * a national referendum, but its own rule (憲法增修條文第12條, rf-group.ts CONSTITUTIONAL_RULE).
+ */
+const CONSTITUTIONAL_2022: ElGroupDef = {
+  election: E2022C,
+  villages: true,
+  mixSnapshots: true,
+  local: "case-1",
+  nameZh: "憲法修正案公民複決第1案",
+  office: "constitutional-referendum",
+  electorate: "general",
+  format: "rf",
+  referendumCase: 1,
+  archiveDirs: [`${R2021}第１案修憲複決/`],
+  boundary: B2022,
+  contests: "single",
+  choiceKind: "referendum",
+  layout: "admin",
+  warnings: [
+    "投開票所層級資料已取得並通過驗證，但只發布到村里層級。",
+    "通過門檻（中華民國憲法增修條文第12條）：有效同意票過選舉人總額之半數。門檻以全國計算，地方數值僅供參考。",
+    "與 2022 年地方公職人員選舉同日投票；投票權人數與同日地方選舉的選舉人數不同，兩者不可直接相比。",
+    "結果檔不含主文；主文另依中選會公告登錄並註明出處。",
+  ],
+};
+
 const L2022 = "votedata/votedata/voteData/2022-111年地方公職人員選舉/";
 
 /** Shared by many groups: never mutate (groups copy their warnings before the pipeline appends). */
@@ -298,6 +332,7 @@ export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2020),
   ...localElections(L22),
   ...localElections(L18),
+  CONSTITUTIONAL_2022,
   ...[17, 18, 19, 20].map(nationalReferendum(E2021R, B2021, undefined, true)),
   ...[7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(nationalReferendum(E2018R, B2018, L18.dirs.mayor, true)),
 ];

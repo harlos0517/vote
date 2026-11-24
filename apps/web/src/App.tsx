@@ -12,7 +12,7 @@ import { buildMapView, effectiveMode, ringSlices } from "./lib/mapView.ts";
 import { useGeography, useGroup, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
 import { codeOf, fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
 import { type MapLevel, useViewState } from "./lib/viewState.ts";
-import { groupContext } from "./lib/views.ts";
+import { groupContext, quorumLabel, quorumVotes } from "./lib/views.ts";
 import classes from "./App.module.css";
 
 const ALL_LEVELS: MapLevel[] = ["county", "district", "town", "village"];
@@ -82,11 +82,12 @@ export function App() {
   const ring = shown && ctx ? ringSlices(shown.unit, ctx, den, view.colorblind) : [];
   // Referendum threshold: 同意 must reach 25% of electors; 同意 is the first slice, so mark that point.
   const ringTotal = ring.reduce((x, s) => x + s.value, 0);
-  const quorum = ctx?.referendum?.rule.agreeQuorumOfElectors;
+  const rule = ctx?.referendum?.rule;
+  const quorum = rule?.agreeQuorumOfElectors;
   const electors = shown?.unit.summary.electors;
   const marker =
-    quorum && electors && ringTotal
-      ? { at: (quorum * electors) / ringTotal, label: `通過門檻：同意票達投票權人數 ${quorum * 100}%（${Math.ceil(quorum * electors).toLocaleString("zh-TW")} 票）` }
+    rule && quorum && electors && ringTotal
+      ? { at: (quorum * electors) / ringTotal, label: `通過門檻：${quorumLabel(rule)}（${quorumVotes(quorum, electors, rule.quorumStrict ?? false).toLocaleString("zh-TW")} 票）` }
       : null;
 
   const scheme = useComputedColorScheme("light");

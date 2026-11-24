@@ -8,6 +8,7 @@ import {
   isMultiContest,
   listSeats,
   partyVotes,
+  quorumLabel,
   referendumStatus,
   seatsByParty,
   type Denominator,
@@ -309,8 +310,7 @@ function multiLabel(ctx: GroupContext, unit: UnitView): string {
 /** National referendum: 主文, 同意／不同意, and the 公民投票法第29條 test (binding only nationally). */
 function ReferendumTable({ ctx, unit, den, d, abst, colorblind }: TableProps) {
   const r = ctx.referendum!;
-  const quorum = r.rule.agreeQuorumOfElectors ?? 0;
-  const st = referendumStatus(unit, quorum);
+  const st = referendumStatus(unit, r.rule);
   const national = unit.id === "nat";
   const mark = (ok: boolean) => (ok ? "✓ 達成" : "✗ 未達成");
   return (
@@ -348,12 +348,12 @@ function ReferendumTable({ ctx, unit, den, d, abst, colorblind }: TableProps) {
       <Text size="sm" fw={600}>通過門檻（{r.rule.legalBasis}）{national ? "" : "：此地區若單獨計算"}</Text>
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
         <Table.Tbody>
-          <KV k="同意票多於不同意票" v={mark(st.agreeMore)} />
-          <KV k={`同意票達投票權人數 ${quorum * 100}%（${fmtInt(st.needed)} 票）`} v={`${fmtPct(st.agreeOfElectors)}　${mark(st.quorumMet)}`} />
+          {r.rule.agreeMustExceedDisagree && <KV k="同意票多於不同意票" v={mark(st.agreeMore)} />}
+          <KV k={`${quorumLabel(r.rule)}（${fmtInt(st.needed)} 票）`} v={`${fmtPct(st.agreeOfElectors)}　${mark(st.quorumMet)}`} />
           {national && <KV k="投票結果" v={r.outcome === "passed" ? "通過" : r.outcome === "failed" ? "不通過" : "—"} />}
         </Table.Tbody>
       </Table>
-      {!national && <Text size="xs" c="dimmed">公投是否通過以全國計算；地方數值僅供參考。</Text>}
+      {!national && <Text size="xs" c="dimmed">是否通過以全國計算；地方數值僅供參考。</Text>}
     </>
   );
 }

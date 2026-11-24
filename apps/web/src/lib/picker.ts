@@ -32,7 +32,14 @@ export const CATEGORIES: Category[] = [
       { office: "councilor-lowland-indigenous", label: "平地原住民" },
     ],
   },
-  { key: "referendum", label: "公投", subs: [{ office: "referendum-national", label: "全國性公投" }] },
+  {
+    key: "referendum",
+    label: "公投",
+    subs: [
+      { office: "referendum-national", label: "全國性公投" },
+      { office: "constitutional-referendum", label: "修憲複決" },
+    ],
+  },
 ];
 
 export interface PickerGroup {
