@@ -322,22 +322,28 @@ function checkOfficialAnnouncements(repoRoot: string, built: BuiltGroup): Valida
   if (rows.length === 0) {
     return [{ id: "official-announcement", status: "warn", detail: "no official announcement totals recorded for this group yet" }];
   }
-  // Compare with each contest's own top row (national for 總統).
-  const top = built.results.national!.rows[0]!.votes;
+  // Compare with the national row. `ballot_number` is a ballot number, a choice id (referendum
+  // "agree" / "disagree"), or "electors" / "valid" for the announced 選舉人數 / 有效票數.
+  const nat = built.results.national!.rows[0]!;
   const bad: string[] = [];
   let unreviewed = 0;
   for (const [cid, n, label, votes, , status] of rows) {
-    const ch = built.choices.find((c) => c.contestId === cid && c.ballotNumber === Number(n));
-    if (!ch) { bad.push(`no choice #${n} in ${cid}`); continue; }
-    if (ch.labelZh !== label) bad.push(`#${n} label ${ch.labelZh}≠${label}`);
-    if (top[ch.id] !== Number(votes)) bad.push(`#${n} votes ${top[ch.id]}≠${votes}`);
     if (status !== "reviewed") unreviewed++;
+    if (n === "electors" || n === "valid") {
+      const got = n === "electors" ? nat.summary.electors : nat.summary.valid;
+      if (got !== Number(votes)) bad.push(`${cid} ${n} ${got}≠${votes}`);
+      continue;
+    }
+    const ch = built.choices.find((c) => c.contestId === cid && (/^\d+$/.test(n!) ? c.ballotNumber === Number(n) : c.id === n));
+    if (!ch) { bad.push(`no choice ${n} in ${cid}`); continue; }
+    if (ch.labelZh !== label) bad.push(`${n} label ${ch.labelZh}≠${label}`);
+    if (nat.votes[ch.id] !== Number(votes)) bad.push(`${n} votes ${nat.votes[ch.id]}≠${votes}`);
   }
   if (bad.length) return [{ id: "official-announcement", status: "fail", detail: bad.join("; ") }];
   return [
     unreviewed
-      ? { id: "official-announcement", status: "warn", detail: `totals match, but ${unreviewed} rows are not yet human-reviewed` }
-      : { id: "official-announcement", status: "pass", detail: `${rows.length} totals match the reviewed official announcement` },
+      ? { id: "official-announcement", status: "warn", detail: `${rows.length} announced figures match, but ${unreviewed} rows are not yet human-reviewed` }
+      : { id: "official-announcement", status: "pass", detail: `${rows.length} announced figures match (all reviewed)` },
   ];
 }
 
