@@ -220,7 +220,19 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
 interface LocalDef {
   election: ElectionDef;
   boundary: BoundaryDef;
-  dirs: { mayor: string[]; councilor: string[]; lowland: string[]; highland: string[] };
+  dirs: {
+    mayor: string[];
+    councilor: string[];
+    lowland: string[];
+    highland: string[];
+    /** Township and village offices (D1, D2, R1, R2, R3, V1). */
+    townshipMayor: string[];
+    indigenousChief: string[];
+    townshipRep: string[];
+    lowlandRep: string[];
+    indigenousRep: string[];
+    villageChief: string[];
+  };
   extra?: ElGroupDef["extra"];
   mayorWarnings: string[];
   councilorWarnings: string[];
@@ -239,6 +251,12 @@ const L22: LocalDef = {
     councilor: [`${L2022}T1/prv/`, `${L2022}T1/city/`],
     lowland: [`${L2022}T2/prv/`, `${L2022}T2/city/`],
     highland: [`${L2022}T3/prv/`, `${L2022}T3/city/`],
+    townshipMayor: [`${L2022}D1/`],
+    indigenousChief: [`${L2022}D2/`],
+    townshipRep: [`${L2022}R1/`],
+    lowlandRep: [`${L2022}R2/`],
+    indigenousRep: [`${L2022}R3/`],
+    villageChief: [`${L2022}V1/`],
   },
   extra: { adapter: "chiayi-2022-rerun", archiveDir: "votedata/votedata/2022年_嘉義市長重行選舉/", refArchiveDir: `${L2022}T1/city/`, date: "2022-12-18" },
   mayorWarnings: ["嘉義市長選舉於 2022-12-18 舉行，與其他縣市不同日，並以不同格式另行發布。"],
@@ -258,6 +276,12 @@ const L18: LocalDef = {
     councilor: [`${L2018}直轄市區域議員/`, `${L2018}縣市區域議員/`],
     lowland: [`${L2018}直轄市平原議員/`, `${L2018}縣市平原議員/`],
     highland: [`${L2018}直轄市山原議員/`, `${L2018}縣市山原議員/`],
+    townshipMayor: [`${L2018}縣市鄉鎮市長/`],
+    indigenousChief: [`${L2018}直轄市區長/`],
+    townshipRep: [`${L2018}縣市鄉鎮市民代表/`],
+    lowlandRep: [`${L2018}縣市鄉鎮市民平原代表/`],
+    indigenousRep: [`${L2018}直轄市區民代表/`],
+    villageChief: [`${L2018}直轄市村里長/`, `${L2018}縣市村里長/`],
   },
   mayorWarnings: ["2018 年的中選會檔案以撇號標示代碼欄位（例如 '63），讀取時移除。", B2018_NOTE],
   councilorWarnings: [
@@ -321,6 +345,94 @@ function localElections(l: LocalDef): ElGroupDef[] {
     },
     indigenous("平地"),
     indigenous("山地"),
+    ...townshipAndVillage(l),
+  ];
+}
+
+/** 鄉鎮市長, 山地原住民區長, the three kinds of 代表 and 村里長: races inside townships and villages. */
+function townshipAndVillage(l: LocalDef): ElGroupDef[] {
+  const base = {
+    election: l.election,
+    boundary: l.boundary,
+    villages: l.villages ?? false,
+    mixSnapshots: l.mix ?? false,
+    choiceKind: "candidate" as const,
+    electorate: "general" as const,
+    layout: "admin",
+  };
+  const common = [...COMMON_WARNINGS, ...(l.boundary === B2018 ? ["2018 年的中選會檔案以撇號標示代碼欄位（例如 '63），讀取時移除。", B2018_NOTE] : [])];
+  const reps = "每個鄉鎮市區分為一至數個選舉區，各選出一至多席。地圖不畫選舉區界線：鄉鎮層級顯示當選席次最多的政黨，村里層級顯示該村里所屬選舉區的結果。";
+  return [
+    {
+      ...base,
+      local: "township-mayor",
+      nameZh: "鄉（鎮、市）長選舉",
+      office: "township-mayor",
+      cecTypeCode: "D1",
+      archiveDirs: l.dirs.townshipMayor,
+      contests: "town",
+      contestPrefix: "d1",
+      contestNameSuffix: "長",
+      warnings: [...common, "鄉、鎮、縣轄市各選出 1 位首長；直轄市與市的「區」，區長為官派，沒有選舉（直轄市山地原住民區另有區長選舉），地圖上以無資料顯示。縣市與全國層級以政黨合計呈現。"],
+    },
+    {
+      ...base,
+      local: "indigenous-district-chief",
+      nameZh: "直轄市山地原住民區長選舉",
+      office: "indigenous-district-chief",
+      cecTypeCode: "D2",
+      archiveDirs: l.dirs.indigenousChief,
+      contests: "town",
+      contestPrefix: "d2",
+      contestNameSuffix: "長",
+      warnings: [...common, "只有直轄市的山地原住民區選舉區長，其他地區以無資料顯示。"],
+    },
+    {
+      ...base,
+      local: "township-rep-district",
+      nameZh: "鄉（鎮、市）民代表選舉（區域）",
+      office: "township-rep-district",
+      cecTypeCode: "R1",
+      archiveDirs: l.dirs.townshipRep,
+      contests: "town-district",
+      contestPrefix: "r1",
+      warnings: [...common, reps, "直轄市與市的「區」沒有民意代表會（直轄市山地原住民區另有區民代表），地圖上以無資料顯示。"],
+    },
+    {
+      ...base,
+      local: "township-rep-lowland-indigenous",
+      nameZh: "鄉（鎮、市）民代表選舉（平地原住民）",
+      office: "township-rep-lowland-indigenous",
+      electorate: "lowland-indigenous",
+      cecTypeCode: "R2",
+      archiveDirs: l.dirs.lowlandRep,
+      contests: "town-district",
+      contestPrefix: "r2",
+      warnings: [...common, reps, "僅平地原住民選舉人可投票，選舉人數與一般選舉不同；只有設平地原住民代表選區的鄉鎮市才有資料。"],
+    },
+    {
+      ...base,
+      local: "indigenous-district-rep",
+      nameZh: "直轄市山地原住民區民代表選舉",
+      office: "indigenous-district-rep",
+      cecTypeCode: "R3",
+      archiveDirs: l.dirs.indigenousRep,
+      contests: "town-district",
+      contestPrefix: "r3",
+      warnings: [...common, reps, "只有直轄市的山地原住民區設區民代表會，其他地區以無資料顯示。"],
+    },
+    {
+      ...base,
+      local: "village-chief",
+      nameZh: "村（里）長選舉",
+      office: "village-chief",
+      cecTypeCode: "V1",
+      archiveDirs: l.dirs.villageChief,
+      contests: "village",
+      contestPrefix: "v1",
+      contestNameSuffix: "長",
+      warnings: [...common, "每個村里各自選出 1 位村里長；鄉鎮以上層級跨多個村里，以政黨合計呈現。"],
+    },
   ];
 }
 
