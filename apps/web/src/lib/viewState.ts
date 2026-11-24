@@ -9,8 +9,8 @@ import type { ScaleKind, ScaleMax } from "./colors.ts";
 import type { DiffFormula } from "./views.ts";
 
 export type MapLevel = "county" | "district" | "town" | "village";
-/** diff = 兩大黨差異, top = 當選候選人 (local top), share = 各候選人得票率, turnout = 投票率 */
-export type ViewMode = "diff" | "top" | "share" | "turnout";
+/** diff = 兩大黨差異, top = 當選候選人 (local top), share = 各候選人得票率, turnout = 投票率, competition = 競爭情形 */
+export type ViewMode = "diff" | "top" | "share" | "turnout" | "competition";
 
 /** Fixed legend tops offered besides 自動 (percent). */
 export const SCALE_MAXES = [100, 75, 50, 25, 10, 5, 1] as const;
@@ -68,7 +68,7 @@ export function parseHash(hash: string): ViewState {
   return {
     contest: q.get("c"),
     level: oneOf(q.get("lv"), ["county", "district", "town", "village"] as const, d.level),
-    mode: oneOf(legacyMode, ["diff", "top", "share", "turnout"] as const, d.mode),
+    mode: oneOf(legacyMode, ["diff", "top", "share", "turnout", "competition"] as const, d.mode),
     formula: oneOf(q.get("f"), ["pct", "ratio"] as const, d.formula),
     choice: q.get("ch"),
     palette: oneOf(q.get("pal"), ["party", "multi"] as const, d.palette),

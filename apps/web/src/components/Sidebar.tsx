@@ -110,8 +110,9 @@ export function Sidebar(p: SidebarProps) {
 type TableProps = SidebarProps & { d: number | null; abst: number | null };
 
 function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
-  const cand = new Map(ctx.meta.candidacies.map((c) => [c.id, c]));
-  const choices = ctx.meta.choices.filter((c) => c.contestId === unit.contestIds[0]);
+  const choices = ctx.choicesByContest.get(unit.contestIds[0]!) ?? [];
+  const ids = new Set(choices.flatMap((c) => c.candidacyIds));
+  const cand = new Map(ctx.meta.candidacies.filter((c) => ids.has(c.id)).map((c) => [c.id, c]));
   return (
     <>
       <Text size="sm" fw={600}>得票（分母：{denominatorLabel(den)}）</Text>
@@ -149,7 +150,8 @@ function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
                 <Num v={fmtInt(v)} />
                 <Num v={fmtPct(d === null ? null : v / d)} />
                 <Table.Td ta="center">
-                  {ctx.elected.get(c.id) ? "✓" : "—"}
+                  {ctx.byLot.has(c.id) ? "抽籤" : ctx.elected.get(c.id) ? "✓" : "—"}
+                  {ctx.byLot.has(c.id) && <Text size="xs">同票，抽籤決定</Text>}
                   {quota === "women-quota" && <Text size="xs">婦女保障</Text>}
                   {quota === "displaced-by-women-quota" && <Text size="xs">因婦女保障落選</Text>}
                 </Table.Td>
@@ -161,6 +163,9 @@ function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
         </Table.Tbody>
       </Table>
       <Text size="xs" c="dimmed">「當選」指整場選舉的結果，不是該地區的得票排名。</Text>
+      {choices.some((c) => ctx.byLot.has(c.id)) && (
+        <Text size="xs" c="dimmed">「抽籤」：兩人同票爭最後一席，依法抽籤決定；中選會資料未記載抽籤結果，因此不標示當選。</Text>
+      )}
     </>
   );
 }
@@ -303,7 +308,9 @@ function PartyListTable({ ctx, unit, den, d, abst }: TableProps) {
 function multiLabel(ctx: GroupContext, unit: UnitView): string {
   const cs = unit.contestIds.map((id) => ctx.contest.get(id));
   const seats = cs.reduce((a, c) => a + (c?.seats ?? 1), 0);
-  const kind = cs[0]?.scope.level === "county" ? "縣市" : "選區";
+  const scope = cs[0]?.scope.level;
+  const rep = /rep/.test(ctx.meta.group?.office ?? "");
+  const kind = scope === "county" ? "縣市" : scope === "village" ? "村里" : scope === "town" ? (rep ? "選舉區" : "鄉鎮市區") : "選區";
   return seats === cs.length ? `${cs.length} 個${kind}，各選 1 席` : `${cs.length} 個${kind}，共 ${seats} 席`;
 }
 

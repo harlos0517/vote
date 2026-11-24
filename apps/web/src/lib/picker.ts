@@ -33,6 +33,24 @@ export const CATEGORIES: Category[] = [
     ],
   },
   {
+    key: "township",
+    label: "鄉鎮市長",
+    subs: [
+      { office: "township-mayor", label: "鄉鎮市長" },
+      { office: "indigenous-district-chief", label: "山地原住民區長" },
+    ],
+  },
+  {
+    key: "township-rep",
+    label: "鄉鎮市民代表",
+    subs: [
+      { office: "township-rep-district", label: "區域" },
+      { office: "township-rep-lowland-indigenous", label: "平地原住民" },
+      { office: "indigenous-district-rep", label: "山地原住民區" },
+    ],
+  },
+  { key: "village", label: "村里長", subs: [{ office: "village-chief", label: "村里長" }] },
+  {
     key: "referendum",
     label: "公投",
     subs: [

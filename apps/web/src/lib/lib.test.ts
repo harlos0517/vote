@@ -355,3 +355,37 @@ describe("toUnitViews", () => {
     expect(toUnitViews(rf).get("63000020-07")).toMatchObject({ name: "松山區（第07選區部分）", parentId: "dist:63000-07", votes: { "63000-d07.n1": 1 } });
   });
 });
+
+describe("競爭情形 (township and village offices)", () => {
+  // Three villages: one uncontested, one with 2 candidates, one with 3.
+  const vc = {
+    group: { office: "village-chief" },
+    contests: ["a", "b", "c"].map((k) => ({ id: `e.${k}`, nameZh: `${k}里長`, seats: 1, scope: { level: "village" } })),
+    choices: [
+      choice("a.n1", "e.a", 1, "cec-999", "甲"),
+      choice("b.n1", "e.b", 1, "cec-999", "乙"), choice("b.n2", "e.b", 2, "cec-1", "丙"),
+      choice("c.n1", "e.c", 1, "cec-999", "丁"), choice("c.n2", "e.c", 2, "cec-999", "戊"), choice("c.n3", "e.c", 3, "cec-16", "己"),
+    ],
+    candidacies: [{ id: "a.n1.c", elected: true }, { id: "b.n1.c", elected: null, electedNote: "tied-decided-by-lot" }, { id: "b.n2.c", elected: null, electedNote: "tied-decided-by-lot" }, { id: "c.n1.c", elected: true }, { id: "c.n2.c", elected: false }, { id: "c.n3.c", elected: false }],
+    parties: [party("cec-1", "中國國民黨", "#000099"), party("cec-16", "民主進步黨", "#1B9431"), party("cec-999", "無黨籍及未經政黨推薦", null, true)],
+  } as unknown as GroupMetadataFile;
+  const V = groupContext(vc);
+  const vil = [unit("A", { "a.n1": 90 }, ["e.a"]), unit("B", { "b.n1": 50, "b.n2": 50 }, ["e.b"]), unit("C", { "c.n1": 50, "c.n2": 30, "c.n3": 20 }, ["e.c"])];
+  const town = unit("T", { "a.n1": 90, "b.n1": 50, "b.n2": 50, "c.n1": 50, "c.n2": 30, "c.n3": 20 }, ["e.a", "e.b", "e.c"]);
+  it("is offered only for local offices", () => {
+    expect(effectiveMode(V, { ...DEFAULT_VIEW, mode: "competition" })).toBe("competition");
+    expect(effectiveMode(P, { ...DEFAULT_VIEW, mode: "competition" })).toBe("diff");
+    expect(parseHash(formatHash({ ...DEFAULT_VIEW, mode: "competition" })).mode).toBe("competition");
+  });
+  it("colours each village by its number of candidates, and townships by the share uncontested", () => {
+    const m = buildMapView(V, vil, { ...DEFAULT_VIEW, mode: "competition" });
+    expect(new Set([m.colors.get("A"), m.colors.get("B"), m.colors.get("C")]).size).toBe(3);
+    expect(m.describe(vil[0]!)).toBe("同額競選（1 位候選人）：1 位候選人，應選 1 席");
+    expect(m.describe(vil[2]!)).toBe("3 位以上候選人：3 位候選人，應選 1 席");
+    expect(buildMapView(V, [town], { ...DEFAULT_VIEW, mode: "competition" }).describe(town)).toBe("同額競選 1 場，共 3 場（33.33%）");
+  });
+  it("marks ties decided by lot and does not count them as elected", () => {
+    expect([...V.byLot].sort()).toEqual(["b.n1", "b.n2"]);
+    expect(seatsByParty(town, V).total).toBe(2);
+  });
+});

@@ -50,6 +50,7 @@ export function Controls({
                 { value: "top", label: ctx.partyList ? "得票最多政黨" : "當選候選人" },
                 { value: "share", label: ctx.candidatesPickable ? "得票率" : "政黨得票率" },
                 { value: "turnout", label: "投票率" },
+                ...(ctx.localOffice ? [{ value: "competition", label: "競爭情形" }] : []),
               ]
         }
       />
@@ -81,7 +82,7 @@ export function Controls({
           maxDropdownHeight={280}
         />
       )}
-      {mode === "turnout" ? (
+      {mode === "competition" ? null : mode === "turnout" ? (
         <Text size="xs" c="dimmed" maw={230}>投票率檢視一律計入無效票與未投票。</Text>
       ) : (
         <Switch
@@ -101,7 +102,7 @@ export function Controls({
 /** Colour options, shown in the legend panel (建議 3): scale kind, legend top, palette, shading, colour-blind. */
 export function ColorOptions({ ctx, view, setView }: { ctx: GroupContext; view: ViewState; setView: (p: Partial<ViewState>) => void }) {
   const mode = effectiveMode(ctx, view);
-  const scaled = mode !== "top" || view.shadeTop;
+  const scaled = (mode !== "top" || view.shadeTop) && mode !== "competition";
   const narrow = useNarrow();
   return (
     <Stack gap={6}>
@@ -124,7 +125,7 @@ export function ColorOptions({ ctx, view, setView }: { ctx: GroupContext; view: 
       {mode !== "diff" && scaled && (
         <Switch size="xs" label="色階從 0% 起算" checked={view.fromZero} onChange={(e) => setView({ fromZero: e.currentTarget.checked })} />
       )}
-      {mode !== "top" && (
+      {mode !== "top" && mode !== "competition" && (
         <Select
           size="xs"
           aria-label="圖例上限"

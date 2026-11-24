@@ -22,6 +22,8 @@ import {
   seatsByParty,
   showsSeats,
   twoPartyDiff,
+  competitionOf,
+  uncontestedShare,
   type Denominator,
   type GroupContext,
 } from "./views.ts";
@@ -71,7 +73,21 @@ export function choiceColorOf(ctx: GroupContext, id: string, colorblind: boolean
 }
 
 /** Referendums have no 當選 view: a stale "top" falls back to the 同意／不同意 difference. */
-export const effectiveMode = (ctx: GroupContext, v: ViewState): ViewState["mode"] => (ctx.referendum && v.mode === "top" ? "diff" : v.mode);
+/**
+ * Referendums have no 當選 view: a stale "top" falls back to the 同意／不同意 difference.
+ * 競爭情形 exists only for township and village offices; elsewhere it falls back to the default.
+ */
+export const effectiveMode = (ctx: GroupContext, v: ViewState): ViewState["mode"] =>
+  ctx.referendum && (v.mode === "top" || v.mode === "competition") ? "diff" : v.mode === "competition" && !ctx.localOffice ? "diff" : v.mode;
+
+/** 競爭情形 colours: 同額 stands out; contested races in two steps. */
+export const COMPETITION_COLORS = { uncontested: "#5e3c99", close: "#b2abd2", wide: "#e66101" } as const;
+
+export function competitionLabels(ctx: GroupContext) {
+  return ctx.singleSeat
+    ? { uncontested: "同額競選（1 位候選人）", close: "2 位候選人", wide: "3 位以上候選人" }
+    : { uncontested: "同額競選（候選人數 ≤ 應選席次）", close: "每席 2 人以下", wide: "每席超過 2 人" };
+}
 
 export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewState): MapViewModel {
   const v = { ...vIn, mode: effectiveMode(ctx, vIn) };
@@ -79,6 +95,44 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
   const denLabel = denominatorLabel(den, ctx.referendum !== null);
   const colors = new Map<string, string>();
   const hatched = new Set<string>();
+
+  if (v.mode === "competition") {
+    const labels = competitionLabels(ctx);
+    const single = units.filter((u) => !isMultiContest(u));
+    const multi = units.filter(isMultiContest);
+    const seen = new Set<string>();
+    for (const u of single) {
+      const c = u.contestIds[0] ? competitionOf(ctx, u.contestIds[0]) : null;
+      if (!c) { colors.set(u.code, NO_DATA); continue; }
+      colors.set(u.code, COMPETITION_COLORS[c.kind]);
+      seen.add(c.kind);
+    }
+    // Units spanning several races: the share of them that were 同額.
+    const interp = blackTo(COMPETITION_COLORS.uncontested);
+    const shares = new Map(multi.map((u) => [u.code, uncontestedShare(u, ctx)]));
+    const scale = sequentialScale([...shares.values()].flatMap((x) => (x.share === null ? [] : [x.share])), interp, v.scale, v.max, v.fromZero);
+    for (const [code, x] of shares) colors.set(code, x.share === null ? NO_DATA : scale.color(x.share));
+    const kinds = (["uncontested", "close", "wide"] as const).filter((k) => seen.has(k));
+    return {
+      colors,
+      hatched,
+      legend: multi.length
+        ? { title: "同額競選的比例（同額場次 ÷ 場次）", spec: scale.legend, note: "此層級涵蓋多場選舉；「同額」指候選人數不超過應選席次，不需競爭即當選。" }
+        : {
+            title: ctx.singleSeat ? "競爭情形：候選人數" : "競爭情形：每席候選人數",
+            groups: [{ title: "", items: kinds.map((k) => ({ label: labels[k], color: COMPETITION_COLORS[k] })) }],
+            note: "同額競選：候選人數不超過應選席次。",
+          },
+      describe: (u) => {
+        if (isMultiContest(u)) {
+          const x = uncontestedShare(u, ctx);
+          return `同額競選 ${x.uncontested} 場，共 ${x.total} 場（${fmtPct(x.share)}）`;
+        }
+        const c = u.contestIds[0] ? competitionOf(ctx, u.contestIds[0]) : null;
+        return c ? `${labels[c.kind]}：${c.candidates} 位候選人，應選 ${c.seats} 席` : "競爭情形：無資料";
+      },
+    };
+  }
 
   if (v.mode === "turnout") {
     // 投票率 = 投票數 ÷ 選舉人數 (無效票 and 未投票 are always counted here).

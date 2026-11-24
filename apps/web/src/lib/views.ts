@@ -34,7 +34,25 @@ export interface GroupContext {
   contest: Map<string, Contest>;
   /** National referendum case (choices "agree" / "disagree"), else null. */
   referendum: NonNullable<Contest["referendum"]> | null;
+  /** Contest id → its choices (村里長 has ~15,000 choices: never scan them per unit). */
+  choicesByContest: Map<string, BallotChoice[]>;
+  /** Choice ids whose seat was tied and decided by lot (CEC "?"; the draw's result is not in the data). */
+  byLot: Set<string>;
+  /** Township and village offices: the 競爭情形 view is offered. */
+  localOffice: boolean;
+  /** Every contest elects one seat. */
+  singleSeat: boolean;
 }
+
+/** Offices elected inside townships and villages (鄉鎮市長, 區長, 代表, 村里長). */
+export const LOCAL_OFFICES = new Set<string>([
+  "township-mayor",
+  "indigenous-district-chief",
+  "township-rep-district",
+  "township-rep-lowland-indigenous",
+  "indigenous-district-rep",
+  "village-chief",
+]);
 
 export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<string, number>): GroupContext {
   const choice = new Map(meta.choices.map((c) => [c.id, c]));
@@ -48,7 +66,19 @@ export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<str
   const totals = new Map<string, number>();
   for (const c of meta.choices) if (c.partyId) totals.set(c.partyId, (totals.get(c.partyId) ?? 0) + (nationalVotes?.[c.id] ?? 0));
   const partiesByVote = [...meta.parties].sort((a, b) => (totals.get(b.id) ?? 0) - (totals.get(a.id) ?? 0));
+  const choicesByContest = new Map<string, BallotChoice[]>();
+  for (const c of meta.choices) {
+    const list = choicesByContest.get(c.contestId);
+    if (list) list.push(c);
+    else choicesByContest.set(c.contestId, [c]);
+  }
+  const lotIds = new Set(meta.candidacies.filter((c) => c.electedNote === "tied-decided-by-lot").map((c) => c.id));
+  const byLot = new Set(meta.choices.filter((c) => c.candidacyIds.some((id) => lotIds.has(id))).map((c) => c.id));
   return {
+    choicesByContest,
+    byLot,
+    localOffice: LOCAL_OFFICES.has(meta.group?.office ?? ""), // test fixtures may omit the group
+    singleSeat: meta.contests.every((c) => (c.seats ?? 1) === 1),
     meta,
     choice,
     party,
@@ -110,8 +140,7 @@ export function partyVotes(u: UnitView, ctx: GroupContext, partyId: string): num
 
 /** Whether the party had a candidate in any of the unit's contests. */
 export function partyRan(u: UnitView, ctx: GroupContext, partyId: string): boolean {
-  const contests = new Set(u.contestIds);
-  return ctx.meta.choices.some((c) => c.partyId === partyId && contests.has(c.contestId));
+  return u.contestIds.some((id) => ctx.choicesByContest.get(id)?.some((c) => c.partyId === partyId));
 }
 
 export const partyShare = (u: UnitView, ctx: GroupContext, partyId: string, d: Denominator): number | null => {
@@ -197,14 +226,15 @@ export interface SeatsResult {
 
 /** Seats won per party among the contests of a unit spanning several contests (縣市, 全國). */
 export function seatsByParty(u: UnitView, ctx: GroupContext): SeatsResult {
-  const contests = new Set(u.contestIds);
   const seats = new Map<string, number>();
   let total = 0;
-  for (const c of ctx.meta.choices) {
-    if (!contests.has(c.contestId) || !ctx.elected.get(c.id)) continue;
-    const p = c.partyId ?? "none";
-    seats.set(p, (seats.get(p) ?? 0) + 1);
-    total++;
+  for (const id of u.contestIds) {
+    for (const c of ctx.choicesByContest.get(id) ?? []) {
+      if (!ctx.elected.get(c.id)) continue;
+      const p = c.partyId ?? "none";
+      seats.set(p, (seats.get(p) ?? 0) + 1);
+      total++;
+    }
   }
   const max = Math.max(0, ...seats.values());
   const leaders = [...seats].filter(([, n]) => n === max);
@@ -232,4 +262,25 @@ export function partyLabel(ctx: GroupContext, partyId: string): string {
   if (!ctx.singleContest || ctx.partyList) return name;
   const cands = ctx.meta.choices.filter((c) => c.partyId === partyId).map((c) => c.labelZh);
   return cands.length === 1 ? `${name}（${cands[0]}）` : name;
+}
+
+/** 競爭情形 of one contest: candidates against seats. */
+export interface Competition {
+  candidates: number;
+  seats: number;
+  /** "uncontested" (同額: no more candidates than seats), "close" (≤ 2 per seat), "wide" (more than 2 per seat). */
+  kind: "uncontested" | "close" | "wide";
+}
+
+export function competitionOf(ctx: GroupContext, contestId: string): Competition {
+  const candidates = ctx.choicesByContest.get(contestId)?.length ?? 0;
+  const seats = ctx.contest.get(contestId)?.seats ?? 1;
+  return { candidates, seats, kind: candidates <= seats ? "uncontested" : candidates <= 2 * seats ? "close" : "wide" };
+}
+
+/** Share of a unit's contests that were 同額 (uncontested); null when it has none. */
+export function uncontestedShare(u: UnitView, ctx: GroupContext): { share: number | null; uncontested: number; total: number } {
+  const total = u.contestIds.length;
+  const uncontested = u.contestIds.filter((id) => competitionOf(ctx, id).kind === "uncontested").length;
+  return { share: total ? uncontested / total : null, uncontested, total };
 }
