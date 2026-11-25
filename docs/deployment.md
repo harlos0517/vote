@@ -107,6 +107,12 @@ read -rp "R2_ACCOUNT_ID: " R2_ACCOUNT_ID && read -rp "R2_ACCESS_KEY_ID: " R2_ACC
 
 這樣輸入金鑰，不會留在 shell 歷史中，也不會寫進任何檔案。
 
+也可以把四個變數寫在 repo 根目錄的 `.env`（已在 `.gitignore`，不會被提交），`pnpm etl` 會自動讀取；shell 中已設定的同名變數優先。建議限制檔案權限：
+
+```bash
+chmod 600 .env
+```
+
 ```bash
 pnpm etl mirror-raw --dry-run
 ```

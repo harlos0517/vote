@@ -168,7 +168,7 @@ pnpm etl live-play --feed replay-2022-11-26-local --speed 60
 
 ## 上傳到 R2（`live/`）
 
-即時資料從執行輪詢的電腦上傳（需要能連到中選會網站，所以不在 CI 執行）。金鑰輸入方式與 `mirror-raw` 相同，見 `docs/deployment.md` 3.5 節。
+即時資料從執行輪詢的電腦上傳（需要能連到中選會網站，所以不在 CI 執行）。金鑰輸入方式與 `mirror-raw` 相同，見 `docs/deployment.md` 3.5 節；也可放在 repo 根目錄的 `.env`，`pnpm etl` 會自動讀取。
 
 ```bash
 pnpm etl live-publish --feed cec-2026-11-28-local --dry-run

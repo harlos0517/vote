@@ -62,6 +62,8 @@ const { positionals, values } = parseArgs({
   },
 });
 const repoRoot = resolve(import.meta.dirname, "../../..");
+// R2 credentials may live in <repo>/.env (git-ignored). Variables already set in the shell win.
+if (existsSync(`${repoRoot}/.env`)) process.loadEnvFile(`${repoRoot}/.env`);
 const opts = {
   repoRoot,
   rawDir: resolve(values.raw ?? `${repoRoot}/data/raw`),
