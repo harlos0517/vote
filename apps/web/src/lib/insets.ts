@@ -16,11 +16,11 @@ export interface Inset {
 }
 
 export const INSETS: Inset[] = [
-  { name: "連江縣", src: [119.85, 25.9, 120.6, 26.45], to: [120.3, 25], k: 1 },
+  { name: "連江縣", src: [119.85, 25.9, 120.6, 26.45], to: [120.3, 25.1], k: 1 },
   { name: "金門縣", src: [118.1, 24.1, 118.55, 24.6], to: [119.9, 24.3], k: 1 },
   { name: "金門縣烏坵", src: [119.4, 24.97, 119.5, 25.01], to: [120.3, 24.52], k: 1 },
   { name: "東沙島", src: [116.7, 20.68, 116.75, 20.72], to: [120, 22.6], k: 1 },
-  { name: "太平島", src: [114.35, 10.365, 114.38, 10.39], to: [120, 22.4], k: 1 },
+  { name: "太平島", src: [114.35, 10.365, 114.38, 10.39], to: [120, 22.3], k: 1 },
   { name: "釣魚臺列嶼", src: [123.45, 25.7, 123.7, 25.95], to: [122.1, 24.6], k: 1 },
   { name: "釣魚臺列嶼(赤尾嶼)", src: [124.55, 25.91, 124.57, 25.94], to: [122.1, 24.9], k: 1 },
   { name: "花瓶嶼", src: [121.945, 25.423, 121.947, 25.425], to: [121.88, 25.2], k: 1 },
@@ -29,7 +29,7 @@ export const INSETS: Inset[] = [
 
 /** Default view: Taiwan, 澎湖, 彭佳嶼 and the insets. Panning and zooming out stay inside LOCK. */
 export const VIEW_BOUNDS: [[number, number], [number, number]] = [[119.25, 21.85], [122.3, 25.4]];
-export const LOCK_BOUNDS: [[number, number], [number, number]] = [[118, 21.65], [123, 25.6]];
+export const LOCK_BOUNDS: [[number, number], [number, number]] = [[117, 21.65], [124.3, 25.6]];
 
 type Ring = number[][];
 const centre = (b: Inset["src"]): [number, number] => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
