@@ -3,7 +3,10 @@
 依時間順序。所有指令在 repo 根目錄執行。背景說明見 `docs/live-feed.md`。
 
 - feed：`cec-2026-11-28-local`
-- 選舉群組：`2026-11-28-local.mayor`（直轄市長及縣市長，22 個縣市、81 位候選人）
+- 選舉群組（同一個 feed）：
+  - `2026-11-28-local.mayor`：直轄市長及縣市長，22 個縣市、81 位候選人，有號次
+  - `2026-11-28-local.township-mayor`：鄉鎮市長，198 個鄉鎮市、465 位候選人，沒有號次（依姓名對應）
+  - `2026-11-28-referendum.case-22`：全國性公民投票案第22案
 - 本機資料夾：`data/out/live/cec-2026-11-28-local/`
 - 公開網址：`https://vote-data.harlos.tw/live/cec-2026-11-28-local/`
 - 網頁：`https://vote.harlos.tw/#/?live=cec-2026-11-28-local`
@@ -26,6 +29,17 @@
     pnpm etl live-publish --feed cec-2026-11-28-local
     ```
 
+- [ ] 上傳新增的鄉鎮市長與第22案群組（已在本機產生；上傳後網頁標題列會出現選舉類別選單）：
+
+  ```bash
+  pnpm etl live-publish --feed cec-2026-11-28-local --dry-run
+  ```
+
+  ```bash
+  pnpm etl live-publish --feed cec-2026-11-28-local
+  ```
+
+- [ ] 審核 `packages/etl/mappings/candidates-2026-township-mayor.csv`（對照中選會登記彙總表附件 7，特別是 10 位只保留漢字姓名的原住民族候選人），以及 `referendum-questions.csv` 中第22案主文（對照中選會公告）。有修正時重跑 `docs/live-feed.md` 中對應的 `live-prelim` 指令，再上傳。
 - [ ] 決定三個沒有政黨代碼的推薦政黨（臺灣SoR無法黨、三勢團結促進聯盟、台聯黨）是否維持未分類。
 - [ ] （建議）在正式網站演練一次：上傳重播 feed，邊播放邊上傳，打開 `https://vote.harlos.tw/#/?live=replay-2022-11-26-local` 看地圖是否隨開票進度上色。兩個指令分別開兩個終端機：
 
@@ -61,26 +75,31 @@
   - 開頭是 `zh-TW/`，與 `--base https://vote.cec.gov.tw/zh-TW/` 相符；
   - 類別代碼：直轄市長是否為 `C1`、縣市長是否為 `C2`（例如臺北市 `zh-TW/C1/63000000000000000.html`、宜蘭縣 `zh-TW/C2/10002000000000000.html`）；
   - 頁面有「號次」「候選人姓名」「得票數」與「已送投票所數/總投票所數」「資料時間」。
-- [ ] 代碼不同時：改 CSV 的 `cec_type`，重跑上面的 `live-prelim` 與 `live-publish`。
+- [ ] 鄉鎮市長的類別代碼是否為 `D1`，路徑例如宜蘭市 `zh-TW/D1/10002000100000000.html`（縣市 5 碼＋`00`＋鄉鎮 3 碼＋7 個 0）。
+- [ ] 公投第22案的類別代碼（記下來，例如 Network 中 `zh-TW/<代碼>/00000000000000000.html` 的 `<代碼>`），以及頁面是否有「同意票數」「不同意票數」「投票權人數」與「已送/應送」。
+- [ ] 代碼不同時：改 CSV 的 `cec_type`，重跑對應的 `live-prelim` 與 `live-publish`（公投代碼不用改檔，用 `--prefix`）。
 - [ ] 路徑或欄位與上面差很多時：**不要啟動輪詢**，改走「五、出狀況時」。
 
 ## 四、開始輪詢
 
-- [ ] 先只跑一輪、只抓縣市層級，**不上傳**：
+以下指令中的 `<公投代碼>` 換成第三節記下的代碼。三個群組由**同一個**輪詢程式處理（不要同時開兩個輪詢程式）。
+
+- [ ] 先只跑一輪，**不上傳**：
 
   ```bash
-  pnpm etl live-cec --groups 2026-11-28-local.mayor --base https://vote.cec.gov.tw/zh-TW/ --levels national,county --once
+  pnpm etl live-cec --feed cec-2026-11-28-local --groups 2026-11-28-local.mayor,2026-11-28-local.township-mayor,2026-11-28-referendum.case-22 --levels national,county --levels 2026-11-28-local.township-mayor=national,county,town --prefix 2026-11-28-referendum.case-22=<公投代碼> --base https://vote.cec.gov.tw/zh-TW/ --once
   ```
 
-  確認輸出為 `22 pages ok, 0 failed`，沒有 `warn` 姓名不符；資料時間合理。
-- [ ] 正式開始（縣市層級，每 120 秒，每輪上傳）：
+  確認：縣市長 `22 pages ok`、鄉鎮市長 `198 pages ok`、公投 `23 pages ok`，`failed` 為 0。`warn … not on the page (0 votes)` 是撤回或資格不符者，屬正常；`not in the roster` 或 `by elimination` 要看是哪個名字。
+- [ ] 公投代碼還不確定時，先拿掉第22案（`--groups` 與 `--prefix` 都拿掉），之後再依第四節最後一項的方式重啟加入。
+- [ ] 正式開始（每 180 秒、每輪上傳；三群組每輪約 243 頁）：
 
   ```bash
-  pnpm etl live-cec --groups 2026-11-28-local.mayor --base https://vote.cec.gov.tw/zh-TW/ --levels national,county --publish
+  pnpm etl live-cec --feed cec-2026-11-28-local --groups 2026-11-28-local.mayor,2026-11-28-local.township-mayor,2026-11-28-referendum.case-22 --levels national,county --levels 2026-11-28-local.township-mayor=national,county,town --prefix 2026-11-28-referendum.case-22=<公投代碼> --base https://vote.cec.gov.tw/zh-TW/ --interval 180 --publish
   ```
 
 - [ ] 打開網頁確認：狀態「開票中」、回報進度與資料時間更新、資料來源標示「中央選舉委員會」。
-- [ ] （選擇性）穩定約 30 分鐘後加入鄉鎮層級：建立 `STOP` 讓輪詢結束，刪除 `STOP`，加上 `town` 重新啟動（會接續原本的 seq）。每輪由 22 頁增為 390 頁。
+- [ ] 要改群組或層級時（例如加入第22案、縣市長加上鄉鎮層級）：建立 `STOP` 讓輪詢結束，刪除 `STOP`，用新參數重新啟動（各群組接續原本的 seq；沒有輪詢的群組在 manifest 中保留）。縣市長加上鄉鎮層級會多 368 頁，建議不要。
 
   ```bash
   touch data/out/live/cec-2026-11-28-local/STOP
@@ -90,9 +109,6 @@
   rm data/out/live/cec-2026-11-28-local/STOP
   ```
 
-  ```bash
-  pnpm etl live-cec --groups 2026-11-28-local.mayor --base https://vote.cec.gov.tw/zh-TW/ --levels national,county,town --publish
-  ```
 
 ## 五、開票中監看
 
@@ -112,6 +128,7 @@
 | 輪詢因 **403／429** 停止 | 不要重試、不要換標頭或 IP。網頁停在最後一輪數字並顯示未更新提醒。人工輸入工具尚未完成。 |
 | 輪詢因頁面格式不符（`PageFormatError`）停止 | 中選會網站改版。不要猜測格式；保留最後數字，記下新格式之後再處理。 |
 | `most names differ` | 頁面代碼或候選人名單對錯。停止輪詢，確認第三節的代碼。 |
+| `not in the roster`（鄉鎮市長） | 只有該鄉鎮讀取失敗，其他照常。對照登記彙總表，修正 CSV 姓名後重跑 `live-prelim`，再依上一項重啟輪詢。 |
 | 大量 `failed`（逾時、5xx） | 程式會自動拉長間隔（最長 10 分鐘），沿用上一輪數字並標示。持續發生時暫停輪詢。 |
 | 上傳一直失敗 | 確認終端機的金鑰仍在（`echo $R2_BUCKET`）。輪詢不受影響，恢復後下一輪會補上。 |
 | 需要停止 | 建立 `STOP` 檔案，跑完當輪結束。**重新啟動前要先刪除 `STOP`**，否則會立刻結束。 |
@@ -126,6 +143,6 @@
 
 ## 這次不涵蓋
 
-- 議員、鄉鎮市長、村里長等其他選舉（沒有候選人資料）。
-- 全國性公民投票案第 22 案（沒有建立公投群組；頁面格式未知）。
+- 議員（5 個縣市選舉區已變動）、村里長、鄉鎮市民代表、原住民區長與區民代表。
+- 公投頁面格式依 2018 年網站撰寫，2026 年格式未知；不符時輪詢會因頁面格式不符停止，屆時拿掉第22案重啟。
 - 人工輸入（`manual` 模式未完成）。
