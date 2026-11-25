@@ -3,7 +3,9 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GroupMetadataFile, GroupResultsFile, Party } from "@tw-election/schema";
-import { buildPrelimGroup, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "../src/live/prelim.ts";
+import { LiveManifestFile, LiveSnapshotFile } from "@tw-election/schema";
+import { readFileSync } from "node:fs";
+import { announcePrelimGroup, buildPrelimGroup, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "../src/live/prelim.ts";
 
 const HEAD = "election,cec_type,county,county_name,ballot_number,name,party,source,method,status";
 const row = (county: string, n: number, name: string, party: string, type = "C1", status = "unreviewed") =>
@@ -95,5 +97,21 @@ describe("buildPrelimGroup", () => {
     expect(back.results.county!.units).toHaveLength(2);
     expect(back.metadataRef).toEqual(g.metadataRef);
     expect(loadFeedGroup(dir, "2026-11-28-local.nope")).toBeNull();
+  });
+
+  it("announces the group before counting without touching a running feed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "feed-"));
+    announcePrelimGroup(dir, "cec-2026-11-28-local", g, new Date("2026-11-28T00:00:00Z"));
+    const m = LiveManifestFile.parse(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
+    expect(m.groups).toEqual([expect.objectContaining({ groupId: g.metadata.group.id, seq: 0, status: "not-started", metadata: g.metadataRef })]);
+    expect(m.mode).toBe("cec-public");
+    // A poller has moved on: announcing again keeps its snapshot and seq.
+    const latest = join(dir, `groups/${g.metadata.group.id}/latest.json`);
+    const moved = { ...LiveSnapshotFile.parse(JSON.parse(readFileSync(latest, "utf8"))), seq: 7, status: "counting" };
+    writeFileSync(latest, JSON.stringify(moved));
+    announcePrelimGroup(dir, "cec-2026-11-28-local", g);
+    const m2 = LiveManifestFile.parse(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
+    expect(m2.groups).toHaveLength(1);
+    expect(m2.groups[0]).toMatchObject({ seq: 7, status: "counting" });
   });
 });

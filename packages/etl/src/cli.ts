@@ -23,7 +23,7 @@ import { parseArgs } from "node:util";
 import { build, fetchAll } from "./pipeline.ts";
 import { mirrorRaw, publishRelease } from "./publish/r2.ts";
 import { httpFetcher, runCecPoller } from "./live/cec-public.ts";
-import { buildPrelimGroup, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "./live/prelim.ts";
+import { announcePrelimGroup, buildPrelimGroup, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "./live/prelim.ts";
 import { buildReplay, currentRelease, livePaths, loadReleaseGroup, playReplayFeed, replayManifest, writeReplayFeed } from "./live/replay.ts";
 
 const { positionals, values } = parseArgs({
@@ -142,6 +142,7 @@ if (cmd === "fetch") {
   });
   const feedDir = livePaths.feed(opts.outDir, `cec-${electionId}`);
   writePrelimGroup(feedDir, g);
+  announcePrelimGroup(feedDir, `cec-${electionId}`, g);
   console.log(`${g.metadata.group.id}: ${g.metadata.contests.length} contests, ${g.metadata.choices.length} choices -> ${feedDir}`);
   if (g.unknownParties.length) console.log(`parties without a CEC code: ${g.unknownParties.join("、")}`);
 } else {

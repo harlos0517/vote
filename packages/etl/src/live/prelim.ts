@@ -12,6 +12,9 @@ import { join } from "node:path";
 import {
   GroupMetadataFile,
   GroupResultsFile,
+  LIVE_SCHEMA_VERSION,
+  LiveManifestFile,
+  LiveSnapshotFile,
   SCHEMA_VERSION,
   type BallotChoice,
   type Contest,
@@ -20,7 +23,7 @@ import {
   type ReportingLevel,
 } from "@tw-election/schema";
 import { parseCecCsv } from "../lib/csv.ts";
-import { writeAtomic } from "./files.ts";
+import { livePaths, writeAtomic } from "./files.ts";
 
 export interface CandidateRow {
   election: string;
@@ -193,4 +196,39 @@ export function loadFeedGroup(feedDir: string, groupId: string) {
   const results: Partial<Record<ReportingLevel, GroupResultsFile>> = {};
   for (const [level, rel] of Object.entries(metadata.results)) results[level as ReportingLevel] = GroupResultsFile.parse(JSON.parse(readFileSync(join(feedDir, rel), "utf8")));
   return { metadata, results, metadataRef: { feedPath: prelimPaths.metadata(groupId), geographyRelease: metadata.release } as LiveGroupMetadataRef };
+}
+
+/**
+ * Before counting: give the group a seq-0 "not-started" snapshot and an entry in the feed's
+ * manifest (created if missing), so the live page works before the poller first runs.
+ * An existing latest.json is left alone: the poller may already be running.
+ */
+export function announcePrelimGroup(feedDir: string, feedId: string, g: PrelimGroup, now = new Date()) {
+  const groupId = g.metadata.group.id;
+  const latest = join(feedDir, livePaths.latest(groupId));
+  if (!existsSync(latest)) {
+    const s = LiveSnapshotFile.parse({
+      liveSchemaVersion: LIVE_SCHEMA_VERSION, feedId, groupId, seq: 0, status: "not-started",
+      asOf: now.toISOString(), generatedAt: now.toISOString(), progressUnit: "station", rows: [],
+    });
+    writeAtomic(join(feedDir, livePaths.snapshot(groupId, 0)), JSON.stringify(s));
+    writeAtomic(latest, JSON.stringify(s));
+  }
+  const current = LiveSnapshotFile.parse(JSON.parse(readFileSync(latest, "utf8")));
+  const path = join(feedDir, livePaths.manifest());
+  const old = existsSync(path) ? LiveManifestFile.parse(JSON.parse(readFileSync(path, "utf8"))) : null;
+  const entry = { groupId, nameZh: g.metadata.group.nameZh, metadata: g.metadataRef, latest: livePaths.latest(groupId), seq: current.seq, status: current.status };
+  const manifest = LiveManifestFile.parse({
+    liveSchemaVersion: LIVE_SCHEMA_VERSION,
+    feedId,
+    mode: "cec-public",
+    labelZh: "開票中數字取自中央選舉委員會開票網站，非最終結果，以中央選舉委員會公告為準",
+    election: { id: g.metadata.election.id, nameZh: g.metadata.election.nameZh, date: g.metadata.election.date },
+    source: { id: "cec-live", publisher: "中央選舉委員會", title: "計票資訊查詢網站", url: null, license: "未標示", attribution: "資料來源：中央選舉委員會" },
+    pollIntervalSeconds: 120,
+    ...(old ?? {}),
+    updatedAt: now.toISOString(),
+    groups: [...(old?.groups.filter((x) => x.groupId !== groupId) ?? []), entry],
+  });
+  writeAtomic(path, JSON.stringify(manifest, null, 2) + "\n");
 }
