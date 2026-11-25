@@ -51,7 +51,15 @@ export interface VillagePlan {
   checks: ValidationCheck[];
 }
 
-export function planVillages(election: string, units: GroupUnit[], groups: Map<string, VillageGroupRow>): VillagePlan {
+/**
+ * @param electorsOf electors of a 村里-level unit, for notes (e.g. how many voted at a district-wide station).
+ */
+export function planVillages(
+  election: string,
+  units: GroupUnit[],
+  groups: Map<string, VillageGroupRow>,
+  electorsOf: (unitId: string) => number | null = () => null,
+): VillagePlan {
   const claims = new Map<string, string[]>(); // VILLCODE → unit ids
   const claim = (v: string, unit: string) => claims.set(v, [...(claims.get(v) ?? []), unit]);
   const noShape: VillagePlan["noShape"] = [];
@@ -73,6 +81,12 @@ export function planVillages(election: string, units: GroupUnit[], groups: Map<s
     if (!row.reviewed) unreviewed.push(`${town}-${code}`);
     if (row.members === "overlap") {
       noShape.push({ unit: u.id, note: `「${u.nameZh}」投開票所的範圍與一般村里重疊，地圖未繪出；票數計入鄉鎮。` });
+      // The station itself is never drawn, so say it where people look: on its township.
+      // No note where the station had no electors in this race (區域立委: its voters vote for the 原住民立委 instead).
+      const n = electorsOf(u.id);
+      if (u.parentId && n !== 0) {
+        notes.push({ unit: u.parentId, note: `本區另有全區各里共用的原住民投開票所（「${u.nameZh}」${n === null ? "" : `，選舉人 ${n.toLocaleString("en-US")} 人`}），票數計入本區，但未分配到任何村里，因此各村里數字合計少於本區。` });
+      }
       continue;
     }
     membersOf.set(u.id, row.members);

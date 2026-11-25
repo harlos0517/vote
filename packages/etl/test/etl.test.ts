@@ -273,6 +273,13 @@ describe("村里 level", () => {
     expect(p.notes.find((n) => n.unit === "vil:09007010001")!.note).toContain("甲村、丁村");
     expect(p.checks.map((c) => [c.id, c.status])).toEqual([["village-groups", "pass"], ["village-group-clash", "warn"]]);
   });
+  it("explains a district-wide station on its township, since the station itself is never drawn", () => {
+    const units = [unit("vil:09007010001", "甲村"), unit("vgrp:09007010-0A03", "各里原住民")];
+    const p = planVillages("e", units, new Map([["e|09007010|0A03|各里原住民", row("overlap")]]), (id) => (id === "vgrp:09007010-0A03" ? 475 : null));
+    expect(p.notes.find((n) => n.unit === "town:09007010")!.note).toContain("選舉人 475 人");
+    const none = planVillages("e", units, new Map([["e|09007010|0A03|各里原住民", row("overlap")]]), () => 0);
+    expect(none.notes.some((n) => n.unit === "town:09007010")).toBe(false);
+  });
 });
 
 describe("group warnings", () => {

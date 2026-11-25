@@ -169,7 +169,8 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     // 村里: one polygon per village, groups sharing stations merged (packages/etl/src/geo/villages.ts).
     let village: GroupOutput["village"];
     if (built.results.village) {
-      const plan = planVillages(def.election.id, built.results.village.units, villageGroups);
+      const electors = new Map(built.results.village.rows.map((r) => [r.unit, r.summary.electors]));
+      const plan = planVillages(def.election.id, built.results.village.units, villageGroups, (id) => electors.get(id) ?? null);
       checks.push(...plan.checks);
       const hash = createHash("sha1").update(JSON.stringify([...plan.assign].sort())).digest("hex").slice(0, 8);
       const vKey = `${boundaryVersion}/vil-${hash}`;
