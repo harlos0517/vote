@@ -25,6 +25,7 @@ import {
   type Contest,
   type GroupMetadataFile,
   type GroupResultsFile,
+  type LiveGroupMetadataRef,
   type LiveRow,
   type LiveStatus,
   type ReportingLevel,
@@ -433,8 +434,7 @@ export function httpFetcher(baseUrl: string, timeoutMs = 10_000): Fetcher {
 export interface PollOptions {
   feedDir: string;
   feedId: string;
-  release: string;
-  plans: (GroupPlan & { metadataPath: string })[];
+  plans: (GroupPlan & { metadataRef: LiveGroupMetadataRef })[];
   fetchPage: Fetcher;
   /** The site's address, recorded in the manifest. */
   sourceUrl: string;
@@ -479,7 +479,7 @@ export async function runCecPoller(o: PollOptions): Promise<"final" | "stopped" 
       groups.push({
         groupId: plan.metadata.group.id,
         nameZh: plan.metadata.group.nameZh,
-        metadata: { release: o.release, path: plan.metadataPath },
+        metadata: plan.metadataRef,
         latest: livePaths.latest(plan.metadata.group.id),
         seq: r.snapshot.seq,
         status: r.snapshot.status,

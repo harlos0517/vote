@@ -61,6 +61,11 @@ export const LiveSnapshotFile = z.object({
   rows: z.array(LiveRow),
 });
 
+export const LiveGroupMetadataRef = z.union([
+  z.object({ release: Slug, path: z.string() }),
+  z.object({ feedPath: z.string(), geographyRelease: Slug }),
+]);
+
 export const LiveManifestFile = z.object({
   liveSchemaVersion: z.literal(LIVE_SCHEMA_VERSION),
   feedId: Slug,
@@ -76,8 +81,13 @@ export const LiveManifestFile = z.object({
     z.object({
       groupId: GroupId,
       nameZh: z.string(),
-      /** Static metadata for choices, units and boundaries: v2/releases/<release>/<path>. */
-      metadata: z.object({ release: Slug, path: z.string() }),
+      /**
+       * Where choices, units and boundaries come from. Either a published group
+       * (v2/releases/<release>/<path>), or, for an election with no results yet, metadata the
+       * feed carries itself (feed-relative `feedPath`) whose boundary paths resolve against
+       * `geographyRelease`.
+       */
+      metadata: LiveGroupMetadataRef,
       /** Feed-relative path of the latest snapshot. */
       latest: z.string(),
       seq: z.int().nonnegative(),
@@ -92,3 +102,4 @@ export type ProgressUnit = z.infer<typeof ProgressUnit>;
 export type LiveRow = z.infer<typeof LiveRow>;
 export type LiveSnapshotFile = z.infer<typeof LiveSnapshotFile>;
 export type LiveManifestFile = z.infer<typeof LiveManifestFile>;
+export type LiveGroupMetadataRef = z.infer<typeof LiveGroupMetadataRef>;

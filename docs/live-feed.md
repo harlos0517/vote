@@ -78,9 +78,31 @@ pnpm etl live-cec --groups <groupId,groupId> --base https://vote.cec.gov.tw/zh-T
 ### 投票日 16:00 後要確認
 
 1. `vote.cec.gov.tw` 是否開放、首頁是否仍為同一套程式（`VoteApp.run`、`assets/def/tree-compiled.min.json`）。
-2. 縣市長與議員的類別代碼（是否為 C1、T1），以及頁面路徑是否符合上面的規則。
+2. 直轄市長、縣市長與議員的類別代碼（是否為 C1、C2、T1），以及頁面路徑是否符合上面的規則；代碼不同時改 CSV 的 `cec_type` 後重跑 `live-prelim`。
 3. 頁面欄位是否仍有「號次」「候選人姓名」「得票數」與「已送投票所數/總投票所數」；公投頁面是否有「同意票數」「不同意票數」，以及案次代碼。
 4. 先用 `--once` 跑一輪，檢查輸出再開始持續輪詢。
+
+## 2026 年候選人資料（開票前的選舉群組）
+
+`live-cec` 需要候選人與號次才能對應頁面。2026 年還沒有開票結果，所以另建「開票前群組」，放在即時資料夾內，不寫入 v2 版本，不影響已發布的網站。
+
+```bash
+pnpm etl live-prelim --candidates packages/etl/mappings/candidates-2026-mayor.csv --from-group 2022-11-26-local.mayor
+```
+
+- 輸出：`data/out/live/cec-2026-11-28-local/groups/2026-11-28-local.mayor/`（`metadata.json` 與 `units/<層級>.json`）。manifest 以 `{ feedPath, geographyRelease }` 指向它，地圖界線從 `geographyRelease` 版本讀取。
+- 之後 `live-cec --groups 2026-11-28-local.mayor` 會優先讀這份群組。
+- 統計單位與界線沿用 2022 年縣市長群組，只到鄉鎮市區（村里界有變動，不沿用）。
+
+### 來源：`packages/etl/mappings/candidates-2026-mayor.csv`
+
+- 22 個縣市、81 位候選人。號次取自各直轄市、縣（市）選舉委員會網站的「候選人名單公告」（115-11-12／11-17）；臺北市取自其「候選人姓名號次抽籤結果」（115-10-27，`(115年直轄市長選舉)候選人登記冊(有號次)`）。每列記錄來源網址。
+- `method`：`text` 由 PDF 文字擷取；`scan` 為掃描檔，依圖片人工轉錄（新北、高雄、苗栗、彰化、雲林、臺東、花蓮、新竹市、嘉義市、連江，共 36 筆）。
+- 推薦政黨取自中選會「115年地方公職人員選舉候選人登記名冊」（https://web.cec.gov.tw/central/article/64709，直轄市長 1-1、縣市長 3-1 彙總表）。
+- 已以程式核對：每縣市候選人姓名集合、政黨與上述登記名冊一致，號次為 1..n 連續。**全部列仍標示 `unreviewed`，需人工逐筆對照公告確認**後再改為 `reviewed`。
+- 政黨對應以名稱完全相同為準，「無」對應 `cec-999`。本站政黨表沒有的名稱：臺灣SoR無法黨、三勢團結促進聯盟、台聯黨（是否即台灣團結聯盟未確認），這些候選人 `partyId` 為 null，地圖以未分類顯示。
+- 頁面代碼：中選會選舉資料庫以 C1 表示直轄市長、C2 表示縣市長（2024 年開票網站代碼與資料庫一致），CSV 的 `cec_type` 依此填寫；votedata.zip 則兩者都標 C1。開票網站實際代碼要在投票日確認。
+- 議員、鄉鎮市長、村里長等尚未建立；各選委會公告格式不一（部分為掃描檔），議員約千名候選人，人工轉錄不實際。
 
 ## 模擬重播
 
@@ -117,5 +139,5 @@ pnpm etl live-play --feed replay-2022-11-26-local --speed 60
 - 網頁的即時開票畫面（讀取 manifest／latest.json）。
 - 將 `live/` 上傳到 R2 的流程（目前只寫到本機 `data/out/live/`）。
 - 人工輸入工具（`manual` 模式）。
-- 2026 年選舉的候選人 metadata（`live-cec` 需要）。
+- 2026 年議員等其他選舉的候選人資料（縣市長已建立，見上方）。
 - 2026 年公投頁面的實際格式（解析依 2018 年格式，以標籤讀取；2025、2026 年的頁面沒有存檔）。

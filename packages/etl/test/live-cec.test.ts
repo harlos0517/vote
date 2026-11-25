@@ -183,14 +183,14 @@ describe("pollGroupOnce", () => {
 });
 
 describe("runCecPoller", () => {
-  const plans = [{ ...plan, metadataPath: `groups/${E}.mayor/metadata.json` }];
+  const plans = [{ ...plan, metadataRef: { release: "r-test", path: `groups/${E}.mayor/metadata.json` } }];
   const counting = site({ [TP]: { status: 200, body: page(3, 10, [[1, "甲", 100], [2, "乙", 50]]) }, [NTP]: { status: 200, body: page(1, 5, [[1, "丙", 7]]) } });
 
   it("writes snapshot, latest and manifest each cycle and stops on the STOP file", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cec-"));
     let cycles = 0;
     const result = await runCecPoller({
-      feedDir: dir, feedId: "cec-test", release: "r-test", plans, fetchPage: counting, sourceUrl: "https://vote.cec.gov.tw/zh-TW/",
+      feedDir: dir, feedId: "cec-test", plans, fetchPage: counting, sourceUrl: "https://vote.cec.gov.tw/zh-TW/",
       intervalSeconds: 120, concurrency: 2, log: () => {},
       sleep: async () => { if (++cycles === 2) writeFileSync(join(dir, "STOP"), ""); },
     });
@@ -206,7 +206,7 @@ describe("runCecPoller", () => {
     const dir = mkdtempSync(join(tmpdir(), "cec-"));
     const waits: number[] = [];
     await runCecPoller({
-      feedDir: dir, feedId: "cec-test", release: "r-test", plans, fetchPage: site({}), sourceUrl: "https://example.test/",
+      feedDir: dir, feedId: "cec-test", plans, fetchPage: site({}), sourceUrl: "https://example.test/",
       intervalSeconds: 120, concurrency: 2, log: () => {},
       sleep: async (ms) => { waits.push(ms); if (waits.length === 3) writeFileSync(join(dir, "STOP"), ""); },
     });
