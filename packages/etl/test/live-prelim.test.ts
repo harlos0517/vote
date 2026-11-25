@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { GroupMetadataFile, GroupResultsFile, Party } from "@tw-election/schema";
 import { LiveManifestFile, LiveSnapshotFile } from "@tw-election/schema";
 import { readFileSync } from "node:fs";
+import { loadPartyNames } from "../src/lib/party-names.ts";
 import { announcePrelimGroup, buildPrelimGroup, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "../src/live/prelim.ts";
 
 const HEAD = "election,cec_type,county,county_name,ballot_number,name,party,source,method,status";
@@ -76,6 +77,20 @@ describe("buildPrelimGroup", () => {
     expect(g.unknownParties).toEqual(["新政黨"]);
     expect(g.metadata.parties.map((p) => p.id)).toEqual(["cec-1", "cec-999"]);
     expect(g.metadata.group.warnings.join()).toMatch(/2 筆尚未人工審核.*新政黨/s);
+  });
+
+  it("maps a renamed party by its CEC code and shows the current name", () => {
+    const withTsu = [...parties, { id: "cec-95", cecCode: 95, nameZh: "台灣團結聯盟", isIndependent: false } as Party];
+    const r = readCandidateCsv(csv([row("63000", 1, "甲", "台聯黨"), row("10002", 1, "乙", "無")]));
+    const h = buildPrelimGroup({ rows: r, election, base, parties: withTsu, partyNames: new Map([["台聯黨", { cecCode: 95 }]]), levels: ["county"], local: "mayor" });
+    expect(h.metadata.choices[0]!.partyId).toBe("cec-95");
+    expect(h.unknownParties).toEqual([]);
+    expect(h.metadata.parties.find((x) => x.id === "cec-95")?.nameZh).toBe("台聯黨");
+  });
+
+  it("reads the committed party-names.csv", () => {
+    const names = loadPartyNames(join(import.meta.dirname, "../../.."));
+    expect([...names].map(([n, v]) => [n, v.cecCode])).toEqual([["臺灣SoR無法黨", 366], ["三勢團結促進聯盟", 203], ["台聯黨", 95]]);
   });
 
   it("keeps only county/town boundaries and notes", () => {

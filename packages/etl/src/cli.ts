@@ -30,6 +30,7 @@ import { mirrorRaw, publishRelease } from "./publish/r2.ts";
 import { httpFetcher, runCecPoller } from "./live/cec-public.ts";
 import { announcePrelimGroup, buildPrelimGroup, buildPrelimReferendum, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "./live/prelim.ts";
 import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
+import { loadPartyNames } from "./lib/party-names.ts";
 import { REFERENDUM_RULE } from "./groups/rf-group.ts";
 import { buildReplay, currentRelease, livePaths, loadReleaseGroup, playReplayFeed, replayManifest, writeReplayFeed } from "./live/replay.ts";
 
@@ -177,6 +178,7 @@ if (cmd === "fetch") {
       election: { id: electionId, date, nameZh: `${date.slice(0, 4)}年 地方公職人員選舉` },
       base,
       parties,
+      partyNames: loadPartyNames(repoRoot),
       levels,
       local: base.metadata.group.id.split(".")[1]!,
     });

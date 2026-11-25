@@ -96,6 +96,8 @@ export interface PrelimInput {
   base: { metadata: GroupMetadataFile; results: Partial<Record<ReportingLevel, GroupResultsFile>>; release: string };
   /** All known parties (v2 parties.json); matched by exact name. */
   parties: Party[];
+  /** Current party name → CEC party code, for parties renamed since their last CEC record (mappings/party-names.csv). */
+  partyNames?: Map<string, { cecCode: number }>;
   levels: ReportingLevel[];
   /** Local part of the new group id, e.g. "mayor". */
   local: string;
@@ -134,7 +136,12 @@ export function buildPrelimGroup(p: PrelimInput): PrelimGroup {
 
   const partyByName = new Map(p.parties.map((x) => [x.nameZh, x]));
   const independent = p.parties.find((x) => x.isIndependent);
-  const partyOf = (name: string) => (name === "無" ? independent : partyByName.get(name));
+  const byCode = new Map(p.parties.map((x) => [x.cecCode, x]));
+  const renamed = (name: string) => {
+    const code = p.partyNames?.get(name)?.cecCode;
+    return code === undefined ? undefined : byCode.get(code);
+  };
+  const partyOf = (name: string) => (name === "無" ? independent : (partyByName.get(name) ?? renamed(name)));
   const unknownParties = [...new Set(rows.map((r) => r.party).filter((n) => !partyOf(n)))];
 
   // Without ballot numbers, ids follow the CSV order within the area ("r1", "r2", …).
@@ -148,7 +155,9 @@ export function buildPrelimGroup(p: PrelimInput): PrelimGroup {
     partyId: partyOf(r.party)?.id ?? null,
     labelZh: r.name,
   }));
-  const usedParties = p.parties.filter((x) => choices.some((c) => c.partyId === x.id));
+  // A renamed party keeps its CEC code and colour but shows the name the candidates ran under.
+  const shownName = new Map(rows.filter((r) => !partyByName.has(r.party) && renamed(r.party)).map((r) => [renamed(r.party)!.id, r.party]));
+  const usedParties = p.parties.filter((x) => choices.some((c) => c.partyId === x.id)).map((x) => (shownName.has(x.id) ? { ...x, nameZh: shownName.get(x.id)! } : x));
 
   // Units: same ids, contest ids moved to the new election.
   const idMap = new Map(base.metadata.contests.map((c) => [c.id, contestIdOf(codeOf(c))]));
