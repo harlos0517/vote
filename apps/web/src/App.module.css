@@ -15,6 +15,11 @@
   border-bottom: 1px solid var(--mantine-color-default-border);
 }
 
+/* Pushed to the right end of the header, also when the header wraps. */
+.github {
+  margin-left: auto;
+}
+
 .main {
   flex: 1;
   min-height: 0;
