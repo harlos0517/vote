@@ -26,6 +26,20 @@ live/<feedId>/groups/<groupId>/snapshots/<seq>.json      寫入後不再變動
 | `cec-public` | 讀取中選會公開的開票網頁。尚未實作：要等 2026-11-28 16:00 後確認該網頁提供的資料，才能寫轉換程式。 |
 | `manual` | 人工輸入（例如依中選會直播畫面）。尚未實作。 |
 
+### 中選會公開開票網站的結構（2024、2025 Wayback 存檔）
+
+依 Internet Archive 保存的 `vote2024.cec.gov.tw`（2024-01-13 總統立委）與 `vote.cec.gov.tw`（2025-08-23 公投）頁面整理，2026 年是否相同要等開放後確認。
+
+- 首頁 `zh-TW/indexP.html` 載入 `app_pc.min.js`，以 `VoteApp.run('zh-TW', 'count', …/def/tree-compiled.min.json)` 啟動；頁面狀態分 PRIOR／COUNT／FINAL。頁尾註明「開票結果以中央選舉委員會公告為準」，並標示由中華電信建置。
+- `tree-compiled.min.json` 定義選舉類別與行政區樹，以及每個節點對應的結果檔路徑。
+- 結果是靜態 HTML 片段：`zh-TW/<類別>/<縣市5碼><2碼><3碼><3碼><投票所4碼>.html`，例如全國總統 `zh-TW/P1/00000000000000000.html`；也有投開票所層級的片段。
+- 片段內含「已送投票所數/總投票所數」、各候選人得票數與得票率、當選註記，以及「資料時間」。
+- 開票中（COUNT）瀏覽器每 60 秒重新讀取目前開啟的片段（不使用快取，逾時 5 秒）。
+- 開票後網站另提供 `all.zip`（2024 為 `_assets/all.zip`，2025 為 `assets/all.zip`），內含各縣市投開票所得票數一覽表（xlsx）；2024 年檔案時間為投票日 21:59。
+- 2025 年資產路徑由 `_assets/` 改為 `assets/`，主機改為 `vote.cec.gov.tw`。2026-11-25 該主機回應 403，推測投票日才開放。
+
+`cec-public` 轉換程式的方向：讀 `tree-compiled.min.json` 找出需要的片段路徑，只讀縣市／鄉鎮層級片段，以單一伺服器每 1–3 分鐘讀取一次，解析 HTML 表格轉成快照。
+
 ## 模擬重播
 
 ```bash
