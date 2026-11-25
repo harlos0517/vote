@@ -213,3 +213,82 @@ describe("runCecPoller", () => {
     expect(waits).toEqual([240_000, 480_000, 600_000]);
   });
 });
+
+// --- referendums: archived 2018 pages (referendum.2018.nat.gov.tw, 第7案 = page code 01) ---
+
+const RF = join(import.meta.dirname, "fixtures/cec-live-2018-referendum");
+const RF_NAT = readFileSync(join(RF, "01-00000000000000000.html"), "utf8");
+const RF_TOWN = readFileSync(join(RF, "01-09007000100000000.html"), "utf8");
+const R7 = "2018-11-24-referendum.case-7";
+const refContest = { id: R7, electionId: "2018-11-24-referendum", office: "referendum-national", cecTypeCode: null, nameZh: "第7案", electorate: "general", seats: null, choiceKind: "referendum", districtId: null, scope: { level: "national" }, availableLevels: ["national"], warnings: [] } as unknown as Contest;
+const refChoices: BallotChoice[] = [
+  { id: "agree", contestId: R7, kind: "agree", ballotNumber: null, candidacyIds: [], partyId: null, labelZh: "同意" },
+  { id: "disagree", contestId: R7, kind: "disagree", ballotNumber: null, candidacyIds: [], partyId: null, labelZh: "不同意" },
+];
+
+describe("referendum pages (archived 2018)", () => {
+  it("reads the national page captured one station before the end", () => {
+    const p = parseResultPage(RF_NAT);
+    expect(p.kind).toBe("referendum");
+    expect([p.reported, p.total]).toEqual([15886, 15887]);
+    expect(p.dataTime).toBe("11/25 03:42:01");
+    // 有效同意票數對投票權人數百分比 must not be read as 投票權人數.
+    expect(p.referendum).toEqual({ agree: 7954911, disagree: 2108983, valid: 10063894, invalid: 715052, ballotsCast: 10778946, electors: 19755022 });
+  });
+
+  it("reads a town page that equals the published final numbers", () => {
+    const p = parseResultPage(RF_TOWN);
+    expect([p.reported, p.total]).toEqual([4, 4]);
+    // Published 2018 第7案, town:09007010 南竿鄉 (votedata.zip).
+    expect(p.referendum).toEqual({ agree: 2773, disagree: 367, valid: 3140, invalid: 133, ballotsCast: 3273, electors: 6461 });
+  });
+
+  it("turns a referendum page into a row with a full summary", () => {
+    const r = pageToRow(parseResultPage(RF_NAT), "nat", "national", refContest, refChoices, "2018-11-24");
+    expect(r.warnings).toEqual([]);
+    expect(r.row).toEqual({
+      unit: "nat", level: "national", reported: 15886, total: 15887,
+      summary: { electors: 19755022, ballotsCast: 10778946, valid: 10063894, invalid: 715052, population: null },
+      votes: { agree: 7954911, disagree: 2108983 },
+      asOf: "2018-11-25T03:42:01+08:00",
+    });
+  });
+
+  it("pairs labels with values even when other text sits right before the labels", () => {
+    const html = `<table><tr><td>第1案：問題？</td><td>同意票數</td><td>不同意票數</td></tr><tr><td>1,000</td><td>200</td></tr></table><div>投開票所數 已送/應送: 3/10</div>`;
+    expect(parseResultPage(html)).toMatchObject({ reported: 3, total: 10, referendum: { agree: 1000, disagree: 200, electors: null } });
+  });
+
+  it("will not mix referendum and candidate pages", () => {
+    expect(() => pageToRow(parseResultPage(P1), "nat", "national", refContest, refChoices, "2018-11-24")).toThrow(/not/);
+    expect(() => parseResultPage(RF_NAT.replace("不同意票數", "反對票數"))).toThrow(/同意票數／不同意票數/);
+  });
+
+  it("needs an explicit page code for a referendum", () => {
+    expect(() => prefixFor(refContest)).toThrow(/--prefix/);
+    expect(prefixFor(refContest, { [R7]: "01" })).toBe("01");
+  });
+
+  it("polls a referendum group and sums the county from its towns", async () => {
+    const refMeta = { ...metadata, election: { ...metadata.election, id: "2018-11-24-referendum", date: "2018-11-24" }, group: { ...metadata.group, id: R7, levels: ["county", "town"] }, contests: [refContest], choices: refChoices } as unknown as GroupMetadataFile;
+    const refPlan: GroupPlan = {
+      metadata: refMeta,
+      levels: ["county", "town"],
+      prefixes: { [R7]: "01" },
+      results: {
+        // Two towns of 連江縣; only 南竿鄉 has an archived page, so 北竿鄉 is served by the fake.
+        county: { units: [{ id: "cty:09007", level: "county", nameZh: "連江縣", parentId: null, contestIds: [R7, "2018-11-24-referendum.case-8"] }] },
+        town: {
+          units: [
+            { id: "town:09007010", level: "town", nameZh: "南竿鄉", parentId: "cty:09007", contestIds: [R7] },
+            { id: "town:09007020", level: "town", nameZh: "北竿鄉", parentId: "cty:09007", contestIds: [R7] },
+          ],
+        },
+      },
+    };
+    const f = site({ "01/09007000100000000.html": { status: 200, body: RF_TOWN }, "01/09007000200000000.html": { status: 200, body: RF_TOWN.replace("2,773", "1,000").replace(/已送\/應送:&nbsp;4\/4/g, "已送/應送:&nbsp;1/2") } });
+    const r = await pollGroupOnce(refPlan, f, null, { feedId: "cec-test", concurrency: 2 });
+    expect(r.snapshot.rows.find((x) => x.unit === "cty:09007")).toMatchObject({ reported: 5, total: 6, votes: { agree: 3773, disagree: 734 }, summary: { electors: 12922 } });
+    expect(r.snapshot.status).toBe("counting");
+  });
+});

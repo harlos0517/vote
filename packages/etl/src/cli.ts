@@ -7,7 +7,8 @@
  * tw-etl live-replay --groups <id,id> [--release r] [--start iso] [--interval min] [--seed n] [--poll s]
  *                    write a simulated live-count feed from published results to data/out/live/
  * tw-etl live-play --feed <feedId> [--speed n]
- * tw-etl live-cec --groups <id,id> --base <url> [--release r] [--levels county,town] [--interval s] [--concurrency n] [--once]
+ * tw-etl live-cec --groups <id,id> --base <url> [--release r] [--levels county,town] [--interval s] [--concurrency n]
+ *                    [--prefix <contestId>=<code> ...] [--once]
  *                    poll CEC's public count site into data/out/live/cec-<electionId>/ (touch STOP there to end)
  *                    step that feed's latest.json through its snapshots in sped-up real time
  *
@@ -40,6 +41,7 @@ const { positionals, values } = parseArgs({
     levels: { type: "string" },
     concurrency: { type: "string" },
     once: { type: "boolean" },
+    prefix: { type: "string", multiple: true },
   },
 });
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -88,7 +90,12 @@ if (cmd === "fetch") {
   const plans = groupIds.map((g) => {
     const loaded = loadReleaseGroup(opts.outDir, release, g);
     const levels = values.levels ? (values.levels.split(",") as ReportingLevel[]) : loaded.metadata.group.levels.filter((l) => l !== "village" && l !== "station");
-    return { ...loaded, levels };
+    const prefixes = Object.fromEntries((values.prefix ?? []).map((p) => {
+      const [id, code] = p.split("=");
+      if (!id || !code) throw new Error(`--prefix expects <contestId>=<code>, got "${p}"`);
+      return [id, code];
+    }));
+    return { ...loaded, levels, prefixes };
   });
   const electionIds = new Set(plans.map((p) => p.metadata.election.id));
   if (electionIds.size !== 1) throw new Error("all groups must come from one election");

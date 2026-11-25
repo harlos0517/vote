@@ -1,8 +1,9 @@
 /**
  * cec-public: read CEC's public live-count site and turn it into live snapshots.
  *
- * Structure known from the 2024 (vote2024.cec.gov.tw) and 2025 (vote.cec.gov.tw) sites,
- * archived by the Internet Archive; see docs/live-feed.md. Whether 2026 is the same can only
+ * Structure known from the 2024 (vote2024.cec.gov.tw) and 2025 (vote.cec.gov.tw) sites, and
+ * for referendums from 2018 (referendum.2018.nat.gov.tw), archived by the Internet Archive;
+ * see docs/live-feed.md. Whether 2026 is the same can only
  * be checked once the site opens on election day, so every assumption below fails loudly.
  *
  *   result page   <base>/<prefix>/<c5><y2><d3><v3><b4>.html   (HTML fragment)
@@ -41,13 +42,25 @@ export interface ParsedChoice {
   elected: boolean;
 }
 
+export interface ParsedReferendum {
+  agree: number;
+  disagree: number;
+  valid: number | null;
+  invalid: number | null;
+  ballotsCast: number | null;
+  electors: number | null;
+}
+
 export interface ParsedPage {
+  kind: "candidates" | "referendum";
   title: string;
   reported: number;
   total: number;
-  /** "MM/DD HH:mm" as printed, in Taiwan time. */
+  /** "MM/DD HH:mm" or "MM/DD HH:mm:ss" as printed, in Taiwan time. */
   dataTime: string | null;
+  /** Candidate or party rows; empty for a referendum. */
   choices: ParsedChoice[];
+  referendum: ParsedReferendum | null;
 }
 
 export class PageFormatError extends Error {
@@ -63,11 +76,21 @@ const int = (s: string) => {
   return Number(t);
 };
 
+// "已送投票所數/總投票所數: 17795/17795" (2024) or "投開票所數 已送/應送: 15,886/15,887" (2018).
+const PROGRESS_RE = /(?:已送投票所數\s*\/\s*總投票所數|已送\s*\/\s*應送)\s*[:：]?\s*([\d,]+)\s*\/\s*([\d,]+)/;
+// "資料時間: 01/13 22:21" (2024) or "資料更新時間：11/25 03:42:01" (2018).
+const TIME_RE = /資料(?:更新)?時間\s*[:：]\s*(\d{2}\/\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/;
+
 export function parseResultPage(html: string): ParsedPage {
+  const flat = text(html);
+  const progress = PROGRESS_RE.exec(flat);
+  if (!progress) throw new PageFormatError("no 已送/應送 polling-station count on the page");
+  const time = TIME_RE.exec(flat);
+  const head = { reported: int(progress[1]!), total: int(progress[2]!), dataTime: time?.[1]?.replace(/\s+/, " ") ?? null };
+  if (flat.includes("同意票數")) {
+    return { kind: "referendum", title: /第\d+案[^：:]*?公民投票結果[^第]*/.exec(flat)?.[0]?.trim() ?? "", ...head, choices: [], referendum: parseReferendumNumbers(html) };
+  }
   const title = text(/vote-table-header-title[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? "");
-  const progress = /已送投票所數\s*\/\s*總投票所數\s*[:：]\s*([\d,]+)\s*\/\s*([\d,]+)/.exec(text(html));
-  if (!progress) throw new PageFormatError("no 已送投票所數/總投票所數 on the page");
-  const time = /資料時間\s*[:：]\s*(\d{2}\/\d{2}\s+\d{2}:\d{2})/.exec(text(html));
 
   const thead = /<thead>([\s\S]*?)<\/thead>/.exec(html)?.[1];
   const tbody = /<tbody>([\s\S]*?)<\/tbody>/.exec(html)?.[1];
@@ -93,14 +116,59 @@ export function parseResultPage(html: string): ParsedPage {
     });
   }
   if (choices.length === 0) throw new PageFormatError("result table is empty");
-  return { title, reported: int(progress[1]!), total: int(progress[2]!), dataTime: time?.[1]?.replace(/\s+/, " ") ?? null, choices };
+  return { kind: "candidates", title, ...head, choices, referendum: null };
+}
+
+const REFERENDUM_LABELS: Record<string, keyof ParsedReferendum> = {
+  同意票數: "agree",
+  不同意票數: "disagree",
+  有效票數: "valid",
+  無效票數: "invalid",
+  投票數: "ballotsCast",
+  投票權人數: "electors",
+};
+
+/**
+ * Referendum numbers by label, not by position: a run of header cells followed by as many
+ * value cells, keeping the labels we know. That fits the 2018 tables (a header row, then a
+ * value row) and should survive a re-layout that keeps the labels. Labels are matched whole,
+ * so 「有效同意票數對投票權人數百分比」 is not mistaken for 投票權人數.
+ */
+function parseReferendumNumbers(html: string): ParsedReferendum {
+  const cells = [...html.matchAll(/<t[hd]\b[^>]*>([\s\S]*?)(?=<\/t[hd]>|<t[hd]\b|<\/tr>)/g)].map((m) => text(m[1]!).replace(/\s/g, ""));
+  const isValue = (c: string) => /^[\d,]+(?:\.\d+)?%?$/.test(c);
+  const found: Partial<ParsedReferendum> = {};
+  for (let i = 0; i < cells.length; ) {
+    let j = i;
+    while (j < cells.length && cells[j] !== "" && !isValue(cells[j]!)) j++;
+    let n = 0;
+    while (j + n < cells.length && isValue(cells[j + n]!)) n++;
+    // Pair the value run with the header cells right before it, so a stray text cell earlier
+    // in the run (a question, a caption) cannot shift the columns.
+    const headers = cells.slice(Math.max(i, j - n), j);
+    const values = cells.slice(j, j + headers.length);
+    if (n > 0 && headers.length === n && headers.some((h) => h in REFERENDUM_LABELS)) {
+      headers.forEach((h, k) => {
+        const key = REFERENDUM_LABELS[h];
+        if (!key) return;
+        const v = int(values[k]!);
+        if (found[key] !== undefined && found[key] !== v) throw new PageFormatError(`${h} appears twice with different numbers`);
+        found[key] = v;
+      });
+      i = j + n;
+    } else {
+      i = Math.max(j + n, i + 1);
+    }
+  }
+  if (found.agree === undefined || found.disagree === undefined) throw new PageFormatError("no 同意票數／不同意票數 on the referendum page");
+  return { agree: found.agree, disagree: found.disagree, valid: found.valid ?? null, invalid: found.invalid ?? null, ballotsCast: found.ballotsCast ?? null, electors: found.electors ?? null };
 }
 
 /** "01/13 22:21" + election date → "2024-01-13T22:21:00+08:00". */
 export function dataTimeIso(dataTime: string, electionDate: string): string {
-  const m = /^(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/.exec(dataTime);
+  const m = /^(\d{2})\/(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(dataTime);
   if (!m) throw new PageFormatError(`bad 資料時間 "${dataTime}"`);
-  return `${electionDate.slice(0, 4)}-${m[1]}-${m[2]}T${m[3]}:${m[4]}:00+08:00`;
+  return `${electionDate.slice(0, 4)}-${m[1]}-${m[2]}T${m[3]}:${m[4]}:${m[5] ?? "00"}+08:00`;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -128,9 +196,16 @@ export function pagePath(prefix: string, unitId: string): string | null {
   return `${prefix}/${c}${y}${d}${v}0000.html`;
 }
 
-/** CEC page prefix for a contest. 2024 national contests carry no type code in votedata. */
-export function prefixFor(contest: Contest): string {
+/**
+ * CEC page prefix for a contest. 2024 national contests carry no type code in votedata.
+ * Referendums have none either, and their page code is not predictable (2018 used the case's
+ * position, "01" for 第7案), so they need an explicit override.
+ */
+export function prefixFor(contest: Contest, overrides: Record<string, string> = {}): string {
+  const o = overrides[contest.id];
+  if (o) return o;
   if (contest.cecTypeCode) return contest.cecTypeCode;
+  if (contest.choiceKind === "referendum") throw new Error(`${contest.id}: referendum page code unknown; pass --prefix ${contest.id}=<code>`);
   const byOffice: Partial<Record<Contest["office"], string>> = {
     president: "P1",
     "legislator-district": "L1",
@@ -156,6 +231,7 @@ export interface RowResult {
 /** Match a parsed page to a contest's choices by ballot number; names are only cross-checked. */
 export function pageToRow(page: ParsedPage, unit: string, level: ReportingLevel, contest: Contest, choices: BallotChoice[], electionDate: string): RowResult {
   const mine = choices.filter((c) => c.contestId === contest.id);
+  if (contest.choiceKind === "referendum" || page.kind === "referendum") return referendumRow(page, unit, level, contest, mine, electionDate);
   const byNo = new Map(mine.map((c) => [c.ballotNumber, c]));
   const warnings: string[] = [];
   const votes: Record<string, number> = Object.fromEntries(mine.map((c) => [c.id, 0]));
@@ -184,6 +260,27 @@ export function pageToRow(page: ParsedPage, unit: string, level: ReportingLevel,
   return { row, warnings };
 }
 
+function referendumRow(page: ParsedPage, unit: string, level: ReportingLevel, contest: Contest, mine: BallotChoice[], electionDate: string): RowResult {
+  if (page.kind !== "referendum" || !page.referendum) throw new PageFormatError(`${unit}: ${contest.id} is a referendum but the page is not`);
+  if (contest.choiceKind !== "referendum") throw new PageFormatError(`${unit}: referendum page for non-referendum ${contest.id}`);
+  const agree = mine.find((c) => c.kind === "agree");
+  const disagree = mine.find((c) => c.kind === "disagree");
+  if (!agree || !disagree) throw new Error(`${contest.id}: no agree/disagree choices`);
+  const r = page.referendum;
+  const warnings: string[] = [];
+  if (r.valid !== null && r.valid !== r.agree + r.disagree) warnings.push(`${unit}: 有效票數 ${r.valid} ≠ 同意 + 不同意 ${r.agree + r.disagree}`);
+  const row: LiveRow = {
+    unit,
+    level,
+    reported: page.reported,
+    total: page.total,
+    summary: { electors: r.electors, ballotsCast: r.ballotsCast, valid: r.valid, invalid: r.invalid, population: null },
+    votes: { [agree.id]: r.agree, [disagree.id]: r.disagree },
+  };
+  if (page.dataTime) row.asOf = dataTimeIso(page.dataTime, electionDate);
+  return { row, warnings };
+}
+
 // ---------------------------------------------------------------------------------------
 // One polling cycle for a group
 
@@ -193,6 +290,8 @@ export interface GroupPlan {
   results: Partial<Record<ReportingLevel, Pick<GroupResultsFile, "units">>>;
   /** Levels to emit. Units with one contest are fetched; the rest are summed from children. */
   levels: ReportingLevel[];
+  /** contestId → page prefix, for contests whose code cannot be derived (referendums). */
+  prefixes?: Record<string, string>;
 }
 
 export type Fetcher = (path: string) => Promise<{ status: number; body: string }>;
@@ -231,7 +330,8 @@ export async function pollGroupOnce(
   const parent = new Map<string, string | null>();
   for (const f of Object.values(plan.results)) for (const u of f!.units) parent.set(u.id, u.parentId);
 
-  const toFetch = units.filter((u) => u.contestIds.length === 1 && pagePath(prefixFor(contests.get(u.contestIds[0]!)!), u.id) !== null);
+  const prefixOf = (contestId: string) => prefixFor(contests.get(contestId)!, plan.prefixes);
+  const toFetch = units.filter((u) => u.contestIds.length === 1 && pagePath(prefixOf(u.contestIds[0]!), u.id) !== null);
   const fetchedIds = new Set(toFetch.map((u) => u.id));
   const prevRows = new Map(prev?.rows.map((r) => [r.unit, r]) ?? []);
   const rows = new Map<string, LiveRow>();
@@ -242,7 +342,7 @@ export async function pollGroupOnce(
   await pool(toFetch, opts.concurrency, async (u) => {
     if (blocked) return;
     const contest = contests.get(u.contestIds[0]!)!;
-    const path = pagePath(prefixFor(contest), u.id)!;
+    const path = pagePath(prefixOf(contest.id), u.id)!;
     try {
       const res = await fetchPage(path);
       if (res.status === 403 || res.status === 429) {
@@ -272,12 +372,14 @@ export async function pollGroupOnce(
     if (kids.length === 0) continue;
     const votes: Record<string, number> = {};
     for (const k of kids) for (const [id, v] of Object.entries(k.votes)) votes[id] = (votes[id] ?? 0) + v;
+    // A summary field is summed only when every child has it.
+    const sumField = (f: "electors" | "ballotsCast" | "valid" | "invalid") => (kids.every((k) => k.summary[f] !== null) ? kids.reduce((s, k) => s + k.summary[f]!, 0) : null);
     rows.set(u.id, {
       unit: u.id,
       level: u.level,
       reported: kids.reduce((s, k) => s + k.reported, 0),
       total: kids.reduce((s, k) => s + k.total, 0),
-      summary: { electors: null, ballotsCast: null, valid: null, invalid: null, population: null },
+      summary: { electors: sumField("electors"), ballotsCast: sumField("ballotsCast"), valid: sumField("valid"), invalid: sumField("invalid"), population: null },
       votes,
       ...(kids.some((k) => k.stale) ? { stale: true } : {}),
     });
