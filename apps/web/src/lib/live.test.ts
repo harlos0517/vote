@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GroupMetadataFile, GroupResultsFile, LiveSnapshotFile } from "@tw-election/schema";
-import { fmtTaipei, isStale, liveResults, newer, progressByUnit } from "./live.ts";
+import { fmtTaipei, isStale, liveLevels, liveResults, newer, progressByUnit } from "./live.ts";
 
 const meta = {
   choices: [
@@ -63,5 +63,14 @@ describe("snapshot handling", () => {
     expect(p.get("cty:63000")).toEqual({ reported: 3, total: 10, stale: true, asOf: null });
     expect(fmtTaipei("2026-11-28T09:05:00.000Z")).toBe("11/28 17:05");
     expect(fmtTaipei("2026-11-28T17:05:00+08:00")).toBe("11/28 17:05");
+  });
+});
+
+describe("liveLevels", () => {
+  const row = (unit: string, level: "national" | "county" | "town") => ({ unit, level, reported: 1, total: 2, summary: nulls, votes: {} });
+  it("offers only levels with numbers, never 村里 before counting", () => {
+    expect(liveLevels(["county", "town", "village"], null)).toEqual(["county", "town"]);
+    expect(liveLevels(["county", "town", "village"], snap(1, [row("nat", "national"), row("cty:63000", "county")]))).toEqual(["county"]);
+    expect(liveLevels(["county", "town", "village"], snap(1, [row("cty:63000", "county"), row("town:63000010", "town")]))).toEqual(["county", "town"]);
   });
 });

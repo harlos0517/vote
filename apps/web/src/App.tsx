@@ -10,7 +10,7 @@ import { ElectionPicker } from "./components/ElectionPicker.tsx";
 import { useNarrow } from "./lib/useNarrow.ts";
 import { buildMapView, effectiveMode, ringSlices } from "./lib/mapView.ts";
 import { geographyReleaseOf, useGeography, useGroup, useLiveGroup, useLiveManifest, useLiveSnapshot, useLiveUnits, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
-import { liveResults, newer, progressByUnit } from "./lib/live.ts";
+import { liveLevels, liveResults, newer, progressByUnit } from "./lib/live.ts";
 import { LiveBanner, LiveUnitProgress, PROGRESS_UNIT_LABEL } from "./components/LiveBanner.tsx";
 import type { GroupMetadataFile, GroupResultsFile, LiveSnapshotFile } from "@tw-election/schema";
 import { codeOf, fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
@@ -70,7 +70,10 @@ export function App() {
   const progress = useMemo(() => progressByUnit(snapshot), [snapshot]);
   const geoRelease = live ? geographyReleaseOf(ref) : release;
 
-  const levels = (m?.group.levels.filter((l): l is MapLevel => (ALL_LEVELS as string[]).includes(l)) ?? []) as MapLevel[];
+  const groupLevels = (m?.group.levels.filter((l): l is MapLevel => (ALL_LEVELS as string[]).includes(l)) ?? []) as MapLevel[];
+  // Live: only levels the snapshot has numbers for (the poller may skip towns, and never reads
+  // villages); before the first numbers, the group's levels without 村里.
+  const levels = live ? liveLevels(groupLevels, snapshot) : groupLevels;
   const level: MapLevel = m && !levels.includes(view.level) ? (levels.includes("town") ? "town" : levels[0]!) : view.level;
   const results = useLevel(live, release, ref, m, snapshot, m?.results[level]);
   const national = useLevel(live, release, ref, m, snapshot, m?.results.national);

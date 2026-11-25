@@ -76,3 +76,10 @@ export function fmtTaipei(iso: string): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
+
+/** Map levels to offer while counting: those with rows in the snapshot, else all but 村里. */
+export function liveLevels<L extends string>(groupLevels: L[], snapshot: LiveSnapshotFile | null): L[] {
+  const withRows = new Set<string>(snapshot?.rows.map((r) => r.level) ?? []);
+  const shown = groupLevels.filter((l) => withRows.has(l));
+  return shown.length > 0 ? shown : groupLevels.filter((l) => l !== "village");
+}
