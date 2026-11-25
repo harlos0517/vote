@@ -8,10 +8,12 @@
  *                    write a simulated live-count feed from published results to data/out/live/
  * tw-etl live-play --feed <feedId> [--speed n]
  * tw-etl live-cec --groups <id,id> --base <url> [--release r] [--levels county,town] [--interval s] [--concurrency n]
- *                    [--prefix <contestId>=<code> ...] [--once] [--publish]
+ *                    [--prefix <contestId>=<code> ...] [--feed id] [--once] [--publish]
+ *                    --levels may repeat as <groupId>=<levels> to set one group's levels
  * tw-etl live-publish --feed <feedId> [--watch seconds] [--dry-run]
  *                    upload data/out/live/<feedId>/ to R2 under live/<feedId>/ (changed files only)
- * tw-etl live-prelim --candidates <csv> --from-group <groupId> [--release r] [--levels national,county,town]
+ * tw-etl live-prelim --candidates <csv> --from-group <groupId> [--feed id] [--release r] [--levels national,county,town]
+ * tw-etl live-prelim --referendum <case> --election <yyyy-mm-dd>-referendum --from-group <referendum groupId> [--feed id]
  *                    put a pre-election group (candidates, no results) into data/out/live/cec-<electionId>/
  *                    poll CEC's public count site into data/out/live/cec-<electionId>/ (touch STOP there to end)
  *                    step that feed's latest.json through its snapshots in sped-up real time
@@ -26,7 +28,9 @@ import { parseArgs } from "node:util";
 import { build, fetchAll } from "./pipeline.ts";
 import { mirrorRaw, publishRelease } from "./publish/r2.ts";
 import { httpFetcher, runCecPoller } from "./live/cec-public.ts";
-import { announcePrelimGroup, buildPrelimGroup, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "./live/prelim.ts";
+import { announcePrelimGroup, buildPrelimGroup, buildPrelimReferendum, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "./live/prelim.ts";
+import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
+import { REFERENDUM_RULE } from "./groups/rf-group.ts";
 import { buildReplay, currentRelease, livePaths, loadReleaseGroup, playReplayFeed, replayManifest, writeReplayFeed } from "./live/replay.ts";
 
 const { positionals, values } = parseArgs({
@@ -45,7 +49,9 @@ const { positionals, values } = parseArgs({
     feed: { type: "string" },
     speed: { type: "string" },
     base: { type: "string" },
-    levels: { type: "string" },
+    levels: { type: "string", multiple: true },
+    referendum: { type: "string" },
+    election: { type: "string" },
     concurrency: { type: "string" },
     once: { type: "boolean" },
     prefix: { type: "string", multiple: true },
@@ -99,7 +105,18 @@ if (cmd === "fetch") {
   if (groupIds.length === 0 || !values.base) throw new Error("--groups and --base are required, e.g. --base https://vote.cec.gov.tw/zh-TW/");
   const release = values.release ?? currentRelease(opts.outDir);
   const electionOf = (g: string) => g.split(".")[0]!;
-  const feedDir = livePaths.feed(opts.outDir, `cec-${electionOf(groupIds[0]!)}`);
+  // One feed can carry groups of several elections held the same day (--feed).
+  const feedId = values.feed ?? `cec-${electionOf(groupIds[0]!)}`;
+  const feedDir = livePaths.feed(opts.outDir, feedId);
+  // --levels national,county (every group) and/or --levels <groupId>=town (one group).
+  const levelArgs = values.levels ?? [];
+  const levelsFor = (g: string) => {
+    const own = levelArgs.find((l) => l.startsWith(`${g}=`));
+    const all = levelArgs.find((l) => !l.includes("="));
+    const v = own ? own.slice(g.length + 1) : all;
+    return v ? (v.split(",") as ReportingLevel[]) : null;
+  };
+  for (const l of levelArgs) if (l.includes("=") && !groupIds.includes(l.split("=")[0]!)) throw new Error(`--levels ${l}: ${l.split("=")[0]} is not in --groups`);
   const plans = groupIds.map((g) => {
     // A pre-election group the feed carries (live-prelim) wins over a published one.
     const fromFeed = loadFeedGroup(feedDir, g);
@@ -107,7 +124,7 @@ if (cmd === "fetch") {
       const r = loadReleaseGroup(opts.outDir, release, g);
       return { ...r, metadataRef: { release, path: r.metadataPath } };
     })();
-    const levels = values.levels ? (values.levels.split(",") as ReportingLevel[]) : loaded.metadata.group.levels.filter((l) => l !== "village" && l !== "station");
+    const levels = levelsFor(g) ?? loaded.metadata.group.levels.filter((l) => l !== "village" && l !== "station");
     const prefixes = Object.fromEntries((values.prefix ?? []).map((p) => {
       const [id, code] = p.split("=");
       if (!id || !code) throw new Error(`--prefix expects <contestId>=<code>, got "${p}"`);
@@ -115,9 +132,7 @@ if (cmd === "fetch") {
     }));
     return { ...loaded, levels, prefixes };
   });
-  const electionIds = new Set(plans.map((p) => p.metadata.election.id));
-  if (electionIds.size !== 1) throw new Error("all groups must come from one election");
-  const feedId = `cec-${[...electionIds][0]}`;
+  for (const p of plans) console.log(`${p.metadata.group.id}: levels ${p.levels.join(",")}`);
   // Fail before polling if --publish lacks credentials.
   const bucket = values.publish ? r2Bucket() : null;
   const r = await runCecPoller({
@@ -133,24 +148,41 @@ if (cmd === "fetch") {
   });
   console.log(`poller ended: ${r}`);
 } else if (cmd === "live-prelim") {
-  if (!values.candidates || !values["from-group"]) throw new Error("--candidates <csv> and --from-group <groupId> are required");
-  const rows = readCandidateCsv(resolve(values.candidates));
+  if (!values["from-group"] || (!values.candidates && !values.referendum)) {
+    throw new Error("--from-group <groupId> and either --candidates <csv> or --referendum <case> are required");
+  }
   const release = values.release ?? currentRelease(opts.outDir);
-  const base = loadReleaseGroup(opts.outDir, release, values["from-group"]);
-  const parties = PartiesFile.parse(JSON.parse(readFileSync(`${opts.outDir}/${DATA_PREFIX}/releases/${release}/parties.json`, "utf8"))).parties;
-  const electionId = rows[0]!.election;
-  const date = electionId.slice(0, 10);
-  const g = buildPrelimGroup({
-    rows,
-    election: { id: electionId, date, nameZh: `${date.slice(0, 4)}年 地方公職人員選舉` },
-    base: { ...base, release },
-    parties,
-    levels: (values.levels?.split(",") as ReportingLevel[] | undefined) ?? ["national", "county", "town"],
-    local: base.metadata.group.id.split(".")[1]!,
-  });
-  const feedDir = livePaths.feed(opts.outDir, `cec-${electionId}`);
+  const base = { ...loadReleaseGroup(opts.outDir, release, values["from-group"]), release };
+  const levelsArg = values.levels?.[0];
+  const levels = (levelsArg?.split(",") as ReportingLevel[] | undefined) ?? ["national", "county", "town"];
+  let g;
+  if (values.referendum) {
+    // 2026-11-28 referendum case 22: question from mappings/referendum-questions.csv.
+    const kase = Number(values.referendum);
+    const electionId = values.election ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}-referendum$/.test(electionId)) throw new Error("--election <yyyy-mm-dd>-referendum is required with --referendum");
+    const q = loadReferendumQuestions(repoRoot).get(`${electionId}#${kase}`);
+    if (!q) throw new Error(`no question for ${electionId} case ${kase} in mappings/referendum-questions.csv`);
+    const date = electionId.slice(0, 10);
+    g = buildPrelimReferendum({ election: { id: electionId, date, nameZh: `${date.slice(0, 4)}年 全國性公民投票` }, caseNumber: kase, question: q, rule: REFERENDUM_RULE, base, levels });
+  } else {
+    const rows = readCandidateCsv(resolve(values.candidates!));
+    const parties = PartiesFile.parse(JSON.parse(readFileSync(`${opts.outDir}/${DATA_PREFIX}/releases/${release}/parties.json`, "utf8"))).parties;
+    const electionId = rows[0]!.election;
+    const date = electionId.slice(0, 10);
+    g = buildPrelimGroup({
+      rows,
+      election: { id: electionId, date, nameZh: `${date.slice(0, 4)}年 地方公職人員選舉` },
+      base,
+      parties,
+      levels,
+      local: base.metadata.group.id.split(".")[1]!,
+    });
+  }
+  const feedId = values.feed ?? `cec-${g.metadata.election.id}`;
+  const feedDir = livePaths.feed(opts.outDir, feedId);
   writePrelimGroup(feedDir, g);
-  announcePrelimGroup(feedDir, `cec-${electionId}`, g);
+  announcePrelimGroup(feedDir, feedId, g);
   console.log(`${g.metadata.group.id}: ${g.metadata.contests.length} contests, ${g.metadata.choices.length} choices -> ${feedDir}`);
   if (g.unknownParties.length) console.log(`parties without a CEC code: ${g.unknownParties.join("、")}`);
 } else if (cmd === "live-publish") {

@@ -210,7 +210,7 @@ export function App() {
         <aside className={classes.panel} aria-label="詳細資料" aria-live="polite">
           {live && liveManifest.data && (
             <Paper p="xs" mb="sm" radius="md" withBorder>
-              <LiveBanner manifest={liveManifest.data} snapshot={snapshot} />
+              <LiveBanner manifest={liveManifest.data} snapshot={snapshot} electionName={m?.election.nameZh} />
             </Paper>
           )}
           {live && shown && shown.status !== "overall" && (

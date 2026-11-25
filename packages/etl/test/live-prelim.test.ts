@@ -19,9 +19,9 @@ function csv(lines: string[]) {
 describe("readCandidateCsv", () => {
   it("reads the committed 2026 mayor list: 22 counties, numbers 1..n", () => {
     const rows = readCandidateCsv(join(import.meta.dirname, "../mappings/candidates-2026-mayor.csv"));
-    expect(new Set(rows.map((r) => r.county)).size).toBe(22);
+    expect(new Set(rows.map((r) => r.area)).size).toBe(22);
     expect(rows).toHaveLength(81);
-    expect(rows.find((r) => r.county === "63000" && r.ballotNumber === 5)?.name).toBe("蔣萬安");
+    expect(rows.find((r) => r.area === "63000" && r.ballotNumber === 5)?.name).toBe("蔣萬安");
   });
   it("rejects gaps, repeats and mixed type codes", () => {
     expect(() => readCandidateCsv(csv([row("63000", 1, "甲", "無"), row("63000", 3, "乙", "無")]))).toThrow(/expected 1..2/);
@@ -113,5 +113,64 @@ describe("buildPrelimGroup", () => {
     const m2 = LiveManifestFile.parse(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
     expect(m2.groups).toHaveLength(1);
     expect(m2.groups[0]).toMatchObject({ seq: 7, status: "counting" });
+  });
+});
+
+// --- 鄉鎮市長 (roster, no ballot numbers) and the referendum ---------------------------------
+
+import { buildPrelimReferendum, nameKey } from "../src/live/prelim.ts";
+
+describe("township roster", () => {
+  it("reads the committed 2026 鄉鎮市長 roster: 198 towns, 465 candidates, no ballot numbers", () => {
+    const rows = readCandidateCsv(join(import.meta.dirname, "../mappings/candidates-2026-township-mayor.csv"));
+    expect(new Set(rows.map((r) => r.area)).size).toBe(198);
+    expect(rows).toHaveLength(465);
+    expect(rows.every((r) => r.ballotNumber === null && r.cecType === "D1" && /^\d{8}$/.test(r.area))).toBe(true);
+  });
+  it("refuses two candidates whose names match the same way", () => {
+    const head = "election,cec_type,town,county_name,town_name,name,party,source,method,status";
+    const line = (name: string) => `2026-11-28-local,D1,10002010,宜蘭縣,宜蘭市,${name},無,https://web.cec.gov.tw/central/article/64709,text,unreviewed`;
+    const p = join(mkdtempSync(join(tmpdir(), "t-")), "t.csv");
+    writeFileSync(p, [head, line("王小明"), line("王小明Wang")].join("\n"));
+    expect(() => readCandidateCsv(p)).toThrow(/same name/);
+  });
+  it("keys names by Han characters only", () => {
+    expect(nameKey("車牧勒薩以‧拉勒格安 Cemelesai Ljaljegan")).toBe(nameKey("車牧勒薩以．拉勒格安"));
+    expect(nameKey("伊藍．明基努安")).toBe("伊藍明基努安");
+  });
+});
+
+describe("buildPrelimReferendum", () => {
+  const refBase = {
+    ...base,
+    metadata: {
+      ...base.metadata,
+      group: { ...base.metadata.group, id: "2022-11-26-constitutional-referendum.case-1", office: "constitutional-referendum" },
+      contests: [{ ...baseContest("x"), id: "2022-11-26-constitutional-referendum.case-1", choiceKind: "referendum", scope: { level: "national" }, referendum: { caseNumber: 1 } }],
+    } as unknown as GroupMetadataFile,
+    results: {
+      national: units("national", [["nat", null, ["2022-11-26-constitutional-referendum.case-1"]]]),
+      county: units("county", [["cty:63000", "nat", ["2022-11-26-constitutional-referendum.case-1"]]]),
+    },
+  };
+  const rule = { agreeMustExceedDisagree: true, agreeQuorumOfElectors: 0.25, quorumStrict: false, legalBasis: "公民投票法第29條" };
+  const g = buildPrelimReferendum({
+    election: { id: "2026-11-28-referendum", date: "2026-11-28", nameZh: "2026年 全國性公民投票" },
+    caseNumber: 22,
+    question: { text: "問題？", source: "中央選舉委員會公告 https://web.cec.gov.tw/central/article/64314", reviewed: false },
+    rule,
+    base: refBase,
+    levels: ["national", "county"],
+  });
+  it("makes one 第22案 contest with 同意／不同意, the question and the 公投法 rule, no outcome", () => {
+    expect(g.metadata.group.id).toBe("2026-11-28-referendum.case-22");
+    const c = g.metadata.contests[0]!;
+    expect(c).toMatchObject({ id: "2026-11-28-referendum.case-22", office: "referendum-national", nameZh: "全國性公民投票案第22案", referendum: { caseNumber: 22, questionZh: "問題？", questionReviewed: false, rule, outcome: null } });
+    expect(g.metadata.choices.map((x) => x.id)).toEqual(["agree", "disagree"]);
+    expect(g.units.county!.units[0]!.contestIds).toEqual(["2026-11-28-referendum.case-22"]);
+    expect(g.metadata.sources[0]!.url).toBe("https://web.cec.gov.tw/central/article/64314");
+  });
+  it("refuses a base that is not a single referendum", () => {
+    expect(() => buildPrelimReferendum({ election: { id: "2026-11-28-referendum", date: "2026-11-28", nameZh: "x" }, caseNumber: 22, question: { text: "q", source: "s", reviewed: false }, rule, base, levels: ["county"] })).toThrow(/not a single referendum/);
   });
 });

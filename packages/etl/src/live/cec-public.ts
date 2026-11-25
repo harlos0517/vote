@@ -31,6 +31,7 @@ import {
   type ReportingLevel,
 } from "@tw-election/schema";
 import { livePaths, writeAtomic } from "./files.ts";
+import { nameKey } from "./prelim.ts";
 
 // ---------------------------------------------------------------------------------------
 // Parsing one result page
@@ -233,6 +234,7 @@ export interface RowResult {
 export function pageToRow(page: ParsedPage, unit: string, level: ReportingLevel, contest: Contest, choices: BallotChoice[], electionDate: string): RowResult {
   const mine = choices.filter((c) => c.contestId === contest.id);
   if (contest.choiceKind === "referendum" || page.kind === "referendum") return referendumRow(page, unit, level, contest, mine, electionDate);
+  if (mine.length > 0 && mine.every((c) => c.ballotNumber === null)) return rowByName(page, unit, level, contest, mine, electionDate);
   const byNo = new Map(mine.map((c) => [c.ballotNumber, c]));
   const warnings: string[] = [];
   const votes: Record<string, number> = Object.fromEntries(mine.map((c) => [c.id, 0]));
@@ -257,6 +259,48 @@ export function pageToRow(page: ParsedPage, unit: string, level: ReportingLevel,
     summary: { electors: null, ballotsCast: null, valid: null, invalid: null, population: null },
     votes,
   };
+  if (page.dataTime) row.asOf = dataTimeIso(page.dataTime, electionDate);
+  return { row, warnings };
+}
+
+/**
+ * A page whose candidates cannot be tied to the contest's (roster) candidates by name. Only this
+ * page fails, as a fetch failure would: the rest of the group keeps updating, and the log says
+ * which names to check.
+ */
+export class NameMatchError extends Error {
+  override name = "NameMatchError";
+}
+
+/**
+ * Contests known only from the registration roster (no ballot numbers): match page rows by the
+ * Han characters of the name (nameKey). If exactly one row on each side is left over, they are
+ * paired with a warning (a rare character written differently); anything else fails this page.
+ * Roster candidates missing from the page (withdrawn, disqualified) keep 0 votes.
+ */
+function rowByName(page: ParsedPage, unit: string, level: ReportingLevel, contest: Contest, mine: BallotChoice[], electionDate: string): RowResult {
+  const warnings: string[] = [];
+  const byKey = new Map(mine.map((c) => [nameKey(c.labelZh), c]));
+  const votes: Record<string, number> = Object.fromEntries(mine.map((c) => [c.id, 0]));
+  const used = new Set<string>();
+  const leftover: ParsedChoice[] = [];
+  for (const p of page.choices) {
+    const c = byKey.get(nameKey(p.names.join("")));
+    if (c && !used.has(c.id)) {
+      used.add(c.id);
+      votes[c.id] = p.votes;
+    } else leftover.push(p);
+  }
+  const unused = mine.filter((c) => !used.has(c.id));
+  if (leftover.length === 1 && unused.length === 1) {
+    warnings.push(`${unit}: paired page "${leftover[0]!.names.join("／")}" (號次 ${leftover[0]!.ballotNumber}) with roster "${unused[0]!.labelZh}" by elimination`);
+    votes[unused[0]!.id] = leftover[0]!.votes;
+  } else if (leftover.length > 0) {
+    throw new NameMatchError(`${unit}: page names not in the roster for ${contest.id}: ${leftover.map((p) => p.names.join("／")).join("、")}`);
+  } else if (unused.length > 0) {
+    warnings.push(`${unit}: not on the page (0 votes): ${unused.map((c) => c.labelZh).join("、")}`);
+  }
+  const row: LiveRow = { unit, level, reported: page.reported, total: page.total, summary: { electors: null, ballotsCast: null, valid: null, invalid: null, population: null }, votes };
   if (page.dataTime) row.asOf = dataTimeIso(page.dataTime, electionDate);
   return { row, warnings };
 }
@@ -487,17 +531,21 @@ export async function runCecPoller(o: PollOptions): Promise<"final" | "stopped" 
         status: r.snapshot.status,
       });
     }
+    // Groups this run does not poll (e.g. one left out until its page code is known) keep
+    // their entries; so does the feed's election when it already has one.
+    const old = existsSync(manifestPath) ? LiveManifestFile.parse(JSON.parse(readFileSync(manifestPath, "utf8"))) : null;
+    const polled = new Set(groups.map((g) => g.groupId));
     const manifest = LiveManifestFile.parse({
       liveSchemaVersion: LIVE_SCHEMA_VERSION,
       feedId: o.feedId,
       mode: "cec-public",
       labelZh: "開票中數字取自中央選舉委員會開票網站，非最終結果，以中央選舉委員會公告為準",
-      election: { id: first.election.id, nameZh: first.election.nameZh, date: first.election.date },
+      election: old?.election ?? { id: first.election.id, nameZh: first.election.nameZh, date: first.election.date },
       // The site states no licence; record that rather than guess one.
       source: { id: "cec-live", publisher: "中央選舉委員會", title: "計票資訊查詢網站", url: o.sourceUrl, license: "未標示", attribution: "資料來源：中央選舉委員會" },
       pollIntervalSeconds: o.intervalSeconds,
       updatedAt: new Date().toISOString(),
-      groups,
+      groups: [...(old?.groups.filter((g) => !polled.has(g.groupId)) ?? []), ...groups],
     });
     writeAtomic(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
     if (o.afterCycle) {

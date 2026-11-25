@@ -319,7 +319,8 @@ function ReferendumTable({ ctx, unit, den, d, abst, colorblind }: TableProps) {
   const r = ctx.referendum!;
   const st = referendumStatus(unit, r.rule);
   const national = unit.id === "nat";
-  const mark = (ok: boolean) => (ok ? "✓ 達成" : "✗ 未達成");
+  // While counting, electors and votes cover reported stations only: say "so far", never a verdict.
+  const mark = (ok: boolean) => (ctx.live ? (ok ? "目前已達" : "目前未達") : ok ? "✓ 達成" : "✗ 未達成");
   return (
     <>
       <Text size="sm" fw={600}>主文</Text>
@@ -357,9 +358,10 @@ function ReferendumTable({ ctx, unit, den, d, abst, colorblind }: TableProps) {
         <Table.Tbody>
           {r.rule.agreeMustExceedDisagree && <KV k="同意票多於不同意票" v={mark(st.agreeMore)} />}
           <KV k={`${quorumLabel(r.rule)}（${fmtInt(st.needed)} 票）`} v={`${fmtPct(st.agreeOfElectors)}　${mark(st.quorumMet)}`} />
-          {national && <KV k="投票結果" v={r.outcome === "passed" ? "通過" : r.outcome === "failed" ? "不通過" : "—"} />}
+          {national && !ctx.live && <KV k="投票結果" v={r.outcome === "passed" ? "通過" : r.outcome === "failed" ? "不通過" : "—"} />}
         </Table.Tbody>
       </Table>
+      {ctx.live && <Text size="xs" c="dimmed">開票中：投票權人數與票數只含已回報的投開票所，門檻是否達到要等開票完成，並以中央選舉委員會公告為準。</Text>}
       {!national && <Text size="xs" c="dimmed">是否通過以全國計算；地方數值僅供參考。</Text>}
     </>
   );

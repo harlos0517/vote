@@ -24,7 +24,8 @@ export function overallProgress(s: LiveSnapshotFile | null): UnitProgress | null
   return { reported: rows.reduce((a, r) => a + r.reported, 0), total: rows.reduce((a, r) => a + r.total, 0), stale: rows.some((r) => r.stale), asOf: null };
 }
 
-export function LiveBanner({ manifest, snapshot }: { manifest: LiveManifestFile; snapshot: LiveSnapshotFile | null }) {
+/** `electionName`: the shown group's election (a feed can carry a referendum held the same day). */
+export function LiveBanner({ manifest, snapshot, electionName }: { manifest: LiveManifestFile; snapshot: LiveSnapshotFile | null; electionName?: string }) {
   const now = useNow();
   const status = snapshot?.status ?? "not-started";
   const replay = manifest.mode === "replay";
@@ -39,7 +40,7 @@ export function LiveBanner({ manifest, snapshot }: { manifest: LiveManifestFile;
         <Badge color={status === "counting" ? "red" : status === "final" ? "teal" : "gray"} variant={status === "counting" ? "filled" : "light"}>
           {STATUS_LABEL[status]}
         </Badge>
-        <Text size="sm" fw={600}>{manifest.election.nameZh}</Text>
+        <Text size="sm" fw={600}>{electionName ?? manifest.election.nameZh}</Text>
         {snapshot && status !== "not-started" && <Text size="xs" c="dimmed">資料時間 {fmtTaipei(snapshot.asOf)}</Text>}
       </Group>
       {status === "not-started" ? (

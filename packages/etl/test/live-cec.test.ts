@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { LiveManifestFile, LiveSnapshotFile, type BallotChoice, type Contest, type GroupMetadataFile } from "@tw-election/schema";
 import {
   BlockedError,
+  NameMatchError,
   PageFormatError,
   dataTimeIso,
   pagePath,
@@ -305,5 +306,54 @@ describe("referendum pages (archived 2018)", () => {
     const r = await pollGroupOnce(refPlan, f, null, { feedId: "cec-test", concurrency: 2 });
     expect(r.snapshot.rows.find((x) => x.unit === "cty:09007")).toMatchObject({ reported: 5, total: 6, votes: { agree: 3773, disagree: 734 }, summary: { electors: 12922 } });
     expect(r.snapshot.status).toBe("counting");
+  });
+});
+
+describe("roster candidates matched by name", () => {
+  const T = `${E}.d1-10002010`;
+  const town = { id: T, electionId: E, office: "township-mayor", cecTypeCode: "D1", nameZh: "宜蘭市長", choiceKind: "candidate", scope: { level: "town", code: "10002010" } } as unknown as Contest;
+  const roster: BallotChoice[] = ["林小華", "車牧勒薩以‧拉勒格安", "王大同"].map((labelZh, i) => ({ id: `10002010.r${i + 1}`, contestId: T, kind: "candidate", ballotNumber: null, candidacyIds: [], partyId: null, labelZh }));
+  const row = (rows: [number, string, number][]) => pageToRow(parseResultPage(page(5, 9, rows)), "town:10002010", "town", town, roster, "2026-11-28");
+
+  it("ties page rows to roster names, whatever the romanisation or ballot order", () => {
+    const r = row([[1, "王大同", 30], [2, "車牧勒薩以．拉勒格安 Cemelesai", 20], [3, "林小華", 10]]);
+    expect(r.row.votes).toEqual({ "10002010.r1": 10, "10002010.r2": 20, "10002010.r3": 30 });
+    expect(r.warnings).toEqual([]);
+  });
+  it("pairs a single leftover on each side, with a warning", () => {
+    // 王大同 written with a different character on the page.
+    const r = row([[1, "王大仝", 30], [2, "車牧勒薩以．拉勒格安", 20], [3, "林小華", 10]]);
+    expect(r.row.votes["10002010.r3"]).toBe(30);
+    expect(r.warnings).toEqual([expect.stringContaining("by elimination")]);
+  });
+  it("gives withdrawn roster candidates 0 votes", () => {
+    const r = row([[1, "王大同", 30], [2, "林小華", 10]]);
+    expect(r.row.votes["10002010.r2"]).toBe(0);
+    expect(r.warnings).toEqual([expect.stringContaining("not on the page")]);
+  });
+  it("fails only this page when two names are unknown", async () => {
+    expect(() => row([[1, "甲乙", 30], [2, "丙丁", 20], [3, "林小華", 10]])).toThrow(NameMatchError);
+    const meta = { ...metadata, contests: [town], choices: roster } as unknown as GroupMetadataFile;
+    const p: GroupPlan = { metadata: meta, levels: ["town"], results: { town: { units: [{ id: "town:10002010", level: "town", nameZh: "宜蘭市", parentId: null, contestIds: [T] }] } } };
+    const f = site({ "D1/10002000100000000.html": { status: 200, body: page(5, 9, [[1, "甲乙", 30], [2, "丙丁", 20]]) } });
+    const r = await pollGroupOnce(p, f, null, { feedId: "cec-test", concurrency: 1 });
+    expect(r.failed).toBe(1);
+    expect(r.warnings.join()).toMatch(/not in the roster/);
+  });
+});
+
+describe("shared feed manifest", () => {
+  it("keeps entries of groups this run does not poll", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cec-"));
+    const other = { groupId: "2026-11-28-referendum.case-22", nameZh: "第22案", metadata: { feedPath: "groups/x/metadata.json", geographyRelease: "r-x" }, latest: "groups/x/latest.json", seq: 0, status: "not-started" };
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({
+      liveSchemaVersion: 1, feedId: "cec-test", mode: "cec-public", labelZh: "x", election: { id: "2026-11-28-local", nameZh: "2026年 地方公職人員選舉", date: "2026-11-28" },
+      source: { id: "cec-live", publisher: "中央選舉委員會", title: "t", url: null, license: "未標示" }, pollIntervalSeconds: 120, updatedAt: "2026-11-28T00:00:00Z", groups: [other],
+    }));
+    const plans = [{ ...plan, metadataRef: { release: "r-test", path: "groups/m/metadata.json" } }];
+    await runCecPoller({ feedDir: dir, feedId: "cec-test", plans, fetchPage: site({ [TP]: { status: 200, body: page(1, 2, [[1, "甲", 1], [2, "乙", 1]]) }, [NTP]: { status: 200, body: page(1, 2, [[1, "丙", 1]]) } }), sourceUrl: "https://x.test/", intervalSeconds: 120, concurrency: 2, once: true, log: () => {} });
+    const m = LiveManifestFile.parse(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
+    expect(m.groups.map((g) => g.groupId)).toEqual(["2026-11-28-referendum.case-22", `${E}.mayor`]);
+    expect(m.election.id).toBe("2026-11-28-local");
   });
 });

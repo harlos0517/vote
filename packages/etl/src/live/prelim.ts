@@ -1,11 +1,13 @@
 /**
  * Pre-election groups for a live feed: an election that has candidates but no results yet.
  *
- * Contests and choices come from a reviewed CSV transcribed from the election commissions'
- * candidate-list notices (候選人名單公告), one row per candidate with its source. Units and
- * boundaries are borrowed from a published group of the previous election (county and town
- * level only, where codes are stable). The group lives inside the live feed, never in a v2
- * release, so the published site is not touched.
+ * Contests and choices come from a reviewed CSV, one row per candidate with its source:
+ *  - by county (縣市長): ballot numbers from the commissions' 候選人名單公告;
+ *  - by town (鄉鎮市長): CEC's registration roster, without ballot numbers; on counting night
+ *    the poller matches page rows to these candidates by name.
+ * A referendum needs no candidates (buildPrelimReferendum). Units and boundaries are borrowed
+ * from a published group of the previous election (county and town level only, where codes are
+ * stable). The group lives inside the live feed, never in a v2 release.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,9 +30,11 @@ import { livePaths, writeAtomic } from "./files.ts";
 export interface CandidateRow {
   election: string;
   cecType: string;
-  county: string;
-  countyName: string;
-  ballotNumber: number;
+  /** County code (5 digits) or town code (8 digits): the contest's area. */
+  area: string;
+  areaName: string;
+  /** Null when the source has no ballot numbers (registration roster). */
+  ballotNumber: number | null;
   name: string;
   party: string;
   source: string;
@@ -38,36 +42,52 @@ export interface CandidateRow {
   status: "unreviewed" | "reviewed";
 }
 
-const HEADER = ["election", "cec_type", "county", "county_name", "ballot_number", "name", "party", "source", "method", "status"];
+const HEADER_COUNTY = ["election", "cec_type", "county", "county_name", "ballot_number", "name", "party", "source", "method", "status"];
+const HEADER_TOWN = ["election", "cec_type", "town", "county_name", "town_name", "name", "party", "source", "method", "status"];
 
 export function readCandidateCsv(path: string): CandidateRow[] {
   const rows = parseCecCsv(readFileSync(path, "utf8"));
-  const head = rows.shift();
-  if (head?.join(",") !== HEADER.join(",")) throw new Error(`${path}: header must be ${HEADER.join(",")}`);
+  const head = rows.shift()?.join(",");
+  const byTown = head === HEADER_TOWN.join(",");
+  if (!byTown && head !== HEADER_COUNTY.join(",")) throw new Error(`${path}: header must be ${HEADER_COUNTY.join(",")} or ${HEADER_TOWN.join(",")}`);
   const out = rows.map((r, i) => {
-    const [election, cecType, county, countyName, n, name, party, source, method, status] = r as string[];
     const line = i + 2;
+    const [election, cecType, area, a, b, name, party, source, method, status] = r as string[];
+    const areaName = byTown ? `${a}${b}` : a!;
+    const n = byTown ? null : b!;
     if (!/^\d{4}-\d{2}-\d{2}-[a-z-]+$/.test(election!)) throw new Error(`${path}:${line}: bad election "${election}"`);
     if (!/^[A-Z]\d$/.test(cecType!)) throw new Error(`${path}:${line}: bad cec_type "${cecType}"`);
-    if (!/^\d{5}$/.test(county!)) throw new Error(`${path}:${line}: bad county "${county}"`);
-    if (!/^[1-9]\d*$/.test(n!)) throw new Error(`${path}:${line}: bad ballot_number "${n}"`);
+    if (!(byTown ? /^\d{8}$/ : /^\d{5}$/).test(area!)) throw new Error(`${path}:${line}: bad ${byTown ? "town" : "county"} "${area}"`);
+    if (n !== null && !/^[1-9]\d*$/.test(n)) throw new Error(`${path}:${line}: bad ballot_number "${n}"`);
     if (!name || !party) throw new Error(`${path}:${line}: name and party are required`);
+    if (/\s/.test(name)) throw new Error(`${path}:${line}: name contains whitespace`);
     if (!/^https:\/\//.test(source!)) throw new Error(`${path}:${line}: source must be an https URL`);
     if (method !== "text" && method !== "scan") throw new Error(`${path}:${line}: method must be text or scan`);
     if (status !== "unreviewed" && status !== "reviewed") throw new Error(`${path}:${line}: status must be unreviewed or reviewed`);
-    return { election: election!, cecType: cecType!, county: county!, countyName: countyName!, ballotNumber: Number(n), name, party, source: source!, method, status } satisfies CandidateRow;
+    return { election: election!, cecType: cecType!, area: area!, areaName, ballotNumber: n === null ? null : Number(n), name, party, source: source!, method, status } satisfies CandidateRow;
   });
-  // One contest per county: ballot numbers 1..n, no repeats.
-  const byCounty = new Map<string, CandidateRow[]>();
-  for (const r of out) byCounty.set(r.county, [...(byCounty.get(r.county) ?? []), r]);
-  for (const [county, rs] of byCounty) {
-    const nums = rs.map((r) => r.ballotNumber).sort((a, b) => a - b);
-    if (nums.some((n, i) => n !== i + 1)) throw new Error(`${path}: county ${county} ballot numbers are ${nums.join(",")}, expected 1..${nums.length}`);
-    if (new Set(rs.map((r) => r.cecType)).size !== 1) throw new Error(`${path}: county ${county} mixes cec_type values`);
+  // One contest per area: ballot numbers 1..n when known, names unique when not.
+  const byArea = new Map<string, CandidateRow[]>();
+  for (const r of out) byArea.set(r.area, [...(byArea.get(r.area) ?? []), r]);
+  for (const [area, rs] of byArea) {
+    if (byTown) {
+      const keys = rs.map((r) => nameKey(r.name));
+      if (new Set(keys).size !== keys.length) throw new Error(`${path}: town ${area} has two candidates with the same name; they cannot be told apart by name`);
+    } else {
+      const nums = rs.map((r) => r.ballotNumber!).sort((x, y) => x - y);
+      if (nums.some((x, i) => x !== i + 1)) throw new Error(`${path}: county ${area} ballot numbers are ${nums.join(",")}, expected 1..${nums.length}`);
+    }
+    if (new Set(rs.map((r) => r.cecType)).size !== 1) throw new Error(`${path}: ${area} mixes cec_type values`);
   }
   if (new Set(out.map((r) => r.election)).size !== 1) throw new Error(`${path}: rows from more than one election`);
   return out;
 }
+
+/**
+ * Name used to match a roster name with a counting page: Han characters only. Romanised
+ * indigenous names, separators and spaces vary between sources (and PDF line wraps).
+ */
+export const nameKey = (name: string) => [...name.matchAll(/[\p{Script=Han}\p{Co}]/gu)].map((m) => m[0]).join("");
 
 export interface PrelimInput {
   rows: CandidateRow[];
@@ -97,17 +117,19 @@ export const prelimPaths = {
 export function buildPrelimGroup(p: PrelimInput): PrelimGroup {
   const { rows, election, base } = p;
   const groupId = `${election.id}.${p.local}`;
-  const contestIdOf = (county: string) => `${election.id}.c1-${county}`;
-  const baseByCounty = new Map(base.metadata.contests.map((c) => [c.scope.level === "county" ? c.scope.code : "", c]));
+  const codeOf = (c: Contest) => ("code" in c.scope ? c.scope.code : "");
+  const baseByArea = new Map(base.metadata.contests.map((c) => [codeOf(c), c]));
+  // Same local id as the base contest ("c1-63000", "d1-10002010"), moved to the new election.
+  const contestIdOf = (area: string) => `${election.id}.${baseByArea.get(area)!.id.split(".")[1]}`;
 
-  const counties = [...new Set(rows.map((r) => r.county))];
-  const missing = base.metadata.contests.filter((c) => c.scope.level === "county" && !counties.includes(c.scope.code));
+  const areas = [...new Set(rows.map((r) => r.area))];
+  const missing = base.metadata.contests.filter((c) => !areas.includes(codeOf(c)));
   if (missing.length > 0) throw new Error(`no candidates for ${missing.map((c) => c.nameZh).join("、")}`);
 
-  const contests: Contest[] = counties.map((county) => {
-    const b = baseByCounty.get(county);
-    if (!b) throw new Error(`county ${county} has no contest in ${base.metadata.group.id}`);
-    return { ...b, id: contestIdOf(county), electionId: election.id, cecTypeCode: rows.find((r) => r.county === county)!.cecType, availableLevels: p.levels, date: null, warnings: [] };
+  const contests: Contest[] = areas.map((area) => {
+    const b = baseByArea.get(area);
+    if (!b) throw new Error(`${area} has no contest in ${base.metadata.group.id}`);
+    return { ...b, id: contestIdOf(area), electionId: election.id, cecTypeCode: rows.find((r) => r.area === area)!.cecType, availableLevels: p.levels, date: null, warnings: [] };
   });
 
   const partyByName = new Map(p.parties.map((x) => [x.nameZh, x]));
@@ -115,9 +137,11 @@ export function buildPrelimGroup(p: PrelimInput): PrelimGroup {
   const partyOf = (name: string) => (name === "無" ? independent : partyByName.get(name));
   const unknownParties = [...new Set(rows.map((r) => r.party).filter((n) => !partyOf(n)))];
 
+  // Without ballot numbers, ids follow the CSV order within the area ("r1", "r2", …).
+  const rank = new Map<string, number>();
   const choices: BallotChoice[] = rows.map((r) => ({
-    id: `${r.county}.n${r.ballotNumber}`,
-    contestId: contestIdOf(r.county),
+    id: r.ballotNumber !== null ? `${r.area}.n${r.ballotNumber}` : `${r.area}.r${rank.set(r.area, (rank.get(r.area) ?? 0) + 1).get(r.area)}`,
+    contestId: contestIdOf(r.area),
     kind: "candidate",
     ballotNumber: r.ballotNumber,
     candidacyIds: [],
@@ -127,7 +151,7 @@ export function buildPrelimGroup(p: PrelimInput): PrelimGroup {
   const usedParties = p.parties.filter((x) => choices.some((c) => c.partyId === x.id));
 
   // Units: same ids, contest ids moved to the new election.
-  const idMap = new Map(base.metadata.contests.map((c) => [c.id, c.scope.level === "county" ? contestIdOf(c.scope.code) : null]));
+  const idMap = new Map(base.metadata.contests.map((c) => [c.id, contestIdOf(codeOf(c))]));
   const units: PrelimGroup["units"] = {};
   for (const level of p.levels) {
     const f = base.results[level];
@@ -143,8 +167,11 @@ export function buildPrelimGroup(p: PrelimInput): PrelimGroup {
 
   const unreviewed = rows.filter((r) => r.status !== "reviewed").length;
   const scanned = rows.filter((r) => r.method === "scan").length;
+  const noNumbers = rows.some((r) => r.ballotNumber === null);
   const warnings = [
-    `尚未開票：候選人與號次依各選舉委員會候選人名單公告${unreviewed > 0 ? `轉錄，${unreviewed} 筆尚未人工審核` : ""}${scanned > 0 ? `（其中 ${scanned} 筆取自掃描檔）` : ""}。`,
+    noNumbers
+      ? `候選人依中選會候選人登記彙總表${unreviewed > 0 ? `（${unreviewed} 筆尚未人工審核）` : ""}；登記後若有資格不符或撤回，名單可能多於實際候選人。號次未預先登錄，開票時依中選會頁面的姓名對應。`
+      : `尚未開票：候選人與號次依各選舉委員會候選人名單公告${unreviewed > 0 ? `轉錄，${unreviewed} 筆尚未人工審核` : ""}${scanned > 0 ? `（其中 ${scanned} 筆取自掃描檔）` : ""}。`,
     `統計單位與界線沿用 ${base.metadata.election.nameZh}（${base.metadata.boundary.versionId}），只到鄉鎮市區層級。`,
     ...(unknownParties.length > 0 ? [`以下推薦政黨在本站政黨表中沒有中選會代碼，地圖以未分類顯示：${unknownParties.join("、")}。`] : []),
   ];
@@ -181,6 +208,80 @@ export function buildPrelimGroup(p: PrelimInput): PrelimGroup {
     ],
   });
   return { metadata, units, metadataRef: { feedPath: prelimPaths.metadata(groupId), geographyRelease: base.release }, unknownParties };
+}
+
+export interface PrelimReferendumInput {
+  election: { id: string; date: string; nameZh: string };
+  caseNumber: number;
+  question: { text: string; source: string; reviewed: boolean };
+  rule: NonNullable<Contest["referendum"]>["rule"];
+  /** A published national referendum group whose units and boundaries are reused. */
+  base: PrelimInput["base"];
+  levels: ReportingLevel[];
+}
+
+/** A national referendum case with no results yet: 同意／不同意, the question and the rule. */
+export function buildPrelimReferendum(p: PrelimReferendumInput): PrelimGroup {
+  const { base, election } = p;
+  if (base.metadata.contests.length !== 1 || base.metadata.contests[0]!.choiceKind !== "referendum") throw new Error(`${base.metadata.group.id} is not a single referendum case`);
+  const b = base.metadata.contests[0]!;
+  const local = `case-${p.caseNumber}`;
+  const groupId = `${election.id}.${local}`;
+  const contestId = groupId;
+  const nameZh = `全國性公民投票案第${p.caseNumber}案`;
+  const contest: Contest = {
+    ...b,
+    id: contestId,
+    electionId: election.id,
+    office: "referendum-national",
+    nameZh,
+    cecTypeCode: null,
+    availableLevels: p.levels,
+    date: null,
+    referendum: { caseNumber: p.caseNumber, questionZh: p.question.text, questionSource: p.question.source, questionReviewed: p.question.reviewed, rule: p.rule, outcome: null },
+    warnings: [],
+  };
+  const choices: BallotChoice[] = (["agree", "disagree"] as const).map((k) => ({ id: k, contestId, kind: k, ballotNumber: null, candidacyIds: [], partyId: null, labelZh: k === "agree" ? "同意" : "不同意" }));
+  const units: PrelimGroup["units"] = {};
+  for (const level of p.levels) {
+    const f = base.results[level];
+    if (!f) throw new Error(`${base.metadata.group.id} has no ${level} units`);
+    units[level] = GroupResultsFile.parse({ schemaVersion: SCHEMA_VERSION, groupId, level, units: f.units.map((u) => ({ ...u, contestIds: [contestId] })), rows: [] });
+  }
+  const levelSet = new Set<string>(p.levels);
+  const metadata = GroupMetadataFile.parse({
+    schemaVersion: SCHEMA_VERSION,
+    release: base.release,
+    election: { id: election.id, date: election.date, nameZh: election.nameZh, kinds: ["referendum"], sources: [] },
+    group: {
+      ...base.metadata.group,
+      id: groupId,
+      nameZh,
+      office: "referendum-national",
+      levels: p.levels,
+      warnings: [
+        `尚未開票。主文取自中央選舉委員會公告${p.question.reviewed ? "" : "，尚未人工核對"}。`,
+        `統計單位與界線沿用 ${base.metadata.election.nameZh}（${base.metadata.boundary.versionId}），只到鄉鎮市區層級。`,
+      ],
+    },
+    contests: [contest],
+    choices,
+    candidacies: [],
+    persons: [],
+    parties: [],
+    sources: [
+      { id: "cec-referendum-announcement", publisher: "中央選舉委員會", title: nameZh, url: p.question.source.match(/https:\/\/\S+/)?.[0] ?? "https://web.cec.gov.tw/central", license: "未標示", attribution: "主文：中央選舉委員會公告" },
+      ...base.metadata.sources.filter((x) => x.id === base.metadata.boundary.sourceId),
+    ],
+    boundary: {
+      ...base.metadata.boundary,
+      files: Object.fromEntries(Object.entries(base.metadata.boundary.files).filter(([l]) => levelSet.has(l))),
+      notes: base.metadata.boundary.notes.filter((n) => /^(cty|town|nat)/.test(n.unit)),
+    },
+    results: Object.fromEntries(p.levels.map((l) => [l, prelimPaths.units(groupId, l)])),
+    validation: [{ id: "referendum-question", status: p.question.reviewed ? "pass" : "warn", detail: p.question.reviewed ? "主文已人工核對。" : "主文尚未人工核對。" }],
+  });
+  return { metadata, units, metadataRef: { feedPath: prelimPaths.metadata(groupId), geographyRelease: base.release }, unknownParties: [] };
 }
 
 export function writePrelimGroup(feedDir: string, g: PrelimGroup) {
