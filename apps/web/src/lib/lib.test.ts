@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GroupMetadataFile, GroupResultsFile } from "@tw-election/schema";
 import { DEFAULT_VIEW, formatHash, parseHash } from "./viewState.ts";
-import { NEUTRAL, NO_CANDIDATE, NO_DATA, OTHER_PARTY, TIE, ZERO_GAP, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
+import { NEUTRAL, NO_CANDIDATE, NO_DATA, OTHER_PARTY, TIE, ZERO_GAP, blackScaleEnd, blackTo, divergingScale, sequentialScale, snapDomain } from "./colors.ts";
 import { toUnitViews, turnout, type UnitView } from "./results.ts";
 import { abstained, referendumStatus, choiceShare, denominatorOf, groupContext, localTop, partyLabel, partyShare, seatsByParty, showsSeats, twoPartyDiff } from "./views.ts";
 import { buildMapView, effectiveMode, ringSlices, selectedParty, selectedTarget } from "./mapView.ts";
@@ -415,5 +415,13 @@ describe("競爭情形 (township and village offices)", () => {
   it("marks ties decided by lot and does not count them as elected", () => {
     expect([...V.byLot].sort()).toEqual(["b.n1", "b.n2"]);
     expect(seatsByParty(town, V).total).toBe(2);
+  });
+});
+
+describe("blackScaleEnd", () => {
+  it("lifts KMT's #000099 a little at the end of a black-based scale and leaves other colours alone", () => {
+    expect(blackScaleEnd("#000099")).toBe("#1430c0");
+    expect(blackTo(blackScaleEnd("#000099"))(1)).toBe("rgb(20, 48, 192)");
+    expect(blackScaleEnd("#1B9431")).toBe("#1B9431");
   });
 });

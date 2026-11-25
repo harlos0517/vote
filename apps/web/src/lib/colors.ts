@@ -183,5 +183,12 @@ export function divergingScale(
 
 export const inferno = (t: number) => interpolateInferno(t); // lighter = higher
 export const blackTo = (c: string) => (t: number) => interpolateLab("#000000", c)(t);
+/**
+ * End colour for a scale that starts at black. KMT's recorded #000099 is so dark (Lab L* 17)
+ * that its 100% end is hard to tell from black, so that end is lifted a little (L* ≈ 30,
+ * still a deep blue). The party's recorded colour is unchanged everywhere else.
+ */
+const BLACK_SCALE_END: Record<string, string> = { "#000099": "#1430c0" };
+export const blackScaleEnd = (c: string) => BLACK_SCALE_END[c.toLowerCase()] ?? c;
 /** Shade a colour by strength t∈[0,1]: weak → pale, strong → full colour. */
 export const shade = (c: string, t: number) => interpolateLab("#f2f2f2", c)(0.2 + 0.8 * t);

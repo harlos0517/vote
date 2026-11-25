@@ -2,7 +2,7 @@
  * ViewState + group + units → what the map, legend and ring draw.
  * Pure (no React) so every mode can be unit-tested.
  */
-import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, OTHER_PARTY, NO_DATA, REF_COLORS, TIE, blackTo, divergingScale, inferno, sequentialScale, shade, type LegendSpec } from "./colors.ts";
+import { ABSTAIN_COLOR, DEFAULT_DPP, DEFAULT_KMT, INVALID_COLOR, NEUTRAL, NO_CANDIDATE, OTHER_PARTY, NO_DATA, REF_COLORS, TIE, blackTo, blackScaleEnd, divergingScale, inferno, sequentialScale, shade, type LegendSpec } from "./colors.ts";
 import { fmtPct, turnout, type UnitView } from "./results.ts";
 import type { ViewState } from "./viewState.ts";
 import {
@@ -188,8 +188,8 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
     const values = new Map(units.map((u) => [u.code, twoPartyDiff(u, ctx, v.formula, den)]));
     const scale = divergingScale(
       [...values.values()].flatMap((r) => (r.value === null ? [] : [r.value])),
-      ctx.party.get(KMT)?.color ?? DEFAULT_KMT,
-      ctx.party.get(DPP)?.color ?? DEFAULT_DPP,
+      blackScaleEnd(ctx.party.get(KMT)?.color ?? DEFAULT_KMT),
+      blackScaleEnd(ctx.party.get(DPP)?.color ?? DEFAULT_DPP),
       v.scale,
       (pt) => (pt === 0 ? "平手" : pt < 0 ? `國 +${-pt}%` : `民 +${pt}%`),
       v.max,
@@ -323,7 +323,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
   const pc = isChoice ? ctx.choice.get(target.id)! : null;
   const label = pc ? (ctx.referendum ? pc.labelZh : `${pc.labelZh}（${pc.partyId ? (ctx.party.get(pc.partyId)?.nameZh ?? "") : ""}）`) : partyLabel(ctx, target.id);
   const baseColor = pc ? choiceColorOf(ctx, pc.id, v.colorblind) : (ctx.partyColor.get(target.id) ?? NEUTRAL);
-  const interp = v.palette === "party" ? blackTo(baseColor) : inferno;
+  const interp = v.palette === "party" ? blackTo(blackScaleEnd(baseColor)) : inferno;
   const ranHere = (u: UnitView) => (pc ? u.contestIds.includes(pc.contestId) : partyRan(u, ctx, target.id));
   const shareOf = (u: UnitView) => (pc ? choiceShare(u, pc.id, den) : partyShare(u, ctx, target.id, den));
   const votesOf = (u: UnitView) => (pc ? (u.votes[pc.id] ?? 0) : partyVotes(u, ctx, target.id));
