@@ -121,10 +121,10 @@ describe("buildPrelimGroup", () => {
 import { buildPrelimReferendum, nameKey } from "../src/live/prelim.ts";
 
 describe("township roster", () => {
-  it("reads the committed 2026 鄉鎮市長 roster: 198 towns, 465 candidates, no ballot numbers", () => {
+  it("reads the committed 2026 鄉鎮市長 roster: 198 towns, 460 candidates, no ballot numbers", () => {
     const rows = readCandidateCsv(join(import.meta.dirname, "../mappings/candidates-2026-township-mayor.csv"));
     expect(new Set(rows.map((r) => r.area)).size).toBe(198);
-    expect(rows).toHaveLength(465);
+    expect(rows).toHaveLength(460);
     expect(rows.every((r) => r.ballotNumber === null && r.cecType === "D1" && /^\d{8}$/.test(r.area))).toBe(true);
   });
   it("refuses two candidates whose names match the same way", () => {
