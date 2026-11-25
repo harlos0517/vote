@@ -7,13 +7,12 @@
  * the final snapshot is real; it equals the published totals, which `buildReplay` checks.
  * Nothing here predicts anything. A replay must be shown as 模擬／歷史資料.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   DATA_PREFIX,
   GroupMetadataFile,
   GroupResultsFile,
-  LIVE_PREFIX,
   LIVE_SCHEMA_VERSION,
   LiveManifestFile,
   LiveSnapshotFile,
@@ -22,6 +21,9 @@ import {
   type ReportingLevel,
   type ResultSummary,
 } from "@tw-election/schema";
+import { livePaths, writeAtomic } from "./files.ts";
+
+export { livePaths } from "./files.ts";
 
 type Summary = Omit<ResultSummary, "population">;
 const SUMMARY_KEYS = ["electors", "ballotsCast", "valid", "invalid"] as const;
@@ -214,19 +216,6 @@ export function buildReplay(input: ReplayGroupInput, opts: ReplayOptions): Repla
 
 // ---------------------------------------------------------------------------------------
 // Files on disk: data/out/live/<feedId>/...
-
-export const livePaths = {
-  feed: (outDir: string, feedId: string) => join(outDir, LIVE_PREFIX, feedId),
-  manifest: () => "manifest.json",
-  latest: (groupId: string) => `groups/${groupId}/latest.json`,
-  snapshot: (groupId: string, seq: number) => `groups/${groupId}/snapshots/${String(seq).padStart(4, "0")}.json`,
-};
-
-function writeAtomic(path: string, body: string) {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(`${path}.tmp`, body);
-  renameSync(`${path}.tmp`, path);
-}
 
 export function loadReleaseGroup(outDir: string, release: string, groupId: string): ReplayGroupInput & { metadataPath: string } {
   const base = join(outDir, DATA_PREFIX, "releases", release);

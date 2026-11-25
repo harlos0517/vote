@@ -40,6 +40,10 @@ export const LiveRow = z.object({
   summary: ResultSummary,
   /** choiceId → votes so far, for every choice of every contest in the unit. */
   votes: z.record(Slug, z.int().nonnegative()),
+  /** Upstream data time of this row, when the source states one per page (CEC 資料時間). */
+  asOf: z.iso.datetime({ offset: true }).optional(),
+  /** True when this cycle's fetch failed and the row repeats the last good numbers. */
+  stale: z.boolean().optional(),
 });
 
 export const LiveSnapshotFile = z.object({
