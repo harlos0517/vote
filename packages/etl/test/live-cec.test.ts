@@ -202,6 +202,21 @@ describe("runCecPoller", () => {
     expect(m).toMatchObject({ mode: "cec-public", source: { publisher: "中央選舉委員會", url: "https://vote.cec.gov.tw/zh-TW/" }, groups: [{ seq: 1, status: "counting" }] });
   });
 
+  it("keeps polling when the after-cycle upload fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cec-"));
+    const logs: string[] = [];
+    let uploads = 0;
+    await runCecPoller({
+      feedDir: dir, feedId: "cec-test", plans, fetchPage: counting, sourceUrl: "https://example.test/",
+      intervalSeconds: 120, concurrency: 2, log: (m) => logs.push(m),
+      afterCycle: async () => { uploads++; throw new Error("R2 unreachable"); },
+      sleep: async () => { if (uploads === 2) writeFileSync(join(dir, "STOP"), ""); },
+    });
+    expect(uploads).toBe(2);
+    expect(logs.filter((l) => l.includes("R2 unreachable"))).toHaveLength(2);
+    expect(existsSync(join(dir, `groups/${E}.mayor/snapshots/0001.json`))).toBe(true);
+  });
+
   it("backs off when most pages fail", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cec-"));
     const waits: number[] = [];

@@ -21,13 +21,13 @@ import { rawPath, sha256File } from "../lib/raw.ts";
 const IMMUTABLE = "public, max-age=31536000, immutable";
 const MANIFEST_CACHE = "public, max-age=60, must-revalidate";
 
-function env(name: string): string {
+export function env(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`missing environment variable ${name}`);
   return v;
 }
 
-function client(): S3Client {
+export function client(): S3Client {
   return new S3Client({
     region: "auto",
     endpoint: `https://${env("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
@@ -42,7 +42,7 @@ function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
 }
 
-async function headEtag(s3: S3Client, bucket: string, key: string): Promise<string | null> {
+export async function headEtag(s3: S3Client, bucket: string, key: string): Promise<string | null> {
   try {
     const r = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
     return (r.ETag ?? "").replaceAll('"', "");

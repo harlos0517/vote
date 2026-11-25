@@ -38,6 +38,8 @@ jobs:
           # back to <user>.github.io/<repo>/, set the SITE_BASE_PATH variable to /<repo>/.
           VITE_BASE: ${{ vars.SITE_BASE_PATH || '/' }}
           VITE_DATA_BASE_URL: ${{ vars.DATA_BASE_URL }}
+          # Live feed id for the header's 即時開票 button (docs/live-feed.md); unset = no button.
+          VITE_LIVE_FEED: ${{ vars.LIVE_FEED }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: apps/web/dist

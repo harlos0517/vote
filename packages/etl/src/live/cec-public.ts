@@ -443,6 +443,8 @@ export interface PollOptions {
   once?: boolean;
   log?: (msg: string) => void;
   sleep?: (ms: number) => Promise<void>;
+  /** Runs after each cycle's files are written (e.g. upload to R2). Its errors are logged, not fatal. */
+  afterCycle?: () => Promise<void>;
 }
 
 /**
@@ -498,6 +500,13 @@ export async function runCecPoller(o: PollOptions): Promise<"final" | "stopped" 
       groups,
     });
     writeAtomic(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    if (o.afterCycle) {
+      try {
+        await o.afterCycle();
+      } catch (e) {
+        log(`  after-cycle step failed (will retry next cycle): ${(e as Error).message}`);
+      }
+    }
     if (o.once) return "once";
     if (groups.every((g) => g.status === "final")) {
       log("all groups final; stopping");

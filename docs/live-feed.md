@@ -140,6 +140,33 @@ pnpm etl live-play --feed replay-2022-11-26-local --speed 60
 
 `live-prelim` 也會寫出 `not-started` 的 `latest.json`（seq 0）與 manifest，開票前即可開啟頁面；已有 `latest.json` 時（輪詢已在執行）不會覆蓋。
 
+## 上傳到 R2（`live/`）
+
+即時資料從執行輪詢的電腦上傳（需要能連到中選會網站，所以不在 CI 執行）。金鑰輸入方式與 `mirror-raw` 相同，見 `docs/deployment.md` 3.5 節。
+
+```bash
+pnpm etl live-publish --feed cec-2026-11-28-local --dry-run
+```
+
+```bash
+pnpm etl live-publish --feed cec-2026-11-28-local
+```
+
+開票夜由輪詢程式每輪寫完後直接上傳：
+
+```bash
+pnpm etl live-cec --groups 2026-11-28-local.mayor --base https://vote.cec.gov.tw/zh-TW/ --publish
+```
+
+- 只寫入 `live/<feedId>/` 底下，不會動到 `v2/` 版本。
+- 上傳順序：快照與群組檔 → 各群組 `latest.json` → `manifest.json` 最後，讀取端不會指向還不存在的檔案。
+- 快取：`manifest.json`、`latest.json` 為 10 秒（`must-revalidate`）；群組 metadata 與統計單位為 60 秒；編號快照為一年 `immutable`。現有的 Cloudflare Cache Rule（依 Cache-Control）已涵蓋。
+- 只上傳有變動的檔案，紀錄在資料夾內的 `.published.json`；中途失敗再執行會從斷點繼續。
+- 快照不可覆寫：R2 上已有同編號但內容不同的快照時中止（要重新產生就換一個 feed id）。
+- `--publish` 時上傳失敗只記錄，不中止輪詢，下一輪重試；啟動時沒有金鑰則直接中止。
+- `live-publish --watch <秒>` 會持續上傳（例如重播演練時搭配 `live-play`），建立 `STOP` 檔案後結束。
+- 網站的「即時開票」按鈕：在 GitHub repo 的 Actions variables 設定 `LIVE_FEED`（例如 `cec-2026-11-28-local`）後重新部署網站；未設定則不顯示按鈕，但仍可用 `#/?live=<feedId>` 開啟。
+
 ## 開票夜注意事項
 
 - 16:00 投票結束前，頁面不得出現預測、勝率或類似民調的數字。開票前只顯示 `not-started` 狀態。
@@ -149,7 +176,6 @@ pnpm etl live-play --feed replay-2022-11-26-local --speed 60
 
 ## 尚未完成
 
-- 將 `live/` 上傳到 R2 的流程（目前只寫到本機 `data/out/live/`）。
 - 人工輸入工具（`manual` 模式）。
 - 2026 年議員等其他選舉的候選人資料（縣市長已建立，見上方）。
 - 2026 年公投頁面的實際格式（解析依 2018 年格式，以標籤讀取；2025、2026 年的頁面沒有存檔）。

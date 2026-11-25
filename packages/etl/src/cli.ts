@@ -8,7 +8,9 @@
  *                    write a simulated live-count feed from published results to data/out/live/
  * tw-etl live-play --feed <feedId> [--speed n]
  * tw-etl live-cec --groups <id,id> --base <url> [--release r] [--levels county,town] [--interval s] [--concurrency n]
- *                    [--prefix <contestId>=<code> ...] [--once]
+ *                    [--prefix <contestId>=<code> ...] [--once] [--publish]
+ * tw-etl live-publish --feed <feedId> [--watch seconds] [--dry-run]
+ *                    upload data/out/live/<feedId>/ to R2 under live/<feedId>/ (changed files only)
  * tw-etl live-prelim --candidates <csv> --from-group <groupId> [--release r] [--levels national,county,town]
  *                    put a pre-election group (candidates, no results) into data/out/live/cec-<electionId>/
  *                    poll CEC's public count site into data/out/live/cec-<electionId>/ (touch STOP there to end)
@@ -17,7 +19,8 @@
  * Paths default to <repo>/data/{raw,work,out}; override with --raw/--work/--out.
  */
 import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { publishLiveFeed, r2Bucket } from "./publish/live.ts";
 import { DATA_PREFIX, PartiesFile, type ReportingLevel } from "@tw-election/schema";
 import { parseArgs } from "node:util";
 import { build, fetchAll } from "./pipeline.ts";
@@ -48,6 +51,8 @@ const { positionals, values } = parseArgs({
     prefix: { type: "string", multiple: true },
     candidates: { type: "string" },
     "from-group": { type: "string" },
+    publish: { type: "boolean" },
+    watch: { type: "string" },
   },
 });
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -113,6 +118,8 @@ if (cmd === "fetch") {
   const electionIds = new Set(plans.map((p) => p.metadata.election.id));
   if (electionIds.size !== 1) throw new Error("all groups must come from one election");
   const feedId = `cec-${[...electionIds][0]}`;
+  // Fail before polling if --publish lacks credentials.
+  const bucket = values.publish ? r2Bucket() : null;
   const r = await runCecPoller({
     feedDir,
     feedId,
@@ -122,6 +129,7 @@ if (cmd === "fetch") {
     intervalSeconds: Number(values.interval ?? 120),
     concurrency: Number(values.concurrency ?? 3),
     once: !!values.once,
+    ...(values.publish ? { afterCycle: async () => void (await publishLiveFeed(feedDir, feedId, { bucket })) } : {}),
   });
   console.log(`poller ended: ${r}`);
 } else if (cmd === "live-prelim") {
@@ -145,7 +153,24 @@ if (cmd === "fetch") {
   announcePrelimGroup(feedDir, `cec-${electionId}`, g);
   console.log(`${g.metadata.group.id}: ${g.metadata.contests.length} contests, ${g.metadata.choices.length} choices -> ${feedDir}`);
   if (g.unknownParties.length) console.log(`parties without a CEC code: ${g.unknownParties.join("、")}`);
+} else if (cmd === "live-publish") {
+  if (!values.feed) throw new Error("--feed is required, e.g. --feed cec-2026-11-28-local");
+  const feedDir = livePaths.feed(opts.outDir, values.feed);
+  const bucket = values["dry-run"] ? null : r2Bucket();
+  const every = values.watch ? Number(values.watch) : 0;
+  if (values.watch && !(every >= 5)) throw new Error("--watch takes seconds, at least 5");
+  for (;;) {
+    try {
+      await publishLiveFeed(feedDir, values.feed, { bucket });
+    } catch (e) {
+      if (!every) throw e;
+      console.error(`upload failed (will retry): ${(e as Error).message}`);
+    }
+    if (!every) break;
+    if (existsSync(`${feedDir}/STOP`)) break;
+    await new Promise((r) => setTimeout(r, every * 1000));
+  }
 } else {
-  console.error("usage: tw-etl <fetch|build|publish|mirror-raw|live-replay|live-play|live-cec|live-prelim> [--raw dir] [--work dir] [--out dir] [--dry-run]");
+  console.error("usage: tw-etl <fetch|build|publish|mirror-raw|live-replay|live-play|live-cec|live-prelim|live-publish> [--raw dir] [--work dir] [--out dir] [--dry-run]");
   process.exit(2);
 }
