@@ -18,7 +18,7 @@
 - [ ] 推送 `main`，確認 **Deploy site** 成功（即時開票畫面目前只在本機 commit）。
 - [ ] GitHub repo → Settings → Secrets and variables → Actions → **Variables** 新增 `LIVE_FEED` = `cec-2026-11-28-local`，重新部署網站，確認標題列出現「即時開票」按鈕。
 - [ ] 用真的瀏覽器打開網頁，確認顯示「尚未開票」、各縣市候選人與號次、0 票，沒有任何預測或比例數字。
-- [ ] 審核 `packages/etl/mappings/candidates-2026-mayor.csv`：逐筆對照每列 `source` 的公告，特別是 `method` 為 `scan` 的 36 筆；確認後把 `status` 改為 `reviewed`。
+- [ ] 審核 `packages/etl/mappings/candidates-2026-mayor.csv`：逐筆對照每列 `source` 的公告，特別是 `method` 為 `scan` 的 36 筆；確認後把 `status` 改為 `reviewed`。（2026-11-26 Claude 已以維基百科各縣市候選人表比對 81 筆一致，並改為 `reviewed`；如需人工複核，請另行確認。）
   - 有修正時重新產生並上傳群組檔（不會動到 `0000.json` 與 `latest.json`）：
 
     ```bash
@@ -40,6 +40,9 @@
   ```
 
 - [ ] 審核 `packages/etl/mappings/candidates-2026-township-mayor.csv`（對照中選會登記彙總表附件 7，特別是 10 位只保留漢字姓名的原住民族候選人），以及 `referendum-questions.csv` 中第22案主文（對照中選會公告）。有修正時重跑 `docs/live-feed.md` 中對應的 `live-prelim` 指令，再上傳。
+  - 2026-11-26 Claude 已對照各縣（市）候選人名單公告與選舉公報：459 筆改為 `reviewed`；第22案主文已逐字核對。
+  - [ ] 決定 5 位不在公告名單上的登記者（李貞秀、廖芳毅、張榮法、黃奕焮、蔡西湖）要刪除或保留，以及伸港鄉「黄永欽／黃永欽」用哪個字（見 `docs/live-feed.md`）。
+  - [ ] `status` 改變後，重跑 `live-prelim` 會改變網頁上「尚未人工審核」「主文已人工核對」等字樣；決定是否重新產生並上傳。
 - [ ] 決定三個沒有政黨代碼的推薦政黨（臺灣SoR無法黨、三勢團結促進聯盟、台聯黨）是否維持未分類。
 - [ ] （建議）在正式網站演練一次：上傳重播 feed，邊播放邊上傳，打開 `https://vote.harlos.tw/#/?live=replay-2022-11-26-local` 看地圖是否隨開票進度上色。兩個指令分別開兩個終端機：
 
