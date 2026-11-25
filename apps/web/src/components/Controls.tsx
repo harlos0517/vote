@@ -47,7 +47,7 @@ export function Controls({
               ]
             : [
                 { value: "diff", label: "兩大黨差異" },
-                { value: "top", label: ctx.partyList ? "得票最多政黨" : "當選候選人" },
+                { value: "top", label: ctx.partyList ? "得票最多政黨" : ctx.live ? "領先候選人" : "當選候選人" },
                 { value: "share", label: ctx.candidatesPickable ? "得票率" : "政黨得票率" },
                 { value: "turnout", label: "投票率" },
                 ...(ctx.localOffice ? [{ value: "competition", label: "競爭情形" }] : []),
@@ -67,7 +67,7 @@ export function Controls({
           ]}
         />
       )}
-      {mode === "top" && (
+      {mode === "top" && !ctx.live && (
         <Switch size="xs" label={ctx.partyList ? "以斜線標示未獲席次的政黨" : "以斜線標示未當選者"} checked={view.hatchUnelected} onChange={(e) => setView({ hatchUnelected: e.currentTarget.checked })} />
       )}
       {mode === "share" && (

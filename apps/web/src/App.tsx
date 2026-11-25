@@ -9,46 +9,84 @@ import { VoteRing } from "./components/VoteRing.tsx";
 import { ElectionPicker } from "./components/ElectionPicker.tsx";
 import { useNarrow } from "./lib/useNarrow.ts";
 import { buildMapView, effectiveMode, ringSlices } from "./lib/mapView.ts";
-import { useGeography, useGroup, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
+import { geographyReleaseOf, useGeography, useGroup, useLiveGroup, useLiveManifest, useLiveSnapshot, useLiveUnits, useManifest, useReleaseIndex, useResults } from "./lib/queries.ts";
+import { liveResults, newer, progressByUnit } from "./lib/live.ts";
+import { LiveBanner, LiveUnitProgress, PROGRESS_UNIT_LABEL } from "./components/LiveBanner.tsx";
+import type { GroupMetadataFile, GroupResultsFile, LiveSnapshotFile } from "@tw-election/schema";
 import { codeOf, fmtPct, toUnitViews, turnout, type UnitView } from "./lib/results.ts";
 import { type MapLevel, useViewState } from "./lib/viewState.ts";
 import { groupContext, quorumLabel, quorumVotes } from "./lib/views.ts";
 import classes from "./App.module.css";
 
 const ALL_LEVELS: MapLevel[] = ["county", "district", "town", "village"];
+/** Shown as a header button when set at build time (VITE_LIVE_FEED), e.g. on counting night. */
+const LIVE_FEED: string | undefined = import.meta.env.VITE_LIVE_FEED || undefined;
+
+type MetadataRef = { release: string; path: string } | { feedPath: string; geographyRelease: string };
+
+/**
+ * One level's results: the release's file, or (live) the unit list filled from the newest
+ * snapshot. Both hooks are always called; only one is enabled.
+ */
+function useLevel(live: string | null, release: string | undefined, ref: MetadataRef | undefined, meta: GroupMetadataFile | undefined, snapshot: LiveSnapshotFile | null, path: string | undefined) {
+  const st = useResults(live ? undefined : release, live ? undefined : path);
+  const units = useLiveUnits(live, ref, live ? path : undefined);
+  const data = useMemo<GroupResultsFile | undefined>(
+    () => (live ? (units.data && meta ? liveResults(meta, units.data, snapshot) : undefined) : st.data),
+    [live, units.data, meta, snapshot, st.data],
+  );
+  const q = live ? units : st;
+  return { data, isError: q.isError, isLoading: q.isLoading, error: q.error, refetch: q.refetch };
+}
 
 export function App() {
   const [view, setView] = useViewState();
   const [hovered, setHovered] = useState<string | null>(null);
+  const live = view.live;
   const manifest = useManifest();
-  const release = manifest.data?.currentRelease;
+  const liveManifest = useLiveManifest(live);
+  const release = live ? undefined : manifest.data?.currentRelease;
   const index = useReleaseIndex(release);
 
   const groups = useMemo(
-    () => index.data?.elections.flatMap((e) => e.groups.map((g) => ({ value: g.id, label: `${e.nameZh.slice(0, 5)}｜${g.nameZh}` }))) ?? [],
-    [index.data],
+    () =>
+      live
+        ? (liveManifest.data?.groups.map((g) => ({ value: g.groupId, label: g.nameZh })) ?? [])
+        : (index.data?.elections.flatMap((e) => e.groups.map((g) => ({ value: g.id, label: `${e.nameZh.slice(0, 5)}｜${g.nameZh}` }))) ?? []),
+    [live, liveManifest.data, index.data],
   );
   const groupId = view.contest && groups.some((g) => g.value === view.contest) ? view.contest : (groups[0]?.value ?? null);
-  const meta = useGroup(release, groupId);
+  const entry = liveManifest.data?.groups.find((g) => g.groupId === groupId);
+  const ref = live ? entry?.metadata : undefined;
+  const staticMeta = useGroup(release, groupId);
+  const liveMeta = useLiveGroup(live, groupId, ref);
+  const meta = live ? liveMeta : staticMeta;
   const m = meta.data;
+  // Newest snapshot only: a cached older latest.json must not roll the numbers back.
+  const snapQ = useLiveSnapshot(live, entry?.latest, liveManifest.data?.pollIntervalSeconds);
+  const lastSnap = useRef<LiveSnapshotFile | null>(null);
+  lastSnap.current = live ? newer(lastSnap.current, snapQ.data) : null;
+  const snapshot = lastSnap.current;
+  const progress = useMemo(() => progressByUnit(snapshot), [snapshot]);
+  const geoRelease = live ? geographyReleaseOf(ref) : release;
 
   const levels = (m?.group.levels.filter((l): l is MapLevel => (ALL_LEVELS as string[]).includes(l)) ?? []) as MapLevel[];
   const level: MapLevel = m && !levels.includes(view.level) ? (levels.includes("town") ? "town" : levels[0]!) : view.level;
-  const results = useResults(release, m?.results[level]);
-  const national = useResults(release, m?.results.national);
-  const counties = useResults(release, level !== "county" ? m?.results.county : undefined);
+  const results = useLevel(live, release, ref, m, snapshot, m?.results[level]);
+  const national = useLevel(live, release, ref, m, snapshot, m?.results.national);
+  const counties = useLevel(live, release, ref, m, snapshot, level !== "county" ? m?.results.county : undefined);
   // Township names for the 村里 sidebar ("所屬鄉鎮市區").
-  const towns = useResults(release, level === "village" ? m?.results.town : undefined);
-  const geo = useGeography(release, m?.boundary.files[level]);
+  const towns = useLevel(live, release, ref, m, snapshot, level === "village" ? m?.results.town : undefined);
+  const geo = useGeography(geoRelease, m?.boundary.files[level]);
   // District outlines over the town and 村里 maps, for groups with electoral districts.
   const fine = level === "town" || level === "village";
-  const districtGeo = useGeography(release, fine ? m?.boundary.files.district : undefined);
+  const districtGeo = useGeography(geoRelease, fine ? m?.boundary.files.district : undefined);
 
   const units = useMemo(() => (results.data ? toUnitViews(results.data) : null), [results.data]);
   const nationalUnit = useMemo(() => (national.data ? [...toUnitViews(national.data).values()][0] : undefined), [national.data]);
   const countyNames = useMemo(() => new Map(counties.data?.units.map((u) => [u.id, u.nameZh]) ?? []), [counties.data]);
   const townNames = useMemo(() => new Map(towns.data?.units.map((u) => [u.id, u.nameZh]) ?? []), [towns.data]);
-  const ctx = useMemo(() => (m ? groupContext(m, nationalUnit?.votes) : null), [m, nationalUnit]);
+  const ctx = useMemo(() => (m ? groupContext(m, nationalUnit?.votes, { live: !!live }) : null), [m, nationalUnit, live]);
   const model = useMemo(() => (ctx && units ? buildMapView(ctx, [...units.values()], view) : null), [ctx, units, view]);
   // Keep the map mounted (and its zoom/position) while the next group or level loads: draw the
   // last complete set until the new one is ready.
@@ -92,16 +130,28 @@ export function App() {
 
   const scheme = useComputedColorScheme("light");
   const narrow = useNarrow();
-  const firstError = [manifest, index, meta, results, national, geo].find((q) => q.isError);
-  const loading = [manifest, index, meta, results, geo].some((q) => q.isLoading);
+  const firstError = (live ? [liveManifest, meta, results, national, geo, snapQ] : [manifest, index, meta, results, national, geo]).find((q) => q.isError);
+  const loading = (live ? [liveManifest, meta, results, geo] : [manifest, index, meta, results, geo]).some((q) => q.isLoading);
 
   return (
     <div className={classes.page}>
       <header className={classes.header}>
-        <Title order={1} size="h4">臺灣歷史選舉地圖</Title>
-        {index.data && groupId && (
-          // Keeps the view (mode, party, level, locked area) so years and offices can be compared directly.
-          <ElectionPicker index={index.data} groupId={groupId} onChange={(g) => setView({ contest: g })} />
+        <Title order={1} size="h4">{live ? "即時開票" : "臺灣歷史選舉地圖"}</Title>
+        {live ? (
+          <Group gap="xs">
+            {groups.length > 1 && groupId && (
+              <Select size="xs" data={groups} value={groupId} allowDeselect={false} onChange={(g) => g && setView({ contest: g, unit: null })} aria-label="選舉類別" />
+            )}
+            <Button size="xs" variant="subtle" onClick={() => setView({ live: null, contest: null, unit: null })}>回到歷史選舉</Button>
+          </Group>
+        ) : (
+          <>
+            {index.data && groupId && (
+              // Keeps the view (mode, party, level, locked area) so years and offices can be compared directly.
+              <ElectionPicker index={index.data} groupId={groupId} onChange={(g) => setView({ contest: g })} />
+            )}
+            {LIVE_FEED && <Button size="xs" color="red" onClick={() => setView({ live: LIVE_FEED, contest: null, unit: null })}>即時開票</Button>}
+          </>
         )}
       </header>
 
@@ -158,6 +208,14 @@ export function App() {
         </section>
 
         <aside className={classes.panel} aria-label="詳細資料" aria-live="polite">
+          {live && liveManifest.data && (
+            <Paper p="xs" mb="sm" radius="md" withBorder>
+              <LiveBanner manifest={liveManifest.data} snapshot={snapshot} />
+            </Paper>
+          )}
+          {live && shown && shown.status !== "overall" && (
+            <LiveUnitProgress progress={progress.get(shown.unit.id)} unitLabel={PROGRESS_UNIT_LABEL[snapshot?.progressUnit ?? "station"]} />
+          )}
           {ctx && shown && model ? (
             <Sidebar
               ctx={ctx}

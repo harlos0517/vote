@@ -227,6 +227,22 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
     const legendTop = new Map<string, { elected: boolean; unelected: boolean }>(); // partyId → seen
     let ties = 0;
     for (const u of units) {
+      if (showsSeats(u, ctx) && ctx.live) {
+        // No seats are decided while counting: colour by the party with the most votes.
+        const pv = ctx.partiesByVote.map((p) => [p.id, partyVotes(u, ctx, p.id)] as const);
+        const top = Math.max(0, ...pv.map(([, n]) => n));
+        const leaders = pv.filter(([, n]) => n === top);
+        const sum = pv.reduce((a, [, n]) => a + n, 0);
+        if (top === 0 || leaders.length !== 1) {
+          if (top > 0) ties++;
+          colors.set(u.code, top > 0 ? TIE : NO_DATA);
+          continue;
+        }
+        const pid = leaders[0]![0];
+        strengths.push({ code: u.code, color: ctx.partyColor.get(pid) ?? NEUTRAL, s: sum ? top / sum : null });
+        legendTop.set(pid, { elected: true, unelected: false });
+        continue;
+      }
       if (showsSeats(u, ctx)) {
         const r = seatsByParty(u, ctx);
         if (!r.partyId) {
@@ -247,7 +263,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
         continue;
       }
       strengths.push({ code: u.code, color: ctx.choiceColor.get(t.choiceId)!, s: t.share });
-      if (!t.elected && v.hatchUnelected) hatched.add(u.code);
+      if (!ctx.live && !t.elected && v.hatchUnelected) hatched.add(u.code);
       const p = ctx.choice.get(t.choiceId)?.partyId ?? "none";
       const seen = legendTop.get(p) ?? { elected: false, unelected: false };
       legendTop.set(p, t.elected ? { ...seen, elected: true } : { ...seen, unelected: true });
@@ -256,7 +272,9 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
     for (const x of strengths) colors.set(x.code, v.shadeTop && x.s !== null ? shade(x.color, seq.t(x.s)) : x.color);
     const item = (p: string, hatch: boolean): LegendItem => ({ label: partyLabel(ctx, p), color: ctx.partyColor.get(p) ?? NEUTRAL, hatched: hatch && v.hatchUnelected });
     const parties = ctx.partiesByVote.map((p) => p.id).filter((p) => legendTop.has(p));
-    const groups = multi
+    const groups = ctx.live
+      ? [{ title: multi ? "得票最多的政黨" : "目前領先", items: parties.map((p) => item(p, false)) }]
+      : multi
       ? [{ title: "最多席次的政黨", items: parties.map((p) => item(p, false)) }]
       : [
           { title: ctx.partyList ? "獲得席次" : "當選", items: parties.filter((p) => legendTop.get(p)!.elected).map((p) => item(p, false)) },
@@ -267,7 +285,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
       colors,
       hatched,
       legend: {
-        title: multi ? "當選席次最多的政黨" : ctx.partyList ? "各地區得票最多的政黨" : "各地區得票最多的候選人（依政黨著色）",
+        title: ctx.live ? "各地區目前得票最多者（依政黨著色；開票中，非當選結果）" : multi ? "當選席次最多的政黨" : ctx.partyList ? "各地區得票最多的政黨" : "各地區得票最多的候選人（依政黨著色）",
         groups,
         note: [
           v.shadeTop ? (multi ? "顏色越深，該黨席次占比越高。" : `顏色越深，${ctx.partyList ? "該黨" : "該候選人"}得票率越高（分母：${denLabel}）。`) : "",
@@ -275,6 +293,12 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
         ].filter(Boolean).join("") || undefined,
       },
       describe: (u) => {
+        if (showsSeats(u, ctx) && ctx.live) {
+          const pv = ctx.partiesByVote.map((p) => ({ p, n: partyVotes(u, ctx, p.id) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+          if (!pv.length) return "目前得票最多的政黨：無資料";
+          if (pv.length > 1 && pv[1]!.n === pv[0]!.n) return "目前得票最多的政黨同票（開票中）";
+          return `目前得票最多的政黨：${pv[0]!.p.nameZh}（開票中，非當選結果）`;
+        }
         if (showsSeats(u, ctx)) {
           const r = seatsByParty(u, ctx);
           const list = ctx.partiesByVote.filter((p) => r.seats.get(p.id)).map((p) => `${p.nameZh} ${r.seats.get(p.id)}`).join("、");
@@ -287,6 +311,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
           const n = c.partyId ? listSeats(ctx, c.partyId) : 0;
           return `得票最多：${c.labelZh}（${fmtPct(t.share)}，分母為${denLabel}），全國${n ? `獲 ${n} 席` : "未獲席次"}`;
         }
+        if (ctx.live) return `目前領先：${c.labelZh}（${fmtPct(t.share)}，分母為${denLabel}；開票中，非當選結果）`;
         return `得票最多：${c.labelZh}（${fmtPct(t.share)}，分母為${denLabel}）${t.elected ? "，當選" : "，未當選"}`;
       },
     };

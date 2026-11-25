@@ -38,3 +38,24 @@ describe("data client", () => {
     await expect(c.manifest()).rejects.toMatchObject({ kind: "schema-version" });
   });
 });
+
+describe("live feed", () => {
+  const snap = { liveSchemaVersion: 1, feedId: "cec-x", groupId: "2026-11-28-local.mayor", seq: 3, status: "counting", asOf: "2026-11-28T17:00:00+08:00", generatedAt: "2026-11-28T17:00:05+08:00", progressUnit: "station", rows: [] };
+  it("reads under live/<feedId>/ without the HTTP cache", async () => {
+    const urls: string[] = [];
+    const inits: (RequestInit | undefined)[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      urls.push(url);
+      inits.push(init);
+      return new Response(JSON.stringify(snap), { status: 200 });
+    }) as typeof fetch;
+    const c = createDataClient("https://d", f);
+    await expect(c.liveSnapshot("cec-x", "groups/g/latest.json")).resolves.toMatchObject({ seq: 3 });
+    expect(urls).toEqual(["https://d/live/cec-x/groups/g/latest.json"]);
+    expect(inits[0]).toMatchObject({ cache: "no-cache" });
+  });
+  it("rejects another live schema version", async () => {
+    const c = createDataClient("https://d", fakeFetch({ "https://d/live/cec-x/l.json": { ...snap, liveSchemaVersion: 2 } }));
+    await expect(c.liveSnapshot("cec-x", "l.json")).rejects.toMatchObject({ kind: "schema-version" });
+  });
+});

@@ -39,3 +39,49 @@ export const useResults = (release: string | undefined, path: string | undefined
 
 export const useGeography = (release: string | undefined, path: string | undefined) =>
   useQuery({ queryKey: ["geo", release, path], queryFn: () => client.geography(release!, path!), enabled: !!release && !!path });
+
+// --- live feeds (docs/live-feed.md) --------------------------------------------------------
+
+/** Minimum poll interval, whatever a manifest asks for. */
+const MIN_POLL_MS = 15_000;
+const pollMs = (seconds: number | undefined) => Math.max(MIN_POLL_MS, (seconds ?? 60) * 1000);
+
+export const useLiveManifest = (feedId: string | null) =>
+  useQuery({
+    queryKey: ["live-manifest", feedId],
+    queryFn: () => client.liveManifest(feedId!),
+    enabled: !!feedId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: (q) => pollMs(q.state.data?.pollIntervalSeconds),
+  });
+
+export const useLiveSnapshot = (feedId: string | null, path: string | undefined, pollSeconds: number | undefined) =>
+  useQuery({
+    queryKey: ["live-snapshot", feedId, path],
+    queryFn: () => client.liveSnapshot(feedId!, path!),
+    enabled: !!feedId && !!path,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: pollMs(pollSeconds),
+  });
+
+type MetadataRef = { release: string; path: string } | { feedPath: string; geographyRelease: string };
+
+/** Group metadata from a release, or carried by the feed itself (pre-election groups). */
+export const useLiveGroup = (feedId: string | null, groupId: string | null, ref: MetadataRef | undefined) =>
+  useQuery({
+    queryKey: ["live-group", feedId, groupId, ref],
+    queryFn: () => ("release" in ref! ? client.group(ref!.release, groupId!) : client.liveGroup(feedId!, ref!.feedPath)),
+    enabled: !!feedId && !!groupId && !!ref,
+  });
+
+/** Unit lists for a live group: the release's results files, or the feed's units files. */
+export const useLiveUnits = (feedId: string | null, ref: MetadataRef | undefined, path: string | undefined) =>
+  useQuery({
+    queryKey: ["live-units", feedId, ref, path],
+    queryFn: () => ("release" in ref! ? client.results(ref!.release, path!) : client.liveUnits(feedId!, path!)),
+    enabled: !!feedId && !!ref && !!path,
+  });
+
+export const geographyReleaseOf = (ref: MetadataRef | undefined) => (ref ? ("release" in ref ? ref.release : ref.geographyRelease) : undefined);

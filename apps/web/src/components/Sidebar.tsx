@@ -123,7 +123,7 @@ function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
             <Table.Th>候選人／政黨</Table.Th>
             <Table.Th ta="right">得票數</Table.Th>
             <Table.Th ta="right">得票率</Table.Th>
-            <Table.Th ta="center">當選</Table.Th>
+            {!ctx.live && <Table.Th ta="center">當選</Table.Th>}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -149,12 +149,12 @@ function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
                 </Table.Td>
                 <Num v={fmtInt(v)} />
                 <Num v={fmtPct(d === null ? null : v / d)} />
-                <Table.Td ta="center">
+                {!ctx.live && <Table.Td ta="center">
                   {ctx.byLot.has(c.id) ? "抽籤" : ctx.elected.get(c.id) ? "✓" : "—"}
                   {ctx.byLot.has(c.id) && <Text size="xs">同票，抽籤決定</Text>}
                   {quota === "women-quota" && <Text size="xs">婦女保障</Text>}
                   {quota === "displaced-by-women-quota" && <Text size="xs">因婦女保障落選</Text>}
-                </Table.Td>
+                </Table.Td>}
               </Table.Tr>
             );
           })}
@@ -162,7 +162,7 @@ function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
           {den.abstain && <ExtraRow label="未投票" color={ABSTAIN_COLOR} n={abst} d={d} lead />}
         </Table.Tbody>
       </Table>
-      <Text size="xs" c="dimmed">「當選」指整場選舉的結果，不是該地區的得票排名。</Text>
+      <Text size="xs" c="dimmed">{ctx.live ? "開票中的數字不是最終結果；當選以中央選舉委員會公告為準。" : "「當選」指整場選舉的結果，不是該地區的得票排名。"}</Text>
       {choices.some((c) => ctx.byLot.has(c.id)) && (
         <Text size="xs" c="dimmed">「抽籤」：兩人同票爭最後一席，依法抽籤決定；中選會資料未記載抽籤結果，因此不標示當選。</Text>
       )}
@@ -178,14 +178,14 @@ function PartyTable({ ctx, unit, den, d, abst }: TableProps) {
     .sort((a, b) => b.votes - a.votes);
   return (
     <>
-      <Text size="sm" fw={600}>各政黨合計（分母：{denominatorLabel(den)}；共 {seats.total} 席）</Text>
+      <Text size="sm" fw={600}>各政黨合計（分母：{denominatorLabel(den)}{ctx.live ? "" : `；共 ${seats.total} 席`}）</Text>
       <Table verticalSpacing={3} fz="xs" striped style={{ whiteSpace: "nowrap" }}>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>政黨</Table.Th>
             <Table.Th ta="right">得票數</Table.Th>
             <Table.Th ta="right">得票率</Table.Th>
-            <Table.Th ta="right">當選席次</Table.Th>
+            {!ctx.live && <Table.Th ta="right">當選席次</Table.Th>}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -196,14 +196,14 @@ function PartyTable({ ctx, unit, den, d, abst }: TableProps) {
               </Table.Td>
               <Num v={fmtInt(votes)} />
               <Num v={fmtPct(d === null ? null : votes / d)} />
-              <Num v={n ? String(n) : "—"} />
+              {!ctx.live && <Num v={n ? String(n) : "—"} />}
             </Table.Tr>
           ))}
           {den.invalid && <ExtraRow label="無效票" color={INVALID_COLOR} n={unit.summary.invalid} d={d} />}
           {den.abstain && <ExtraRow label="未投票" color={ABSTAIN_COLOR} n={abst} d={d} />}
         </Table.Tbody>
       </Table>
-      <Text size="xs" c="dimmed">此層級涵蓋多場選舉：票數為各黨候選人合計，席次為各場當選結果加總。點選或切換到較細的層級可查看候選人。</Text>
+      <Text size="xs" c="dimmed">{ctx.live ? "此層級涵蓋多場選舉：票數為各黨候選人目前得票合計。點選或切換到較細的層級可查看候選人。" : "此層級涵蓋多場選舉：票數為各黨候選人合計，席次為各場當選結果加總。點選或切換到較細的層級可查看候選人。"}</Text>
     </>
   );
 }

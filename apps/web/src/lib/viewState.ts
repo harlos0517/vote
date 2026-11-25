@@ -37,6 +37,8 @@ export interface ViewState {
   /** 當選候選人 view: hatch areas whose local top candidate was not elected. */
   hatchUnelected: boolean;
   unit: string | null; // locked unit
+  /** Live feed id (live/<feedId>/ on the data host), e.g. "cec-2026-11-28-local"; null = historical data. */
+  live: string | null;
 }
 
 export const DEFAULT_VIEW: ViewState = {
@@ -55,6 +57,7 @@ export const DEFAULT_VIEW: ViewState = {
   colorblind: false,
   hatchUnelected: true,
   unit: null,
+  live: null,
 };
 
 const oneOf = <T extends string>(v: string | null, allowed: readonly T[], dflt: T): T =>
@@ -81,6 +84,7 @@ export function parseHash(hash: string): ViewState {
     colorblind: bool(q.get("cb"), d.colorblind),
     hatchUnelected: bool(q.get("ht"), d.hatchUnelected),
     unit: q.get("u"),
+    live: /^[a-z0-9-]+$/.test(q.get("live") ?? "") ? q.get("live") : null,
   };
 }
 
@@ -103,6 +107,7 @@ export function formatHash(s: ViewState): string {
   if (s.colorblind !== d.colorblind) q.set("cb", s.colorblind ? "1" : "0");
   if (s.hatchUnelected !== d.hatchUnelected) q.set("ht", s.hatchUnelected ? "1" : "0");
   if (s.unit) q.set("u", s.unit);
+  if (s.live) q.set("live", s.live);
   return `#/?${q.toString()}`;
 }
 

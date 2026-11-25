@@ -124,6 +124,34 @@ describe("當選候選人 view", () => {
   });
 });
 
+// --- live counts: nothing is elected yet -------------------------------------------
+describe("live context", () => {
+  const PL = groupContext(pres, { n1: 30, n2: 50, n3: 40 }, { live: true });
+  const LL = groupContext(ly, undefined, { live: true });
+  it("ignores the metadata's winners (a replayed election knows them)", () => {
+    expect([...PL.elected.values()].some(Boolean)).toBe(false);
+    expect(PL.live).toBe(true);
+    expect(P.live).toBe(false);
+  });
+  it("shows the local leader without hatching or an elected/unelected split", () => {
+    const units = [unit("A", { n1: 20, n2: 30, n3: 50 }), unit("B", { n1: 10, n2: 60, n3: 30 })];
+    const v = buildMapView(PL, units, { ...DEFAULT_VIEW, mode: "top" });
+    expect(v.hatched.size).toBe(0);
+    expect(v.legend.groups?.map((g) => g.title)).toEqual(["目前領先"]);
+    expect(v.describe(units[0]!)).toMatch(/^目前領先：丙.*非當選結果/);
+  });
+  it("colours a multi-contest unit by the party with the most votes, not seats", () => {
+    const cty = unit("63000", { "d1.n1": 60, "d1.n2": 40, "d2.n1": 30, "d2.n2": 55, "d2.n3": 20 }, ["e.d1", "e.d2"]);
+    const v = buildMapView(LL, [cty], { ...DEFAULT_VIEW, mode: "top" });
+    expect(v.colors.get("63000")).not.toBe(TIE);
+    expect(v.describe(cty)).toBe("目前得票最多的政黨：民主進步黨（開票中，非當選結果）");
+    const tied = unit("63000", { "d1.n1": 60, "d1.n2": 40, "d2.n1": 30, "d2.n2": 50, "d2.n3": 20 }, ["e.d1", "e.d2"]);
+    const t = buildMapView(LL, [tied], { ...DEFAULT_VIEW, mode: "top" });
+    expect(t.colors.get("63000")).toBe(TIE);
+    expect(t.describe(tied)).toBe("目前得票最多的政黨同票（開票中）");
+  });
+});
+
 // --- party share & ring ----------------------------------------------------------
 describe("party share and ring", () => {
   it("defaults to the largest party and sums its candidates", () => {

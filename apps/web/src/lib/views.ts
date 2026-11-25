@@ -42,6 +42,11 @@ export interface GroupContext {
   localOffice: boolean;
   /** Every contest elects one seat. */
   singleSeat: boolean;
+  /**
+   * Live count: no result is official yet, so nothing is marked elected (even when the
+   * metadata of a replayed election knows the winners) and the views say "leading".
+   */
+  live: boolean;
 }
 
 /** Offices elected inside townships and villages (鄉鎮市長, 區長, 代表, 村里長). */
@@ -54,10 +59,11 @@ export const LOCAL_OFFICES = new Set<string>([
   "village-chief",
 ]);
 
-export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<string, number>): GroupContext {
+export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<string, number>, opts: { live?: boolean } = {}): GroupContext {
+  const live = !!opts.live;
   const choice = new Map(meta.choices.map((c) => [c.id, c]));
   const party = new Map(meta.parties.map((p) => [p.id, p]));
-  const electedIds = new Set(meta.candidacies.filter((c) => c.elected).map((c) => c.id));
+  const electedIds = new Set(live ? [] : meta.candidacies.filter((c) => c.elected).map((c) => c.id));
   const elected = new Map(meta.choices.map((c) => [c.id, c.candidacyIds.some((id) => electedIds.has(id))]));
   // Parties without a reviewed colour (and independents) are neutral grey, as the ETL report says.
   // No recorded colour: 無黨籍 stays grey, other parties share OTHER_PARTY so they don't look like independents.
@@ -72,9 +78,10 @@ export function groupContext(meta: GroupMetadataFile, nationalVotes?: Record<str
     if (list) list.push(c);
     else choicesByContest.set(c.contestId, [c]);
   }
-  const lotIds = new Set(meta.candidacies.filter((c) => c.electedNote === "tied-decided-by-lot").map((c) => c.id));
+  const lotIds = new Set(live ? [] : meta.candidacies.filter((c) => c.electedNote === "tied-decided-by-lot").map((c) => c.id));
   const byLot = new Set(meta.choices.filter((c) => c.candidacyIds.some((id) => lotIds.has(id))).map((c) => c.id));
   return {
+    live,
     choicesByContest,
     byLot,
     localOffice: LOCAL_OFFICES.has(meta.group?.office ?? ""), // test fixtures may omit the group
