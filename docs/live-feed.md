@@ -54,7 +54,7 @@ pnpm etl live-cec --groups <groupId,groupId> --base https://vote.cec.gov.tw/zh-T
 ```
 
 - 程式在 `packages/etl/src/live/cec-public.ts`，輸出到 `data/out/live/cec-<electionId>/`，格式與模擬重播相同（`mode: "cec-public"`）。
-- `--groups` 要指向本機版本中已有的選舉群組（需要候選人、統計單位與界線）。**2026 年的群組 metadata 尚未建立**，在那之前只能用歷史選舉演練。
+- `--groups` 要指向本機版本中已有的選舉群組，或 feed 內的開票前群組（見「2026 年候選人資料」）。開票夜步驟見 `docs/counting-night.md`。
 - 路徑：`<base>/<類別代碼>/<縣市5碼><選區2碼><鄉鎮3碼><村里3碼><投票所4碼>.html`。類別代碼取 contest 的 `cecTypeCode`（C1、T1…）；2024 年全國性選舉沒有代碼，依職位對應 P1、L1–L4。
 - 只抓只屬於一個 contest 的單位（縣市長的縣市、鄉鎮；議員的選區與選區內鄉鎮）。跨多個 contest 的單位（縣市長的全國、議員的縣市）由下層加總。
 - 候選人以號次對應，姓名只做核對：少數不符（例如罕用字）記為警告，多數不符就中止，避免讀到錯的頁面。
