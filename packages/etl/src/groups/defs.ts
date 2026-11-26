@@ -373,6 +373,10 @@ interface LocalDef {
   registryFrom?: string[];
   /** Combined maps: directories voted on another day (ElGroupDef.dirDates). */
   dirDates?: { prefix: string; date: string }[];
+  /** 2010-06-12 layout directories (ElGroupDef.legacy). */
+  legacy?: { prefixes: string[]; modernPartiesFrom: string[] };
+  /** Groups without a 村里 level (2010-06-12 代表: 選區 rows only). */
+  noVillages?: ElGroupDef["office"][];
   /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
   villages?: boolean;
   /** Mix snapshots per township where villages were reorganised (geo/mix.ts). */
@@ -475,6 +479,51 @@ const L09: LocalDef = {
   notes: [TWO_ROUNDS, SEQ_NOTE("2009 與 2010"), APOS_NOTE("2009 與 2010"), B2016_NOTE],
 };
 
+/**
+ * 2010-06-12 (中選會新聞稿 99-06-12): 村里長 and 鄉鎮市民代表 of the 17 counties. 村里長 is shown
+ * with the 五都's 里長 of 2010-11-27 as one map. The 2010-06-12 files use an older layout
+ * (ElGroupDef.legacy): no village summaries, old party numbers.
+ */
+export const E2010V: ElectionDef = {
+  id: "2010-06-12-local",
+  date: "2010-06-12",
+  nameZh: "2010年 村里長及鄉鎮市民代表選舉",
+  kinds: ["local"],
+};
+const V2010_PARTIAL =
+  "2010-06-12 的中選會檔案只有鄉鎮以上的投票概況；村里（村里長）與鄉鎮內各選區（代表）只有候選人得票，因此這些單位的選舉人數、投票數、無效票與投票率為無資料，有效票為候選人得票合計。";
+const L10V: LocalDef = {
+  election: E2010V,
+  villages: true,
+  mix: true,
+  boundary: B2016,
+  registryFrom: REGISTRY_2014,
+  dirDates: [{ prefix: L2010, date: "2010-11-27" }],
+  legacy: { prefixes: ["votedata/votedata/voteData/2010村里長/", "votedata/votedata/voteData/2010鄉鎮市民代表/"], modernPartiesFrom: [`${L2009}縣市長/`, `${L2009}區域議員/`, `${L2009}鄉鎮市長/`, "votedata/votedata/voteData/2008立委/不分區政黨/", ...REGISTRY_2014, "votedata/votedata/voteData/2014-103年地方公職人員選舉/縣市鄉鎮市民代表/"] },
+  noVillages: ["township-rep-district"],
+  dirs: {
+    mayor: [],
+    councilor: [],
+    lowland: [],
+    highland: [],
+    townshipMayor: [],
+    indigenousChief: [],
+    townshipRep: ["votedata/votedata/voteData/2010鄉鎮市民代表/"],
+    lowlandRep: [],
+    indigenousRep: [],
+    villageChief: ["votedata/votedata/voteData/2010村里長/", `${L2010}里長/`],
+  },
+  mayorWarnings: [],
+  councilorWarnings: [],
+  notes: [
+    "17 個縣市的村里長與鄉鎮市民代表於 2010-06-12 投票；村里長地圖另合併新北市、臺北市、臺中市、臺南市、高雄市（五都）於 2010-11-27 選出的里長。側邊欄顯示各場選舉的投票日。",
+    V2010_PARTIAL,
+    SEQ_NOTE("2010"),
+    "2010-06-12 的中選會檔案使用舊的政黨編號（例如民主進步黨為 2），已依政黨名稱換成現行代碼（無黨籍為 999）。",
+    B2016_NOTE,
+  ],
+};
+
 const L18: LocalDef = {
   election: E2018,
   villages: true,
@@ -569,6 +618,7 @@ function townshipAndVillage(l: LocalDef): ElGroupDef[] {
     mixSnapshots: l.mix ?? false,
     ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}),
     ...(l.dirDates ? { dirDates: l.dirDates } : {}),
+    ...(l.legacy ? { legacy: l.legacy } : {}),
     choiceKind: "candidate" as const,
     electorate: "general" as const,
     layout: "admin",
@@ -647,7 +697,9 @@ function townshipAndVillage(l: LocalDef): ElGroupDef[] {
       warnings: [...common, "每個村里各自選出 1 位村里長；鄉鎮以上層級跨多個村里，以政黨合計呈現。"],
     },
   ];
-  return all.filter((g) => g.archiveDirs.length > 0); // not every election had every office
+  return all
+    .filter((g) => g.archiveDirs.length > 0) // not every election had every office
+    .map((g) => (l.noVillages?.includes(g.office) ? { ...g, villages: false, mixSnapshots: false } : g));
 }
 
 /** Every village snapshot a mixed-snapshot group may borrow townships from. */
@@ -664,6 +716,7 @@ export const GROUPS: ElGroupDef[] = [
   ...localElections(L18),
   ...localElections(L14),
   ...localElections(L09),
+  ...townshipAndVillage(L10V), // 2010-06-12: only 村里長 (with the 五都's 里長) and 代表
   CONSTITUTIONAL_2022,
   ...[17, 18, 19, 20].map(nationalReferendum(E2021R, B2021, undefined, true)),
   ...[7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(nationalReferendum(E2018R, B2018, L18.dirs.mayor, true)),
