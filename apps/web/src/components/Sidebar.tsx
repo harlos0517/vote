@@ -1,4 +1,4 @@
-import { Badge, Button, Divider, Group, Select, Stack, Table, Text, Title } from "@mantine/core";
+import { ActionIcon, Divider, Group, Select, Stack, Table, Text, ThemeIcon, Title, Tooltip } from "@mantine/core";
 import { ABSTAIN_COLOR, INVALID_COLOR, NEUTRAL } from "../lib/colors.ts";
 import { fmtInt, fmtPct, turnout, type UnitView } from "../lib/results.ts";
 import {
@@ -57,20 +57,25 @@ export function Sidebar(p: SidebarProps) {
 
   return (
     <Stack gap="sm">
-      <Group gap="xs" justify="space-between" align="flex-start" wrap="wrap">
-        <Group gap="xs" align="baseline">
-          <Title order={2} size="h3">{p.title ?? unit.name}</Title>
-          <Badge variant="light" color="gray">{p.levelName}</Badge>
-          {p.status === "locked" && <Badge variant="light" color="pink">已鎖定</Badge>}
-          {p.status === "hover" && <Badge variant="outline" color="gray">預覽</Badge>}
-        </Group>
+      {/* Status icon (hover preview / unlock), area title, then the sub-area select filling the rest. */}
+      <Group gap="xs" align="center" wrap="nowrap">
+        {p.status === "hover" && (
+          <Tooltip label="預覽（滑鼠移開後回到鎖定或全國）" withArrow>
+            <ThemeIcon variant="transparent" color="gray" size="md" aria-label="預覽">
+              <EyeIcon />
+            </ThemeIcon>
+          </Tooltip>
+        )}
+        {p.status === "locked" && (
+          <Tooltip label="解除鎖定（或點選地圖空白處）" withArrow>
+            <ActionIcon variant="subtle" color="pink" size="md" onClick={p.onUnlock} aria-label="解除鎖定">
+              <LockIcon />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        <Title order={2} size="h3" style={{ whiteSpace: "nowrap" }}>{p.title ?? unit.name}</Title>
         {p.picker && <SubPicker {...p.picker} undrawn={ctx.meta.boundary.undrawn} />}
       </Group>
-      {p.status === "locked" && (
-        <Button variant="subtle" size="compact-xs" onClick={p.onUnlock} style={{ alignSelf: "flex-start" }}>
-          解除鎖定（或點選地圖空白處）
-        </Button>
-      )}
 
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
         <Table.Tbody>
@@ -126,7 +131,7 @@ function SubPicker({ kind, units, value, loading, onChange, undrawn }: NonNullab
   return (
     <Select
       size="xs"
-      w={200}
+      style={{ flex: 1, minWidth: 0 }}
       aria-label={`選擇${kind}`}
       disabled={loading || units.length === 0}
       placeholder={loading ? "載入中…" : `無${kind}資料`}
@@ -434,3 +439,18 @@ function ExtraRow({ label, color, n, d, lead }: { label: string; color: string; 
     </Table.Tr>
   );
 }
+
+/** Small line icons (16 px, currentColor), drawn here to avoid an icon dependency. */
+const EyeIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const LockIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
