@@ -14,11 +14,12 @@ import {
 import { DATA_SOURCES, RAW_SOURCES } from "./config/sources.ts";
 import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
-import { type ElDataset, countyCode, elFile, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
+import { type ElDataset, type ElUnit, countyCode, elFile, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
 import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
 import { type BuiltGroup, isLocalContests, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
 import { restoreSnapshot } from "./geo/restore.ts";
-import { loadAdminRenames, loadVillageRenames, registryReference, renumberToRegistry } from "./adapters/registry.ts";
+import { applyCorrections, loadDataCorrections } from "./adapters/corrections.ts";
+import { fillMissingNames, loadAdminRenames, loadMissingNames, loadVillageRenames, registryReference, renumberToRegistry } from "./adapters/registry.ts";
 import { ALL_SNAPSHOTS, GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries, buildVillages } from "./geo/build.ts";
 import { loadVillageGroups, planVillages, villageGeoCode, villageGroupKey } from "./geo/villages.ts";
@@ -90,6 +91,8 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const questions = loadReferendumQuestions(o.repoRoot);
   const adminRenames = loadAdminRenames(o.repoRoot);
   const villageRenames = loadVillageRenames(o.repoRoot);
+  const missingNames = loadMissingNames(o.repoRoot);
+  const dataCorrections = loadDataCorrections(o.repoRoot);
 
   const outputs: GroupOutput[] = [];
   const geoByLayout = new Map<string, Boundaries>();
@@ -102,16 +105,35 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     const gid = groupId(def);
     log(`group ${gid}`);
     const rf = def.format === "rf";
-    const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork);
+    // CEC sequence codes (2012 and earlier) → registry codes, per directory before merging (two files'
+    // sequence codes need not agree), with PUA names restored first so names match the reference.
+    const registry = def.registryFrom
+      ? registryReference(def.registryFrom.map((a) => {
+          const r = readElDir(join(cecWork, a));
+          applyPuaNames(r, puaNames);
+          return r;
+        }))
+      : null;
+    const prepare = registry
+      ? (part: ElDataset) => {
+          const f = fillMissingNames(part, def.election.id, missingNames);
+          if (f.filled) checks0.push({ id: "missing-names", status: f.unreviewed ? "warn" : "pass", detail: `${f.filled} unit names CEC left empty filled from missing-names.csv${f.unreviewed ? ` (${f.unreviewed} not yet reviewed)` : ""}` });
+          applyPuaNames(part, puaNames);
+          checks0.push(...renumberToRegistry(part, def.election.id, registry, adminRenames, villageRenames));
+        }
+      : undefined;
+    const dropped: { unit: ElUnit; note: string }[] = [];
+    const corrected = (part: ElDataset, dir: string) => {
+      const r = applyCorrections(part, def.election.id, dir, dataCorrections);
+      if (r.check) checks0.push(r.check);
+      for (const t of r.droppedTowns) {
+        const [prv, cty, town] = t.key.split("|");
+        const unit = part.units.find((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && u.key.town === town);
+        if (unit) dropped.push({ unit, note: t.note });
+      }
+    };
+    const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork, (part, dir) => { corrected(part, dir); prepare?.(part); });
     const puaCheck = applyPuaNames(ds, puaNames);
-    if (def.registryFrom) {
-      const refDs = def.registryFrom.map((a) => {
-        const r = readElDir(join(cecWork, a));
-        applyPuaNames(r, puaNames);
-        return r;
-      });
-      checks0.push(...renumberToRegistry(ds, def.election.id, registryReference(refDs), adminRenames, villageRenames));
-    }
     if (rf && def.rfTownCodesFrom && def.villages) {
       checks0.push(await renumberRfVillages(def, ds as RfDataset, cecWork, { versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes")));
     }
@@ -142,7 +164,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       for (const u of built.results.village.units.filter((x) => x.id.startsWith("vgrp:"))) {
         const [town, code] = u.id.slice(5).split("-") as [string, string];
         const row = villageGroups.get(villageGroupKey(def.election.id, town, code, u.nameZh));
-        if (row && row.members !== "overlap") for (const m of row.members) known.add(m);
+        if (row && Array.isArray(row.members)) for (const m of row.members) known.add(m);
       }
       // Villages without a race of this office (a 村里長 nobody ran for) still exist that day: count the
       // villages the same election's other groups reported as known, so the right snapshot is still chosen.
@@ -194,6 +216,12 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       unassigned.push(...c.extraFeatures);
     }
     const notes: GroupOutput["notes"] = [];
+    // Townships published without their village figures (data-corrections.csv), keyed after renumbering.
+    for (const d of dropped) {
+      const code = townCode(d.unit.key);
+      for (const u of built.results.town?.units ?? []) if (u.id.slice(u.id.indexOf(":") + 1, u.id.indexOf(":") + 9) === code) notes.push({ unit: u.id, note: d.note });
+    }
+    if (dropped.length) built.group.warnings.push(`${dropped.length} 個鄉鎮市區的中選會村里數字與鄉鎮合計不符，只發布到鄉鎮市區層級（見各鄉鎮的註記）。`);
     // Later snapshots keep 三和村 in a separate disputed layer; up to 1091030 it is in the main layer and drawn.
     const sanheApart = !(await snapshotCodes({ versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes"))).has(`${MAJIA}006`);
     const majia = sanheApart ? built.results.town!.units.filter((u) => u.id.includes(MAJIA)) : [];
@@ -349,7 +377,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     ),
   });
   const allParties = new Map<number, { code: number; name: string }>();
-  for (const g of GROUPS.filter((x) => x.format !== "rf")) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a), townsFilter(g)).parties) allParties.set(p.code, p);
+  for (const g of GROUPS.filter((x) => x.format !== "rf")) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a), townsFilter(g), g.contests === "single").parties) allParties.set(p.code, p);
   files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 2, parties: [...allParties.values()].map((p) => toParty(p, partyColors)) })) });
 
   const warn = allChecks.some((c) => c.status === "warn");
@@ -487,8 +515,14 @@ const EL_FILES = ["elbase.csv", "elcand.csv", "elctks.csv", "elpaty.csv", "elpro
 const townsFilter = (def: ElGroupDef) => (def.townsAndAbove ? (k: { vil: string; station: string }) => k.vil === "0000" && k.station === "0000" : undefined);
 
 /** All el* directories of a group (merged when there are several), plus any extra adapter. */
-function readGroupData(def: ElGroupDef, cecWork: string): ElDataset {
-  const parts = def.archiveDirs.map((a) => readElDir(join(cecWork, a), townsFilter(def)));
+function readGroupData(def: ElGroupDef, cecWork: string, prepare?: (part: ElDataset, dir: string) => void): ElDataset {
+  const parts = def.archiveDirs.map((a) => {
+    const part = readElDir(join(cecWork, a), townsFilter(def), def.contests === "single");
+    const date = def.dirDates?.find((x) => a.startsWith(x.prefix))?.date;
+    if (date) for (const c of part.candidates) c.contestDate = date;
+    prepare?.(part, a);
+    return part;
+  });
   if (def.extra?.adapter === "chiayi-2022-rerun") {
     const ref = readElDir(join(cecWork, def.extra.refArchiveDir), (k) => countyCode(k) === CHIAYI_CITY);
     const parties = parts.flatMap((p) => p.parties);

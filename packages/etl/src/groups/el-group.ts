@@ -77,6 +77,8 @@ export interface ElGroupDef {
    * by name against these registry-coded el* directories (adapters/registry.ts).
    */
   registryFrom?: string[];
+  /** Combined maps: directories (by path prefix) voted on another day than the election; their contests carry it. */
+  dirDates?: { prefix: string; date: string }[];
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
   seats?: number;
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */
@@ -239,6 +241,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   // ---- candidates, persons, choices
   const partyByCode = new Map(ds.parties.map((p) => [p.code, p]));
   const persons: Person[] = [];
+  const unnamedMembers: string[] = [];
   const candidacies: Candidacy[] = [];
   const choices: BallotChoice[] = [];
   for (const ci of contestList) {
@@ -255,7 +258,9 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
         const ids: string[] = [];
         for (const m of members) {
           const pid = `${ci.id}.p${principal.partyCode}.r${m.rank}`;
-          persons.push({ id: pid, nameZh: m.name, identity: "single-candidacy" });
+          // 2008: one list member has no name in CEC's file; never guess one.
+          if (!m.name) unnamedMembers.push(`${principal.name} 名單第 ${m.rank} 名`);
+          persons.push({ id: pid, nameZh: m.name || "（中選會檔案未載姓名）", identity: "single-candidacy" });
           ids.push(`${pid}.candidacy`);
           candidacies.push({
             id: `${pid}.candidacy`,
@@ -506,6 +511,8 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       : { id: "unique-units", status: "pass", detail: "every unit appears once per level" },
   );
 
+  if (unnamedMembers.length) checks.push({ id: "unnamed-list-members", status: "warn", detail: `CEC gives no name for: ${unnamedMembers.join(", ")} (shown as 「（中選會檔案未載姓名）」)` });
+
   // ---- names must be plain Unicode
   const strings = [
     ...choices.map((c) => c.labelZh),
@@ -558,7 +565,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
             ? { level: "county", code: ci.county! }
         : { level: "national" },
     availableLevels: levels,
-    date: ds.contestNotes?.get(ci.key)?.date ?? null,
+    date: ds.contestNotes?.get(ci.key)?.date ?? ds.candidates.find((c) => contestKeyOf(c.key) === ci.key)?.contestDate ?? null,
     partyList: isList ? partyList : null,
     referendum: null,
     warnings: ds.contestNotes?.get(ci.key)?.warnings ?? [],

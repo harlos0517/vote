@@ -119,7 +119,9 @@ export function checkElDataset(ds: ElDataset, ballotsOf: (k: ElKey) => number[] 
     for (const [n, v] of u.votes) {
       const ours = Math.round((v / u.valid) * 10000) / 100;
       const theirs = u.officialRate.get(n)!;
-      if (Math.abs(ours - theirs) > 0.011) rateBad.push(`${keyString(u.key)} #${n} ${ours}≠${theirs}`);
+      // Some 2008 shares are published with one decimal (0.25 → "0.2"): allow that rounding.
+      const oneDecimal = Math.abs(theirs * 10 - Math.round(theirs * 10)) < 1e-9;
+      if (Math.abs(ours - theirs) > (oneDecimal ? 0.051 : 0.011)) rateBad.push(`${keyString(u.key)} #${n} ${ours}≠${theirs}`);
     }
   }
   add("official-rate-reproducible", rateBad, "recomputed vote share = published 得票率 (±0.01) for every unit with candidate rows");

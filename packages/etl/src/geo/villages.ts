@@ -15,8 +15,11 @@ import type { GroupUnit, ValidationCheck } from "@tw-election/schema";
 import { parseCecCsv } from "../lib/csv.ts";
 
 export interface VillageGroupRow {
-  /** Member VILLCODEs, or "overlap" when the group covers villages reported separately. */
-  members: string[] | "overlap";
+  /**
+   * Member VILLCODEs; "overlap" when the group covers villages reported separately; "gone" when
+   * its member villages no longer exist in any boundary snapshot (merged before the earliest).
+   */
+  members: string[] | "overlap" | "gone";
   source: string;
   reviewed: boolean;
 }
@@ -29,8 +32,8 @@ export function loadVillageGroups(repoRoot: string): Map<string, VillageGroupRow
   for (const [election, town, code, name, members, source, status] of rows) {
     if (!election || !/^\d{8}$/.test(town ?? "") || !code || !name || !members || !source) throw new Error(`village-groups.csv: bad row ${town} ${code}`);
     if (status !== "reviewed" && status !== "unreviewed") throw new Error(`village-groups.csv: bad status ${status}`);
-    const list = members === "*" ? "overlap" : members.split(/\s+/);
-    if (list !== "overlap" && !list.every((m) => m.startsWith(town!) && /^\d{11}$/.test(m))) throw new Error(`village-groups.csv: members of ${town} ${code} must be village codes in that town`);
+    const list = members === "*" ? "overlap" : members === "-" ? "gone" : members.split(/\s+/);
+    if (list !== "overlap" && list !== "gone" && !list.every((m) => m.startsWith(town!) && /^\d{11}$/.test(m))) throw new Error(`village-groups.csv: members of ${town} ${code} must be village codes in that town`);
     out.set(villageGroupKey(election, town!, code, name), { members: list, source, reviewed: status === "reviewed" });
   }
   return out;
@@ -84,6 +87,10 @@ export function planVillages(
       continue;
     }
     if (!row.reviewed) unreviewed.push(`${town}-${code}`);
+    if (row.members === "gone") {
+      noShape.push({ unit: u.id, note: `「${u.nameZh}」的成員村里已整編，國土測繪中心現存各版圖資都沒有這些村里，地圖未繪出；票數計入鄉鎮。` });
+      continue;
+    }
     if (row.members === "overlap") {
       noShape.push({ unit: u.id, note: `「${u.nameZh}」投開票所的範圍與一般村里重疊，地圖未繪出；票數計入鄉鎮。` });
       // The station itself is never drawn, so say it where people look: on its township.

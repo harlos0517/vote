@@ -387,7 +387,7 @@ describe("restoring a linearly distorted snapshot", () => {
 });
 
 describe("polling-station files", () => {
-  it("ids stations per county, splits a station shared by villages, and fails under a village group", async () => {
+  it("ids stations per county and tells repeated numbers apart by their village unit", async () => {
     const { stationFiles } = await import("../src/groups/stations.ts");
     const st = (vil: string, station: string) => ({ key: { prv: "63", cty: "000", dist: "00", town: "010", vil, station }, level: "station" as const, name: "", valid: 10, invalid: 0, cast: 10, electors: 20, populationRaw: 0, votes: new Map(), officialRate: new Map() });
     const row = (vil: string, station: string, parentId: string) => ({ u: st(vil, station), parentId, contestIds: ["e.c"], votes: { a: 10 } });
@@ -398,7 +398,10 @@ describe("polling-station files", () => {
       ["st:63000-0598@63000010002", "vil:63000010002", "第 0598 號投開票所"],
       ["st:63000-0598@63000010003", "vil:63000010003", "第 0598 號投開票所"],
     ]);
-    expect(() => stationFiles("e.g", [row("0001", "0597", "vgrp:63000010-0A01"), row("0002", "0597", "vil:63000010002")])).toThrow(/village group/);
+    expect(stationFiles("e.g", [row("0001", "0597", "vgrp:63000010-0A01"), row("0002", "0597", "vil:63000010002")])["63000"]!.units.map((u) => u.id)).toEqual([
+      "st:63000-0597@63000010-0A01",
+      "st:63000-0597@63000010002",
+    ]);
   });
 });
 
@@ -434,5 +437,42 @@ describe("CEC sequence codes → registry codes", () => {
   it("fails on a village that is neither matched nor listed", async () => {
     const { renumberToRegistry } = await import("../src/adapters/registry.ts");
     expect(() => renumberToRegistry(ds(), "e", ref, admin, new Map())).toThrow(/舊村/);
+  });
+});
+
+describe("pre-2010 merged counties and file corrections", () => {
+  const mk = (prv: string, cty: string, dist: string, town: string, vil: string, station: string, level: "county" | "district" | "town" | "village" | "station", name: string, valid = 1) => ({ key: { prv, cty, dist, town, vil, station }, level, name, valid, invalid: 0, cast: valid, electors: valid, populationRaw: 0, votes: new Map<number, number>(), officialRate: new Map<number, number>() });
+  const ref = {
+    county: new Map([["高雄市", "64000"]]),
+    town: new Map([["64000|鹽埕區", "64000010"], ["64000|鳳山區", "64000120"]]),
+    village: new Map([["64000010|甲里", "64000010001"], ["64000120|乙里", "64000120001"]]),
+  };
+  const admin = [{ kind: "county" as const, old: "高雄縣", new: "高雄市", source: "x", reviewed: false }];
+  it("merges two old counties' rows, continues the later one's 選區, and keeps villages apart", async () => {
+    const { renumberToRegistry } = await import("../src/adapters/registry.ts");
+    const ds = {
+      units: [
+        mk("02", "000", "00", "000", "0000", "0000", "county", "高雄市", 5), mk("02", "000", "01", "000", "0000", "0000", "district", "高雄市第01選區", 5),
+        mk("02", "000", "01", "001", "0000", "0000", "town", "鹽埕區", 5), mk("02", "000", "01", "001", "0001", "0000", "village", "甲里", 5),
+        mk("03", "012", "00", "000", "0000", "0000", "county", "高雄縣", 7), mk("03", "012", "01", "000", "0000", "0000", "district", "高雄縣第01選區", 7),
+        mk("03", "012", "01", "003", "0000", "0000", "town", "鳳山市", 7), mk("03", "012", "01", "003", "0009", "0000", "village", "乙村", 7),
+      ],
+      candidates: [],
+      parties: [],
+    };
+    renumberToRegistry(ds, "e", ref, admin, new Map());
+    expect(ds.units.filter((u) => u.level === "county").map((u) => [u.name, u.valid])).toEqual([["高雄市", 12]]);
+    expect(ds.units.filter((u) => u.level === "district").map((u) => `${u.name} ${u.key.dist}`).sort()).toEqual(["高雄市第01選區 01", "高雄縣第01選區 02"]);
+    expect(ds.units.filter((u) => u.level === "village").map((u) => `${u.key.town}-${u.key.vil}`).sort()).toEqual(["010-0001", "120-0001"]);
+  });
+  it("applies a listed correction only where the file is really inconsistent", async () => {
+    const { applyCorrections } = await import("../src/adapters/corrections.ts");
+    const v = mk("03", "004", "01", "001", "0009", "0000", "village", "新崙里", 6120);
+    const s1 = mk("03", "004", "01", "001", "0009", "0001", "station", "", 1000), s2 = mk("03", "004", "01", "001", "0009", "0002", "station", "", 2014);
+    const ds = { units: [v, s1, s2], candidates: [], parties: [] };
+    const c = new Map([["e", [{ dir: "x/", action: "village-from-stations" as const, key: "03|004|001|0009", note: "n", reviewed: false }]]]);
+    expect(applyCorrections(ds, "e", "a/x/", c).check!.status).toBe("warn");
+    expect(v.valid).toBe(3014);
+    expect(() => applyCorrections(ds, "e", "a/x/", c)).toThrow(/already agrees/);
   });
 });

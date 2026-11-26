@@ -46,6 +46,8 @@ export interface ElCandidate {
   incumbent: boolean | null;
   electedMark: string; // "*", "!", "-", ""
   isRunningMate: boolean;
+  /** Set when this candidate's contest was voted on another day than its group's election (combined maps). */
+  contestDate?: string;
 }
 
 export interface ElParty {
@@ -61,7 +63,7 @@ export interface ElDataset {
   contestNotes?: Map<string, ElContestNote>;
 }
 
-const keyOf = (r: string[]): ElKey => ({
+const keyOfRow = (r: string[]): ElKey => ({
   prv: r[0]!,
   cty: r[1]!,
   dist: r[2]!,
@@ -107,7 +109,12 @@ export function elFile(dir: string, name: "elbase" | "elcand" | "elctks" | "elpa
   return join(dir, hits[0]!);
 }
 
-export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true): ElDataset {
+/**
+ * @param singleContest one nationwide contest: the 選區 field means nothing and is set to "00"
+ *   (2008's 不分區 writes 00 in elprof but 01 in elctks).
+ */
+export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true, singleContest = false): ElDataset {
+  const keyOf = singleContest ? (r: string[]): ElKey => ({ ...keyOfRow(r), dist: "00" }) : keyOfRow;
   const base = readEl(elFile(dir, "elbase"));
   // Names are looked up with the district code first ("臺北市第01選區" lives at dist 01), then
   // without it: elbase may use dist "00" where results use "01" (總統), so the fallback key
