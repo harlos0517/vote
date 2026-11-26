@@ -102,6 +102,10 @@ export function App() {
   const lockedCode = view.unit ? codeOf(view.unit) : null;
   // Hovering a drawn area with no result: say so, instead of falling back to the national figures.
   const emptyHover = hovered && units && !units.has(hovered) ? hovered : null;
+  const featureNames = useMemo(
+    () => new Map((drawn?.geo.features ?? []).flatMap((f) => (f.properties?.name ? [[f.properties.code as string, f.properties.name as string]] : []))),
+    [drawn?.geo],
+  );
   const emptyTown = emptyHover ? [...townNames].find(([id]) => codeOf(id).slice(0, 8) === emptyHover.slice(0, 8))?.[1].replace(/（.*）$/, "") ?? null : null;
   const shown: { unit: UnitView; status: "hover" | "locked" | "overall"; levelName: string } | null =
     (hovered && units?.get(hovered) && { unit: units.get(hovered)!, status: "hover", levelName: LEVEL_LABEL[level] }) ||
@@ -242,6 +246,7 @@ export function App() {
           {emptyHover && m ? (
             <NoDataPanel
               code={emptyHover}
+              name={featureNames.get(emptyHover) ?? null}
               levelName={LEVEL_LABEL[level]}
               meta={m}
               countyName={countyNames.get(`cty:${emptyHover.slice(0, 5)}`) ?? null}

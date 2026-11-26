@@ -9,12 +9,15 @@ import { codeOf } from "../lib/results.ts";
  */
 export function NoDataPanel({
   code,
+  name,
   levelName,
   meta,
   countyName,
   townName,
 }: {
   code: string;
+  /** NLSC's name for the area, when the boundary file has one ("[板]" marks a character it cannot encode). */
+  name: string | null;
   levelName: string;
   meta: GroupMetadataFile;
   countyName: string | null;
@@ -29,7 +32,8 @@ export function NoDataPanel({
   return (
     <Stack gap="sm">
       <Group gap="xs" align="baseline">
-        <Title order={2} size="h3">無資料</Title>
+        <Title order={2} size="h3">{name ? name.replace(/\[(.)\]/gu, "$1") : "無資料"}</Title>
+        {name && <Badge variant="light" color="gray">無資料</Badge>}
         <Badge variant="light" color="gray">{levelName}</Badge>
         <Badge variant="outline" color="gray">預覽</Badge>
       </Group>
@@ -38,6 +42,7 @@ export function NoDataPanel({
           {countyName && <KV k="所屬縣市" v={countyName} />}
           {townName && <KV k="所屬鄉鎮市區" v={townName} />}
           <KV k="圖資代碼" v={code} />
+          {name && /\[.\]/u.test(name) && <KV k="圖資原寫法" v={name} />}
         </Table.Tbody>
       </Table>
       <Text size="sm">

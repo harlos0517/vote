@@ -91,10 +91,14 @@ export async function buildVillages(villageShp: string, workDir: string, assign:
       `-i ${q(villageShp)} encoding=utf8 name=village`,
       `-simplify ${simplifyPct} keep-shapes`,
       `-join ${q(assignCsv)} keys=VILLCODE,VILLCODE string-fields=VILLCODE,vunit`,
-      `-each "var p = this.properties; code = p.vunit || VILLCODE"`,
-      `-dissolve2 code`,
+      // Polygons with no result keep NLSC's village name (as published, e.g. "[板]里村"), for the sidebar.
+      `-each "var p = this.properties; code = p.vunit || VILLCODE; name = p.vunit ? null : (VILLNAME || null)"`,
+      `-dissolve2 code copy-fields=name`,
       `-o ${q(out)} format=geojson precision=0.00001`,
     ].join(" "),
   );
-  return JSON.parse(readFileSync(out, "utf8")) as GeoJSON;
+  const g = JSON.parse(readFileSync(out, "utf8")) as GeoJSON;
+  // mapshaper writes the field on every feature; keep it only where there is a name.
+  for (const f of g.features) if (f.properties.name == null) delete (f.properties as Record<string, unknown>).name;
+  return g;
 }
