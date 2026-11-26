@@ -5,6 +5,7 @@
  * Produces a source-shaped intermediate (codes + numbers), no IDs or display
  * decisions — those belong to the contest builder.
  */
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readCecCsv } from "../lib/csv.ts";
 
@@ -94,8 +95,20 @@ function readEl(path: string): string[][] {
   return readCecCsv(path).map((r) => r.map((f) => (/^'\d+$/.test(f) ? f.slice(1) : f)));
 }
 
+/**
+ * Path of one el* file: "elbase.csv", or 2016's suffixed "elbase_P1.csv" (one type code per
+ * directory). Fails when neither exists or several suffixes match.
+ */
+export function elFile(dir: string, name: "elbase" | "elcand" | "elctks" | "elpaty" | "elprof" | "elrepm" | "elretks"): string {
+  const plain = join(dir, `${name}.csv`);
+  if (existsSync(plain)) return plain;
+  const hits = readdirSync(dir).filter((f) => new RegExp(`^${name}_[A-Z]\\d\\.csv$`).test(f));
+  if (hits.length !== 1) throw new Error(`${dir}: expected ${name}.csv or one ${name}_<type>.csv, found ${hits.length ? hits.join(", ") : "none"}`);
+  return join(dir, hits[0]!);
+}
+
 export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true): ElDataset {
-  const base = readEl(join(dir, "elbase.csv"));
+  const base = readEl(elFile(dir, "elbase"));
   // Names are looked up with the district code first ("臺北市第01選區" lives at dist 01), then
   // without it: elbase may use dist "00" where results use "01" (總統), so the fallback key
   // keeps the dist-"00" row and is never overwritten by a district row.
@@ -112,7 +125,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       : (exact.get(`${k.prv}${k.cty}|${k.dist}|${k.town}|${k.vil}`) ?? loose.get(`${k.prv}${k.cty}|${k.town}|${k.vil}`) ?? "");
 
   const units = new Map<string, ElUnit>();
-  for (const r of readEl(join(dir, "elprof.csv"))) {
+  for (const r of readEl(elFile(dir, "elprof"))) {
     const k = keyOf(r);
     if (!belongs(k)) continue;
     const id = keyString(k);
@@ -130,7 +143,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       officialRate: new Map(),
     });
   }
-  for (const r of readEl(join(dir, "elctks.csv"))) {
+  for (const r of readEl(elFile(dir, "elctks"))) {
     const k = keyOf(r);
     if (!belongs(k)) continue;
     const u = units.get(keyString(k));
@@ -141,10 +154,12 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
     u.officialRate.set(n, Number(r[8]));
   }
 
-  const candidates: ElCandidate[] = readEl(join(dir, "elcand.csv"))
-    .filter((r) => belongs(keyOf(r)))
+  // elcand has no station column (column 5 is the ballot number): its rows are contest keys.
+  const candKey = (r: string[]): ElKey => ({ ...keyOf(r), station: "0000" });
+  const candidates: ElCandidate[] = readEl(elFile(dir, "elcand"))
+    .filter((r) => belongs(candKey(r)))
     .map((r) => ({
-      key: keyOf(r),
+      key: candKey(r),
       ballotNumber: int(r[5], "ballot number"),
       name: r[6]!,
       partyCode: int(r[7], "party code"),
@@ -155,7 +170,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       isRunningMate: r[15] === "Y",
     }));
 
-  const parties = readEl(join(dir, "elpaty.csv")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
+  const parties = readEl(elFile(dir, "elpaty")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
   return { units: [...units.values()], candidates, parties };
 }
 
@@ -186,7 +201,7 @@ export interface ElPartyList {
 
 /** Read the party-list extras that only 不分區政黨 directories have. */
 export function readElPartyList(dir: string): ElPartyList {
-  const members = readEl(join(dir, "elrepm.csv")).map((r) => ({
+  const members = readEl(elFile(dir, "elrepm")).map((r) => ({
     partyCode: int(r[0], "party code"),
     rank: int(r[1], "list rank"),
     name: r[2]!,
@@ -199,7 +214,7 @@ export function readElPartyList(dir: string): ElPartyList {
     if (s === undefined || !/^\d+(\.\d+)?$/.test(s)) throw new Error(`expected number for ${what}, got ${JSON.stringify(s)}`);
     return Number(s);
   };
-  const results = readEl(join(dir, "elretks.csv")).map((r) => ({
+  const results = readEl(elFile(dir, "elretks")).map((r) => ({
     partyCode: int(r[0], "party code"),
     voteSharePct: num(r[1], "vote share"),
     qualifiedSharePct: num(r[2], "qualified share"),

@@ -66,6 +66,11 @@ export interface ElGroupDef {
   /** "rf": a national referendum case in rf* files (built by rf-group.ts); default "el". */
   format?: "el" | "rf";
   referendumCase?: number;
+  /**
+   * Read only township rows and above: 2016's 原住民立委 vote files list stations and village
+   * groups that their summary file folds into other villages, so only township totals and up agree.
+   */
+  townsAndAbove?: boolean;
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
   seats?: number;
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */
@@ -77,8 +82,10 @@ export interface BoundaryDef {
   /** Published id, e.g. "nlsc-village-1120928". */
   versionId: string;
   /** Key of the raw source in RAW_SOURCES and the shapefile name inside it. */
-  raw: "nlscVillage107" | "nlscVillage108" | "nlscVillage109" | "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
+  raw: "nlscVillage106" | "nlscVillage107" | "nlscVillage108" | "nlscVillage109" | "nlscVillage110" | "nlscVillage111" | "nlscVillage112";
   shapefile: RegExp;
+  /** The published coordinates are corrupt: restore them by an affine fit against this sound snapshot (geo/restore.ts). */
+  restoreFrom?: BoundaryDef;
 }
 
 /** Contest modes below the county: each township or village has its own race(s). */
@@ -574,7 +581,11 @@ function checkPartyList(
     if (nominated !== r.nominated) bad.push(`${ci.id}: party ${code} lists ${nominated} members vs ${r.nominated} published`);
   }
   if (seatSum !== seats) bad.push(`${ci.id}: published seats sum to ${seatSum}, expected ${seats}`);
-  if (published.size !== votes.size) bad.push(`${ci.id}: elretks has ${published.size} parties, ballot has ${votes.size}`);
+  // 2016's elretks also lists parties that were not on the ballot, all zero: allowed, nothing else extra.
+  const extra = list.results.filter((r) => !votes.has(r.partyCode));
+  if (extra.some((r) => r.voteSharePct !== 0 || r.seats !== 0 || r.nominated !== 0)) {
+    bad.push(`${ci.id}: elretks has non-zero rows for parties not on the ballot: ${extra.filter((r) => r.voteSharePct || r.seats || r.nominated).map((r) => r.partyCode).join(", ")}`);
+  }
   return {
     thresholdPct: PARTY_LIST_THRESHOLD.pct,
     thresholdBasis: PARTY_LIST_THRESHOLD.basis,
