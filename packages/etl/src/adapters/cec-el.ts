@@ -34,6 +34,11 @@ export interface ElUnit {
   votes: Map<number, number>;
   /** ballot number -> official percentage as published (2 decimals) */
   officialRate: Map<number, number>;
+  /**
+   * Only candidate votes are known (2010-06-12 files list villages and 選區 in elctks alone):
+   * valid = Σ votes; invalid, cast and electors are unknown (published as null).
+   */
+  partial?: boolean;
 }
 
 export interface ElCandidate {
@@ -48,6 +53,10 @@ export interface ElCandidate {
   isRunningMate: boolean;
   /** Set when this candidate's contest was voted on another day than its group's election (combined maps). */
   contestDate?: string;
+  /** 2010-06-12 layout: every winner is marked "*" (no "!" for 婦女保障名額). */
+  legacyMarks?: boolean;
+  /** data-corrections winner-as-published: keep CEC's marks for this contest though they are not the top vote-getters. */
+  winnerAsPublished?: boolean;
 }
 
 export interface ElParty {
@@ -61,6 +70,8 @@ export interface ElDataset {
   parties: ElParty[];
   /** Per contest key (county code for county-wide contests). */
   contestNotes?: Map<string, ElContestNote>;
+  /** Parent units whose children do not add up in CEC's own file (data-corrections known-mismatch): warned, not failed. */
+  knownMismatch?: ElUnit[];
 }
 
 const keyOfRow = (r: string[]): ElKey => ({
@@ -93,8 +104,17 @@ function int(s: string | undefined, what: string): number {
  * The 2018 files mark code fields as text with a leading apostrophe (`'63`, `'0001`), a
  * spreadsheet export artefact. Strip it from apostrophe + digits only; names are untouched.
  */
-function readEl(path: string): string[][] {
-  return readCecCsv(path).map((r) => r.map((f) => (/^'\d+$/.test(f) ? f.slice(1) : f)));
+function readElRaw(path: string, trim = false): string[][] {
+  return readCecCsv(path).map((r) => r.map((f) => (trim ? f.trim() : f)).map((f) => (/^'\d+$/.test(f) ? f.slice(1) : f)));
+}
+
+/**
+ * Old (2010-06-12) layout: numbers padded with spaces, elprof only down to township, villages
+ * and 選區 only in elctks (→ partial units), 3-digit birth years, old party numbers (remapped
+ * afterwards by remapLegacyParties).
+ */
+export interface ElReadOptions {
+  legacy?: boolean;
 }
 
 /**
@@ -113,8 +133,10 @@ export function elFile(dir: string, name: "elbase" | "elcand" | "elctks" | "elpa
  * @param singleContest one nationwide contest: the 選區 field means nothing and is set to "00"
  *   (2008's 不分區 writes 00 in elprof but 01 in elctks).
  */
-export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true, singleContest = false): ElDataset {
+export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true, singleContest = false, opts: ElReadOptions = {}): ElDataset {
   const keyOf = singleContest ? (r: string[]): ElKey => ({ ...keyOfRow(r), dist: "00" }) : keyOfRow;
+  const legacy = opts.legacy ?? false;
+  const readEl = (path: string) => readElRaw(path, legacy);
   const base = readEl(elFile(dir, "elbase"));
   // Names are looked up with the district code first ("臺北市第01選區" lives at dist 01), then
   // without it: elbase may use dist "00" where results use "01" (總統), so the fallback key
@@ -153,12 +175,18 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
   for (const r of readEl(elFile(dir, "elctks"))) {
     const k = keyOf(r);
     if (!belongs(k)) continue;
-    const u = units.get(keyString(k));
+    let u = units.get(keyString(k));
+    if (!u && legacy) {
+      // Village / 選區 rows exist only here: a unit with candidate votes alone.
+      u = { key: k, level: levelOf(k), name: nameOf(k), valid: 0, invalid: 0, cast: 0, electors: 0, populationRaw: 0, votes: new Map(), officialRate: new Map(), partial: true };
+      units.set(keyString(k), u);
+    }
     if (!u) throw new Error(`elctks row without elprof row: ${keyString(k)}`);
     const n = int(r[6], "ballot number");
     if (u.votes.has(n)) throw new Error(`duplicate elctks ${keyString(k)} #${n}`);
     u.votes.set(n, int(r[7], "votes"));
     u.officialRate.set(n, Number(r[8]));
+    if (u.partial) u.valid += u.votes.get(n)!;
   }
 
   // elcand has no station column (column 5 is the ballot number): its rows are contest keys.
@@ -171,10 +199,11 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       name: r[6]!,
       partyCode: int(r[7], "party code"),
       gender: r[8] === "1" ? "M" : r[8] === "2" ? "F" : null,
-      birthYearROC: /^\d{7}$/.test(r[9] ?? "") ? Number(r[9]!.slice(0, 3)) : null,
+      birthYearROC: /^\d{7}$/.test(r[9] ?? "") ? Number(r[9]!.slice(0, 3)) : legacy && /^\d{3}$/.test(r[9] ?? "") ? Number(r[9]) : null,
       incumbent: r[13] === "Y" ? true : r[13] === "N" ? false : null,
-      electedMark: r[14] ?? "",
+      electedMark: (legacy ? (r[14] ?? "").trim() : r[14]) ?? "",
       isRunningMate: r[15] === "Y",
+      ...(legacy ? { legacyMarks: true } : {}),
     }));
 
   const parties = readEl(elFile(dir, "elpaty")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
@@ -208,7 +237,7 @@ export interface ElPartyList {
 
 /** Read the party-list extras that only 不分區政黨 directories have. */
 export function readElPartyList(dir: string): ElPartyList {
-  const members = readEl(elFile(dir, "elrepm")).map((r) => ({
+  const members = readElRaw(elFile(dir, "elrepm")).map((r) => ({
     partyCode: int(r[0], "party code"),
     rank: int(r[1], "list rank"),
     name: r[2]!,
@@ -221,7 +250,7 @@ export function readElPartyList(dir: string): ElPartyList {
     if (s === undefined || !/^\d+(\.\d+)?$/.test(s)) throw new Error(`expected number for ${what}, got ${JSON.stringify(s)}`);
     return Number(s);
   };
-  const results = readEl(elFile(dir, "elretks")).map((r) => ({
+  const results = readElRaw(elFile(dir, "elretks")).map((r) => ({
     partyCode: int(r[0], "party code"),
     voteSharePct: num(r[1], "vote share"),
     qualifiedSharePct: num(r[2], "qualified share"),
@@ -272,5 +301,30 @@ export function mergeElDatasets(parts: ElDataset[]): ElDataset {
     candidates: parts.flatMap((p) => p.candidates),
     parties: [...parties.values()],
     contestNotes: new Map(parts.flatMap((p) => [...(p.contestNotes ?? [])])),
+    knownMismatch: parts.flatMap((p) => p.knownMismatch ?? []),
   };
 }
+
+/**
+ * Replace the 2010-06-12 files' old party numbers (1 國民黨, 2 民進黨, …, 99 無) with the modern
+ * CEC codes, matched by party name against `modern`; 99 ("無") is 999. Unknown names fail.
+ */
+export function remapLegacyParties(ds: ElDataset, modern: ElParty[]): { mapped: string[] } {
+  const byName = new Map(modern.map((p) => [p.name, p.code]));
+  const map = new Map<number, number>();
+  for (const p of ds.parties) {
+    const code = p.code === 99 && p.name === "無" ? 999 : byName.get(p.name);
+    if (code === undefined) throw new Error(`legacy party ${p.code} ${p.name}: no modern party of that name`);
+    map.set(p.code, code);
+  }
+  for (const c of ds.candidates) {
+    const code = map.get(c.partyCode);
+    if (code === undefined) throw new Error(`legacy candidate ${c.name}: unknown party ${c.partyCode}`);
+    c.partyCode = code;
+  }
+  ds.parties = [...map].map(([, code]) => modern.find((p) => p.code === code) ?? { code: 999, name: "無黨籍及未經政黨推薦" });
+  return { mapped: [...map].map(([a, b]) => `${a}→${b}`) };
+}
+
+/** A directory's party list alone (elpaty), e.g. as modern codes for remapLegacyParties. */
+export const readElParties = (dir: string): ElParty[] => readElRaw(elFile(dir, "elpaty")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));

@@ -79,6 +79,11 @@ export interface ElGroupDef {
   registryFrom?: string[];
   /** Combined maps: directories (by path prefix) voted on another day than the election; their contests carry it. */
   dirDates?: { prefix: string; date: string }[];
+  /**
+   * Directories (by path prefix) in the 2010-06-12 layout (adapters/cec-el.ts ElReadOptions.legacy),
+   * with directories whose elpaty gives the modern party codes to remap their old ones.
+   */
+  legacy?: { prefixes: string[]; modernPartiesFrom: string[] };
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
   seats?: number;
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */
@@ -129,7 +134,8 @@ export function villageUnitId(k: ElKey, name: string): string {
 
 function contestIdOf(d: ElGroupDef, county: string | null, dist: string | null, key: string): string {
   const prefix = d.contestPrefix ?? "ly";
-  if (isLocalContests(d.contests)) return `${d.election.id}.${prefix}-${key}`;
+  // Lowercase: village keys may carry a G / Z prefix (adapters/registry.ts); ids are lowercase slugs.
+  if (isLocalContests(d.contests)) return `${d.election.id}.${prefix}-${key.toLowerCase()}`;
   if (d.contests === "district") return `${d.election.id}.${prefix}-${county}-d${dist}`;
   if (d.contests === "county") return `${d.election.id}.${prefix}-${county}`;
   return groupId(d);
@@ -218,7 +224,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       id: contestIdOf(d, county, dist, key),
       county,
       dist,
-      choicePrefix: multi ? `${county}-d${dist}.` : byCounty ? `${county}.` : local ? `${key}.` : "",
+      choicePrefix: multi ? `${county}-d${dist}.` : byCounty ? `${county}.` : local ? `${key.toLowerCase()}.` : "",
     });
   }
   const contestList = [...infos.values()].sort((a, b) => a.key.localeCompare(b.key));
@@ -326,6 +332,8 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   const topRowOf = (ci: ContestInfo) => ds.units.find((u) => u.level === contestLevel && (contestLevel === "national" || contestKeyOf(u.key) === ci.key));
   const winnerBad: string[] = [];
   let drawsDecided = 0;
+  let quotaInferred = 0;
+  let keptAsPublished = 0;
   let partyList: Contest["partyList"] = null;
   for (const ci of contestList) {
     const row = topRowOf(ci);
@@ -340,6 +348,18 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     const top = new Set(nums.slice(0, n));
     const mine = candidacies.filter((c) => c.contestId === ci.id && c.role === "principal");
     const votesOf = (c: Candidacy) => row.votes.get(c.ballotNumber) ?? 0;
+    // 2010-06-12 files mark every winner "*" (no "!"): one marked woman outside the top n, with
+    // the lowest-ranked man inside it unmarked, is a 婦女保障名額 seat — record it as such.
+    // (Only races of 4 seats or more have the reserved seat: 每滿四名應有婦女當選名額一名.)
+    if (n >= 4 && ds.candidates.some((c) => c.legacyMarks && contestKeyOf(c.key) === ci.key)) {
+      const outside = mine.filter((c) => c.elected && !top.has(c.ballotNumber) && votesOf(c) < cut);
+      const unmarkedTop = mine.filter((c) => !c.elected && top.has(c.ballotNumber) && votesOf(c) > (outside[0] ? votesOf(outside[0]) : Infinity));
+      if (outside.length === 1 && outside[0]!.gender === "F" && unmarkedTop.length === 1 && unmarkedTop[0]!.gender === "M") {
+        outside[0]!.electedNote = "women-quota";
+        unmarkedTop[0]!.electedNote = "displaced-by-women-quota";
+        quotaInferred++;
+      }
+    }
     // 婦女保障名額: a woman outside the top n ("!") takes the place of the lowest-ranked man in it.
     const quota = mine.filter((c) => c.electedNote === "women-quota");
     const regular = mine.filter((c) => c.elected && c.electedNote !== "women-quota");
@@ -353,6 +373,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     const explained = lot.length > 0 || quota.some((c) => votesOf(c) === cut) || decidedDraw;
     if (tiedHere && !explained) winnerBad.push(`${ci.id}: tie for the last seat`);
     if (tiedHere && decidedDraw && !quota.some((c) => votesOf(c) === cut)) drawsDecided++;
+    if (ds.candidates.some((c) => c.winnerAsPublished && contestKeyOf(c.key) === ci.key)) { keptAsPublished++; continue; }
     const bad = lot.length
       ? lot.length !== 2 ||
         lot.some((c) => votesOf(c) !== cut) ||
@@ -376,7 +397,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
         : {
             id: "winner-consistent",
             status: "pass",
-            detail: `${contestList.length} contests, ${contestList.reduce((a, ci) => a + seatsOf(ci), 0)} seats: the elected candidates have the most votes${candidacies.some((c) => c.electedNote === "women-quota") ? " (women-quota seats replace the lowest-ranked man)" : ""}${lotSeats ? `; ${lotSeats} seats tied between two candidates and decided by lot (the draw's result is not in the data)` : ""}${drawsDecided ? `; ${drawsDecided} seats tied at the cut-off and decided by lot, the draw's winner marked elected` : ""}`,
+            detail: `${contestList.length} contests, ${contestList.reduce((a, ci) => a + seatsOf(ci), 0)} seats: the elected candidates have the most votes${candidacies.some((c) => c.electedNote === "women-quota") ? " (women-quota seats replace the lowest-ranked man)" : ""}${lotSeats ? `; ${lotSeats} seats tied between two candidates and decided by lot (the draw's result is not in the data)` : ""}${drawsDecided ? `; ${drawsDecided} seats tied at the cut-off and decided by lot, the draw's winner marked elected` : ""}${quotaInferred ? `; ${quotaInferred} 婦女保障名額 seats inferred (the 2010-06-12 files mark every winner "*")` : ""}${keptAsPublished ? `; ${keptAsPublished} contests kept as CEC marks them (data-corrections winner-as-published)` : ""}`,
           },
   );
 
@@ -470,10 +491,11 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       rows: rows.map(({ m, u, votes }) => ({
         unit: m.unit.id,
         summary: {
-          electors: u.electors,
-          ballotsCast: u.cast,
+          // Partial units (candidate votes only) know their valid ballots and nothing else.
+          electors: u.partial ? null : u.electors,
+          ballotsCast: u.partial ? null : u.cast,
           valid: u.valid,
-          invalid: u.invalid,
+          invalid: u.partial ? null : u.invalid,
           // CEC writes 0 where population is not reported (below county level).
           population: u.populationRaw === 0 ? null : u.populationRaw,
         },

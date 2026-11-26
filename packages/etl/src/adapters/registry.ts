@@ -153,14 +153,9 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
     else town.set(oldT, code);
   }
   // Two old townships may not land on one registry township.
+  // (代表 files also have a row per 選區 inside a township, under the same old code: compare codes.)
   const byNewTown = new Map<string, string[]>();
-  for (const u of ds.units.filter((x) => x.level === "town")) {
-    const t = town.get(u.key.prv + u.key.cty + u.key.town);
-    if (!t) continue;
-    const names = byNewTown.get(t) ?? [];
-    if (!names.includes(`${u.key.prv}${u.key.cty}${u.key.town} ${u.name}`)) names.push(`${u.key.prv}${u.key.cty}${u.key.town} ${u.name}`);
-    byNewTown.set(t, names);
-  }
+  for (const [oldT, t] of town) byNewTown.set(t, [...(byNewTown.get(t) ?? []), oldT]);
   for (const [t, names] of byNewTown) if (names.length > 1) bad.push(`townships ${names.join(" and ")} both map to ${t}`);
   // Counties merged on 2010-12-25 (臺中縣 + 臺中市 → 臺中市, …) numbered their 選區 from 01 each:
   // later old counties' 選區 continue after the earlier ones' (CEC's 選區 names are kept).
@@ -184,7 +179,8 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
     const tc = town.get(u.key.prv + u.key.cty + u.key.town);
     if (!tc) continue;
     // Village groups keep CEC's number, prefixed "G" so it cannot collide with a registry village code.
-    if (!/^0\d{3}$/.test(u.key.vil) || u.name.includes("、")) { vil.set(oldK, `G${u.key.vil.slice(1)}`); continue; }
+    // (A group is named with 「、」 or has a letter code; CEC's county-wide numbers may exceed 999.)
+    if (!/^\d{4}$/.test(u.key.vil) || u.name.includes("、")) { vil.set(oldK, `G${u.key.vil.slice(1)}`); continue; }
     const renamed = renamedCounty.has(tc.slice(0, 5)) ? u.name.replace(/村$/u, "里") : u.name; // 村 became 里 on the upgrade
     let code = ref.village.get(`${tc}|${u.name}`) ?? ref.village.get(`${tc}|${renamed}`) ?? null;
     if (!code) {

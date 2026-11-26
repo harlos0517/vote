@@ -476,3 +476,22 @@ describe("pre-2010 merged counties and file corrections", () => {
     expect(() => applyCorrections(ds, "e", "a/x/", c)).toThrow(/already agrees/);
   });
 });
+
+describe("2010-06-12 legacy files", () => {
+  it("maps old party numbers to modern codes by name (99 無 → 999) and fails on an unknown party", async () => {
+    const { remapLegacyParties } = await import("../src/adapters/cec-el.ts");
+    const cand = (partyCode: number) => ({ key: { prv: "01", cty: "001", dist: "01", town: "001", vil: "0001", station: "0000" }, ballotNumber: 1, name: "甲", partyCode, gender: "M" as const, birthYearROC: 50, incumbent: null, electedMark: "*", isRunningMate: false });
+    const ds = { units: [], candidates: [cand(2), cand(99)], parties: [{ code: 2, name: "民主進步黨" }, { code: 99, name: "無" }] };
+    remapLegacyParties(ds, [{ code: 16, name: "民主進步黨" }, { code: 999, name: "無黨籍及未經政黨推薦" }]);
+    expect(ds.candidates.map((c) => c.partyCode)).toEqual([16, 999]);
+    expect(() => remapLegacyParties({ units: [], candidates: [], parties: [{ code: 9, name: "某黨" }] }, [])).toThrow(/某黨/);
+  });
+  it("checks partial units (candidate votes only) on valid ballots alone", () => {
+    const mk = (vil: string, valid: number, partial: boolean) => ({ key: { prv: "10", cty: "002", dist: vil === "0000" ? "00" : "01", town: "010", vil, station: "0000" }, level: (vil === "0000" ? "town" : "village") as "town" | "village", name: "x", valid, invalid: partial ? 0 : 5, cast: partial ? 0 : valid + 5, electors: partial ? 0 : 99, populationRaw: 0, votes: new Map<number, number>(), officialRate: new Map<number, number>(), partial });
+    const up = (prv: string, cty: string, level: "national" | "county", valid: number) => ({ ...mk("0000", valid, false), key: { prv, cty, dist: "00", town: "000", vil: "0000", station: "0000" }, level });
+    const tree = (townValid: number) => ({ units: [up("00", "000", "national", townValid), up("10", "002", "county", townValid), mk("0000", townValid, false), mk("0001", 10, true), mk("0002", 20, true)], candidates: [], parties: [] });
+    const h = (d: ReturnType<typeof tree>) => checkElDataset(d, () => null).find((c) => c.id === "hierarchy-sums")!.status;
+    expect(h(tree(30))).toBe("pass");
+    expect(h(tree(31))).toBe("fail");
+  });
+});

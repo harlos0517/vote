@@ -14,7 +14,7 @@ import {
 import { DATA_SOURCES, RAW_SOURCES } from "./config/sources.ts";
 import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
-import { type ElDataset, type ElUnit, countyCode, elFile, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
+import { type ElDataset, type ElUnit, countyCode, elFile, mergeElDatasets, readElDir, readElParties, readElPartyList, remapLegacyParties, townCode } from "./adapters/cec-el.ts";
 import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
 import { type BuiltGroup, isLocalContests, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
 import { restoreSnapshot } from "./geo/restore.ts";
@@ -63,7 +63,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
 
   // extract
   const cecWork = join(o.workDir, "cec-votedata");
-  const zipDirs = GROUPS.flatMap((g) => [...g.archiveDirs, ...(g.registryFrom ?? []), ...(g.extra ? [g.extra.archiveDir, g.extra.refArchiveDir] : [])]);
+  const zipDirs = GROUPS.flatMap((g) => [...g.archiveDirs, ...(g.registryFrom ?? []), ...(g.legacy?.modernPartiesFrom ?? []), ...(g.extra ? [g.extra.archiveDir, g.extra.refArchiveDir] : [])]);
   unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, [...new Set(zipDirs)].map((d) => `${d}*`));
   const shapefiles = new Map<string, string>(); // boundary versionId → village .shp
   const snapshotsNeeded = [...GROUPS.map((g) => g.boundary), ...(GROUPS.some((g) => g.mixSnapshots) ? ALL_SNAPSHOTS : [])];
@@ -122,14 +122,21 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
           checks0.push(...renumberToRegistry(part, def.election.id, registry, adminRenames, villageRenames));
         }
       : undefined;
-    const dropped: { unit: ElUnit; note: string }[] = [];
+    const dropped: { unit: ElUnit; note: string; kind: "drop" | "mismatch" }[] = [];
+    const villageNoted: { unit: ElUnit; note: string }[] = [];
     const corrected = (part: ElDataset, dir: string) => {
       const r = applyCorrections(part, def.election.id, dir, dataCorrections);
       if (r.check) checks0.push(r.check);
+      for (const v of r.villageNotes) {
+        const [prv, cty, town, vil] = v.key.split("|");
+        const unit = part.units.find((u) => u.level === "village" && u.key.prv === prv && u.key.cty === cty && u.key.town === town && u.key.vil === vil);
+        if (unit) villageNoted.push({ unit, note: v.note });
+      }
       for (const t of r.droppedTowns) {
         const [prv, cty, town] = t.key.split("|");
-        const unit = part.units.find((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && u.key.town === town);
-        if (unit) dropped.push({ unit, note: t.note });
+        const unit = part.units.find((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && u.key.town === town && u.key.dist === "00")
+          ?? part.units.find((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && u.key.town === town);
+        if (unit) dropped.push({ unit, note: t.note, kind: t.kind });
       }
     };
     const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork, (part, dir) => { corrected(part, dir); prepare?.(part); });
@@ -221,7 +228,15 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       const code = townCode(d.unit.key);
       for (const u of built.results.town?.units ?? []) if (u.id.slice(u.id.indexOf(":") + 1, u.id.indexOf(":") + 9) === code) notes.push({ unit: u.id, note: d.note });
     }
-    if (dropped.length) built.group.warnings.push(`${dropped.length} 個鄉鎮市區的中選會村里數字與鄉鎮合計不符，只發布到鄉鎮市區層級（見各鄉鎮的註記）。`);
+    for (const v of villageNoted) {
+      const code = townCode(v.unit.key);
+      const id = built.results.village?.units.find((u) => u.nameZh === v.unit.name && u.parentId?.endsWith(code))?.id;
+      if (id) notes.push({ unit: id, note: v.note });
+    }
+    const nDrop = dropped.filter((d) => d.kind === "drop").length;
+    const nMismatch = dropped.length - nDrop;
+    if (nDrop) built.group.warnings.push(`${nDrop} 個鄉鎮市區的中選會村里數字與鄉鎮合計不符，只發布到鄉鎮市區層級（見各鄉鎮的註記）。`);
+    if (nMismatch) built.group.warnings.push(`${nMismatch} 個鄉鎮市區在中選會檔案中，鄉鎮的有效票與其下各單位的候選人得票合計不符，兩者都照公布數字呈現（見各鄉鎮的註記）。`);
     // Later snapshots keep 三和村 in a separate disputed layer; up to 1091030 it is in the main layer and drawn.
     const sanheApart = !(await snapshotCodes({ versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes"))).has(`${MAJIA}006`);
     const majia = sanheApart ? built.results.town!.units.filter((u) => u.id.includes(MAJIA)) : [];
@@ -377,7 +392,10 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     ),
   });
   const allParties = new Map<number, { code: number; name: string }>();
-  for (const g of GROUPS.filter((x) => x.format !== "rf")) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a), townsFilter(g), g.contests === "single").parties) allParties.set(p.code, p);
+  for (const g of GROUPS.filter((x) => x.format !== "rf")) for (const a of g.archiveDirs) {
+      if (g.legacy?.prefixes.some((x) => a.startsWith(x))) continue; // old party numbers; their parties appear in modern files
+      for (const p of readElDir(join(cecWork, a), townsFilter(g), g.contests === "single").parties) allParties.set(p.code, p);
+    }
   files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 2, parties: [...allParties.values()].map((p) => toParty(p, partyColors)) })) });
 
   const warn = allChecks.some((c) => c.status === "warn");
@@ -516,8 +534,11 @@ const townsFilter = (def: ElGroupDef) => (def.townsAndAbove ? (k: { vil: string;
 
 /** All el* directories of a group (merged when there are several), plus any extra adapter. */
 function readGroupData(def: ElGroupDef, cecWork: string, prepare?: (part: ElDataset, dir: string) => void): ElDataset {
+  const modern = def.legacy ? def.legacy.modernPartiesFrom.flatMap((a) => readElParties(join(cecWork, a))) : [];
   const parts = def.archiveDirs.map((a) => {
-    const part = readElDir(join(cecWork, a), townsFilter(def), def.contests === "single");
+    const legacy = def.legacy?.prefixes.some((x) => a.startsWith(x)) ?? false;
+    const part = readElDir(join(cecWork, a), townsFilter(def), def.contests === "single", { legacy });
+    if (legacy) remapLegacyParties(part, modern);
     const date = def.dirDates?.find((x) => a.startsWith(x.prefix))?.date;
     if (date) for (const c of part.candidates) c.contestDate = date;
     prepare?.(part, a);
