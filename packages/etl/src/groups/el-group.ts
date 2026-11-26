@@ -315,6 +315,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   const contestLevel = multi ? "district" : byCounty ? "county" : local === "village" ? "village" : local ? "town" : "national";
   const topRowOf = (ci: ContestInfo) => ds.units.find((u) => u.level === contestLevel && (contestLevel === "national" || contestKeyOf(u.key) === ci.key));
   const winnerBad: string[] = [];
+  let drawsDecided = 0;
   let partyList: Contest["partyList"] = null;
   for (const ci of contestList) {
     const row = topRowOf(ci);
@@ -335,8 +336,13 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     // "?": two candidates tied for the last seat, decided by lot; both must have the cut-off votes.
     const lot = mine.filter((c) => c.electedNote === "tied-decided-by-lot");
     const tiedAtCut = nums.filter((x) => (row.votes.get(x) ?? 0) === cut);
-    const explained = lot.length > 0 || quota.some((c) => votesOf(c) === cut);
-    if (nums.length > n && (row.votes.get(nums[n]!) ?? 0) === cut && !explained) winnerBad.push(`${ci.id}: tie for the last seat`);
+    // A tie at the cut-off is explained by a draw: still open ("?", 2018+), or already decided
+    // (2014: the winner is simply marked "*"; exactly n marked, none below the cut-off).
+    const decidedDraw = lot.length === 0 && regular.length + quota.length === n && regular.every((c) => votesOf(c) >= cut);
+    const tiedHere = nums.length > n && (row.votes.get(nums[n]!) ?? 0) === cut;
+    const explained = lot.length > 0 || quota.some((c) => votesOf(c) === cut) || decidedDraw;
+    if (tiedHere && !explained) winnerBad.push(`${ci.id}: tie for the last seat`);
+    if (tiedHere && decidedDraw && !quota.some((c) => votesOf(c) === cut)) drawsDecided++;
     const bad = lot.length
       ? lot.length !== 2 ||
         lot.some((c) => votesOf(c) !== cut) ||
@@ -360,7 +366,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
         : {
             id: "winner-consistent",
             status: "pass",
-            detail: `${contestList.length} contests, ${contestList.reduce((a, ci) => a + seatsOf(ci), 0)} seats: the elected candidates have the most votes${candidacies.some((c) => c.electedNote === "women-quota") ? " (women-quota seats replace the lowest-ranked man)" : ""}${lotSeats ? `; ${lotSeats} seats tied between two candidates and decided by lot (the draw's result is not in the data)` : ""}`,
+            detail: `${contestList.length} contests, ${contestList.reduce((a, ci) => a + seatsOf(ci), 0)} seats: the elected candidates have the most votes${candidacies.some((c) => c.electedNote === "women-quota") ? " (women-quota seats replace the lowest-ranked man)" : ""}${lotSeats ? `; ${lotSeats} seats tied between two candidates and decided by lot (the draw's result is not in the data)` : ""}${drawsDecided ? `; ${drawsDecided} seats tied at the cut-off and decided by lot, the draw's winner marked elected` : ""}`,
           },
   );
 

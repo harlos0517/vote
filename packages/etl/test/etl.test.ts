@@ -347,6 +347,12 @@ describe("township and village offices", () => {
     expect(b.results.town!.units[0]!.contestIds).toHaveLength(2);
     expect(b.results.village!.rows.find((r) => r.unit === "vil:10013080001")!.votes).toEqual({ "10013080-0001.n1": 60, "10013080-0001.n2": 40 });
   });
+  it("accepts a tie whose draw winner is already marked (2014: no '?', just '*')", () => {
+    const decided = { ...ds, candidates: [cand("0001", 1, "*", 1), cand("0001", 2, ""), cand("0002", 1, "*"), cand("0002", 2, "")] };
+    const w = buildElGroup(V1, decided, new Map()).checks.find((c) => c.id === "winner-consistent")!;
+    expect(w.status).toBe("pass");
+    expect(w.detail).toContain("1 seats tied at the cut-off and decided by lot, the draw's winner marked elected");
+  });
   it("accepts a tie decided by lot and leaves both candidates' result open", () => {
     expect(b.checks.find((c) => c.id === "winner-consistent")!.status).toBe("pass");
     const lot = b.candidacies.filter((c) => c.contestId.endsWith("0002"));
