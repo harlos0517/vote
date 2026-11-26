@@ -72,6 +72,11 @@ export interface ElGroupDef {
    * groups that their summary file folds into other villages, so only township totals and up agree.
    */
   townsAndAbove?: boolean;
+  /**
+   * The files use CEC's own sequence codes (2012 and earlier): translate them to registry codes
+   * by name against these registry-coded el* directories (adapters/registry.ts).
+   */
+  registryFrom?: string[];
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
   seats?: number;
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */

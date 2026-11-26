@@ -72,6 +72,11 @@ export function planVillages(
   for (const u of units) {
     if (u.id.startsWith("vil:")) { claim(u.id.slice(4), u.id); continue; }
     const [town, code] = u.id.slice(5).split("-") as [string, string];
+    // "Z…": a village reorganised before the registry reference (adapters/registry.ts) — no code, no shape.
+    if (code.startsWith("Z")) {
+      noShape.push({ unit: u.id, note: `${u.nameZh}在這次選舉之後、2014 年之前已整編，戶政代碼與國土測繪中心圖資都已沒有此村里，地圖未繪出；票數計入鄉鎮。` });
+      continue;
+    }
     const row = groups.get(villageGroupKey(election, town, code, u.nameZh));
     if (!row) {
       missing.push(`${election},${town},${code},${u.nameZh}`);

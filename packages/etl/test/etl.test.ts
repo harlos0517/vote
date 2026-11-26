@@ -401,3 +401,38 @@ describe("polling-station files", () => {
     expect(() => stationFiles("e.g", [row("0001", "0597", "vgrp:63000010-0A01"), row("0002", "0597", "vil:63000010002")])).toThrow(/village group/);
   });
 });
+
+describe("CEC sequence codes → registry codes", () => {
+  const mk = (prv: string, cty: string, town: string, vil: string, station: string, level: "national" | "county" | "town" | "village" | "station", name: string) => ({ key: { prv, cty, dist: "00", town, vil, station }, level, name, valid: 1, invalid: 0, cast: 1, electors: 1, populationRaw: 0, votes: new Map(), officialRate: new Map() });
+  const ref = {
+    county: new Map([["桃園市", "68000"]]),
+    town: new Map([["68000|中壢區", "68000020"]]),
+    village: new Map([["68000020|中原里", "68000020005"], ["68000020|興國里", "68000020009"]]),
+  };
+  const admin = [{ kind: "county" as const, old: "桃園縣", new: "桃園市", source: "x", reviewed: false }];
+  const ds = () => ({
+    units: [
+      mk("03", "000", "000", "0000", "0000", "county", "桃園縣"),
+      mk("03", "000", "004", "0000", "0000", "town", "中壢市"),
+      mk("03", "000", "004", "0001", "0000", "village", "中原村"),
+      mk("03", "000", "004", "0001", "0012", "station", ""),
+      mk("03", "000", "004", "0002", "0000", "village", "甲村、乙村"),
+      mk("03", "000", "004", "0003", "0000", "village", "舊村"),
+    ],
+    candidates: [],
+    parties: [],
+  });
+  it("maps a renamed county's township by stem and 村 → 里, prefixes groups G, and codeless villages Z", async () => {
+    const { renumberToRegistry } = await import("../src/adapters/registry.ts");
+    const d = ds();
+    const checks = renumberToRegistry(d, "e", ref, admin, new Map([["e|68000020|舊村", { code: null, source: "x", reviewed: false }]]));
+    expect(d.units.map((u) => `${u.key.prv}${u.key.cty}${u.key.town}-${u.key.vil}-${u.key.station}`)).toEqual([
+      "68000000-0000-0000", "68000020-0000-0000", "68000020-0005-0000", "68000020-0005-0012", "68000020-G002-0000", "68000020-Z003-0000",
+    ]);
+    expect(checks[0]!.status).toBe("warn"); // the rename rows are unreviewed
+  });
+  it("fails on a village that is neither matched nor listed", async () => {
+    const { renumberToRegistry } = await import("../src/adapters/registry.ts");
+    expect(() => renumberToRegistry(ds(), "e", ref, admin, new Map())).toThrow(/舊村/);
+  });
+});

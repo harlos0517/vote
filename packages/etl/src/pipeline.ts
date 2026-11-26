@@ -18,6 +18,7 @@ import { type ElDataset, countyCode, elFile, mergeElDatasets, readElDir, readElP
 import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
 import { type BuiltGroup, isLocalContests, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
 import { restoreSnapshot } from "./geo/restore.ts";
+import { loadAdminRenames, loadVillageRenames, registryReference, renumberToRegistry } from "./adapters/registry.ts";
 import { ALL_SNAPSHOTS, GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries, buildVillages } from "./geo/build.ts";
 import { loadVillageGroups, planVillages, villageGeoCode, villageGroupKey } from "./geo/villages.ts";
@@ -61,7 +62,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
 
   // extract
   const cecWork = join(o.workDir, "cec-votedata");
-  const zipDirs = GROUPS.flatMap((g) => [...g.archiveDirs, ...(g.extra ? [g.extra.archiveDir, g.extra.refArchiveDir] : [])]);
+  const zipDirs = GROUPS.flatMap((g) => [...g.archiveDirs, ...(g.registryFrom ?? []), ...(g.extra ? [g.extra.archiveDir, g.extra.refArchiveDir] : [])]);
   unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, [...new Set(zipDirs)].map((d) => `${d}*`));
   const shapefiles = new Map<string, string>(); // boundary versionId → village .shp
   const snapshotsNeeded = [...GROUPS.map((g) => g.boundary), ...(GROUPS.some((g) => g.mixSnapshots) ? ALL_SNAPSHOTS : [])];
@@ -87,6 +88,8 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const partyColors = loadPartyColors(o.repoRoot);
   const puaNames = loadPuaNames(o.repoRoot);
   const questions = loadReferendumQuestions(o.repoRoot);
+  const adminRenames = loadAdminRenames(o.repoRoot);
+  const villageRenames = loadVillageRenames(o.repoRoot);
 
   const outputs: GroupOutput[] = [];
   const geoByLayout = new Map<string, Boundaries>();
@@ -101,6 +104,14 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     const rf = def.format === "rf";
     const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork);
     const puaCheck = applyPuaNames(ds, puaNames);
+    if (def.registryFrom) {
+      const refDs = def.registryFrom.map((a) => {
+        const r = readElDir(join(cecWork, a));
+        applyPuaNames(r, puaNames);
+        return r;
+      });
+      checks0.push(...renumberToRegistry(ds, def.election.id, registryReference(refDs), adminRenames, villageRenames));
+    }
     if (rf && def.rfTownCodesFrom && def.villages) {
       checks0.push(await renumberRfVillages(def, ds as RfDataset, cecWork, { versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes")));
     }
