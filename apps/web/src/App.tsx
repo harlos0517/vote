@@ -4,6 +4,7 @@ import { DataError } from "@tw-election/data-client";
 import { ColorOptions, Controls, LEVEL_LABEL } from "./components/Controls.tsx";
 import { ElectionMap } from "./components/ElectionMap.tsx";
 import { Legend } from "./components/Legend.tsx";
+import { NoDataPanel } from "./components/NoDataPanel.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { VoteRing } from "./components/VoteRing.tsx";
 import { ElectionPicker } from "./components/ElectionPicker.tsx";
@@ -99,6 +100,9 @@ export function App() {
   const drawn = complete ?? lastDrawn.current;
 
   const lockedCode = view.unit ? codeOf(view.unit) : null;
+  // Hovering a drawn area with no result: say so, instead of falling back to the national figures.
+  const emptyHover = hovered && units && !units.has(hovered) ? hovered : null;
+  const emptyTown = emptyHover ? [...townNames].find(([id]) => codeOf(id).slice(0, 8) === emptyHover.slice(0, 8))?.[1].replace(/（.*）$/, "") ?? null : null;
   const shown: { unit: UnitView; status: "hover" | "locked" | "overall"; levelName: string } | null =
     (hovered && units?.get(hovered) && { unit: units.get(hovered)!, status: "hover", levelName: LEVEL_LABEL[level] }) ||
     (lockedCode && units?.get(lockedCode) && { unit: units.get(lockedCode)!, status: "locked", levelName: LEVEL_LABEL[level] }) ||
@@ -217,7 +221,7 @@ export function App() {
                 </Stack>
               </Paper>
             )}
-            {shown && ring.length > 0 && (
+            {shown && !emptyHover && ring.length > 0 && (
               // No frame or background: the ring sits directly on the map.
               <div className={classes.ring}>
                 <VoteRing segments={ring} title={shown.unit.name} subtitle={`投票率 ${fmtPct(turnout(shown.unit.summary), 1)}`} marker={marker} />
@@ -235,7 +239,15 @@ export function App() {
           {live && shown && shown.status !== "overall" && (
             <LiveUnitProgress progress={progress.get(shown.unit.id)} unitLabel={PROGRESS_UNIT_LABEL[snapshot?.progressUnit ?? "station"]} />
           )}
-          {ctx && shown && model ? (
+          {emptyHover && m ? (
+            <NoDataPanel
+              code={emptyHover}
+              levelName={LEVEL_LABEL[level]}
+              meta={m}
+              countyName={countyNames.get(`cty:${emptyHover.slice(0, 5)}`) ?? null}
+              townName={emptyTown}
+            />
+          ) : ctx && shown && model ? (
             <Sidebar
               ctx={ctx}
               unit={shown.unit}

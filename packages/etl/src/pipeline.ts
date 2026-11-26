@@ -209,6 +209,12 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
         return u.id.startsWith("vil:") && !noShape.has(u.id) && !shaped.has(c) && !baseCodes.has(c) && unresolvedTowns.has(c.slice(0, 8));
       });
       for (const u of lost) noShape.set(u.id, "國土測繪中心現存各版村里界圖資都沒有此村里（應已在最早的 1070205 版之前整編），地圖未繪出；票數計入鄉鎮。");
+      // They cannot be hovered or clicked, so list them on their township too.
+      const lostByTown = new Map<string, string[]>();
+      for (const u of lost) if (u.parentId) lostByTown.set(u.parentId, [...(lostByTown.get(u.parentId) ?? []), u.nameZh]);
+      for (const [town, names] of lostByTown) {
+        notes.push({ unit: town, note: `本區有 ${names.length} 個村里（${names.join("、")}）在國土測繪中心現存各版圖資中都沒有界線，村里地圖上畫不出來；其票數計入本區。` });
+      }
       if (lost.length) {
         built.group.warnings.push(`村里層級：${lost.length} 個村里在國土測繪中心現存各版圖資中都沒有界線（已於 2018 年 2 月前整編），地圖未繪出，票數只計入鄉鎮。`);
         checks.push({ id: "village-no-boundary", status: "warn", detail: `${lost.length} villages are in no available snapshot: ${list(lost.map((u) => u.id.slice(4)))}` });
