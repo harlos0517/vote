@@ -1,4 +1,5 @@
-import { Badge, Button, Divider, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { useEffect, useMemo, useState } from "react";
+import { Badge, Button, Divider, Group, Loader, Paper, Select, Stack, Table, Text, Title } from "@mantine/core";
 import { ABSTAIN_COLOR, INVALID_COLOR, NEUTRAL } from "../lib/colors.ts";
 import { fmtInt, fmtPct, turnout, type UnitView } from "../lib/results.ts";
 import {
@@ -34,6 +35,11 @@ export interface SidebarProps {
   /** Referendum palette (blue / orange). */
   colorblind: boolean;
   onUnlock: () => void;
+  /**
+   * Sub-area table, for a locked area only: villages of a township, or polling stations of a
+   * village. `loading` while its file is fetched.
+   */
+  sub?: { kind: "村里" | "投開票所"; units: UnitView[] | null; loading: boolean };
 }
 
 export function Sidebar(p: SidebarProps) {
@@ -80,6 +86,8 @@ export function Sidebar(p: SidebarProps) {
 
       {ctx.referendum ? <ReferendumTable {...p} d={d} abst={abst} /> : ctx.partyList ? <PartyListTable {...p} d={d} abst={abst} /> : multi ? <PartyTable {...p} d={d} abst={abst} /> : <CandidateTable {...p} d={d} abst={abst} />}
 
+      {p.sub && <SubArea {...p} sub={p.sub} />}
+
       <Text size="sm" fw={600}>概況</Text>
       <Table withRowBorders={false} verticalSpacing={1} fz="xs">
         <Table.Tbody>
@@ -108,6 +116,55 @@ export function Sidebar(p: SidebarProps) {
 }
 
 type TableProps = SidebarProps & { d: number | null; abst: number | null };
+
+/** One village (or station) of the shown area, picked from a select, with its own table. */
+function SubArea(p: SidebarProps & { sub: NonNullable<SidebarProps["sub"]> }) {
+  const { ctx, sub } = p;
+  const [picked, setPicked] = useState<string | null>(null);
+  const undrawn = useMemo(() => new Set(ctx.meta.boundary.undrawn), [ctx.meta]);
+  const units = useMemo(() => [...(sub.units ?? [])].sort((a, b) => a.id.localeCompare(b.id)), [sub.units]);
+  const unit = units.find((u) => u.id === picked) ?? null;
+  // A new area resets the pick.
+  useEffect(() => setPicked(null), [p.unit.id]);
+  // Locked view only: hovering changes the area too quickly for a picker.
+  if (p.status !== "locked") return null;
+  if (sub.loading) return <Group gap="xs"><Loader size="xs" /><Text size="xs">載入各{sub.kind}資料中…</Text></Group>;
+  if (!units.length) return <Text size="xs" c="dimmed">此地區沒有{sub.kind}層級的資料。</Text>;
+  const label = (u: UnitView) => `${u.name}${undrawn.has(u.id) ? "（地圖未繪出）" : ""}`;
+  const s = unit?.summary;
+  const d = unit ? denominatorOf(unit.summary, p.den) : null;
+  const abst = unit ? abstained(unit.summary) : null;
+  const tp = unit ? { ...p, unit, d, abst } : null;
+  return (
+    <Stack gap={6}>
+      <Text size="sm" fw={600}>各{sub.kind}（共 {units.length} 個）</Text>
+      <Select
+        size="xs"
+        aria-label={`選擇${sub.kind}`}
+        placeholder={`選擇${sub.kind}`}
+        data={units.map((u) => ({ value: u.id, label: label(u) }))}
+        value={picked}
+        onChange={setPicked}
+        searchable
+        clearable
+        maxDropdownHeight={280}
+        comboboxProps={{ withinPortal: true }}
+      />
+      {unit && tp && s && (
+        <Paper withBorder p="xs" radius="sm">
+          <Stack gap={6}>
+            <Group gap="xs" align="baseline">
+              <Text size="sm" fw={600}>{label(unit)}</Text>
+              <Text size="xs" c="dimmed">投票率 {fmtPct(turnout(s))}（{fmtInt(s.ballotsCast)} ÷ {fmtInt(s.electors)}）</Text>
+            </Group>
+            {undrawn.has(unit.id) && <Text size="xs" c="orange.8">⚠ 此{sub.kind === "村里" ? "村里" : "投開票所"}在地圖上沒有對應的圖面，票數計入上一層。</Text>}
+            {ctx.referendum ? <ReferendumTable {...tp} /> : ctx.partyList ? <PartyListTable {...tp} /> : isMultiContest(unit) ? <PartyTable {...tp} /> : <CandidateTable {...tp} />}
+          </Stack>
+        </Paper>
+      )}
+    </Stack>
+  );
+}
 
 function CandidateTable({ ctx, unit, den, d, abst }: TableProps) {
   const choices = ctx.choicesByContest.get(unit.contestIds[0]!) ?? [];

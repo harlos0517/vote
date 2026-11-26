@@ -112,6 +112,19 @@ export function App() {
     (lockedCode && units?.get(lockedCode) && { unit: units.get(lockedCode)!, status: "locked", levelName: LEVEL_LABEL[level] }) ||
     (nationalUnit ? { unit: nationalUnit, status: "overall", levelName: "全國" } : null);
 
+  // Sub-area table: a locked township lists its villages, a locked village its polling stations
+  // (loaded only then; stations per county). Not in live mode, which has no such files.
+  const lockedUnit = shown?.status === "locked" ? shown.unit : null;
+  const subKind = level === "town" ? "村里" : level === "village" ? "投開票所" : null;
+  const subAvailable = !live && !!m && (subKind === "村里" ? !!m.results.village : subKind === "投開票所" ? Object.keys(m.stationResults ?? {}).length > 0 : false);
+  const subPath =
+    subAvailable && lockedUnit && m ? (subKind === "村里" ? m.results.village : m.stationResults?.[codeOf(lockedUnit.id).slice(0, 5)]) : undefined;
+  const subResults = useResults(release, subPath);
+  const subUnits = useMemo(
+    () => (subResults.data && lockedUnit ? [...toUnitViews(subResults.data).values()].filter((u) => u.parentId === lockedUnit.id) : null),
+    [subResults.data, lockedUnit],
+  );
+
   /** County of a unit: walk parent ids (town part → district → county). */
   const countyOf = (u: UnitView): string | null => {
     if (u.id.startsWith("cty:") || u.id === "nat") return null;
@@ -265,6 +278,7 @@ export function App() {
               colorblind={view.colorblind}
               mapLevelLabel={LEVEL_LABEL[level]}
               onUnlock={() => setView({ unit: null })}
+              sub={subAvailable && subKind && shown.status === "locked" ? { kind: subKind, units: lockedUnit ? subUnits : null, loading: !!subPath && subResults.isLoading } : undefined}
             />
           ) : (
             !firstError && <Loader size="sm" />
