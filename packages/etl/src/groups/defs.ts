@@ -42,6 +42,13 @@ export const E2020: ElectionDef = {
   kinds: ["president", "legislative"],
 };
 
+export const E2012: ElectionDef = {
+  id: "2012-01-14-president-legislative",
+  date: "2012-01-14",
+  nameZh: "2012年 第13任總統副總統及第8屆立法委員選舉",
+  kinds: ["president", "legislative"],
+};
+
 export const E2016: ElectionDef = {
   id: "2016-01-16-president-legislative",
   date: "2016-01-16",
@@ -173,6 +180,8 @@ interface PresLegDef {
   mix?: boolean;
   /** Extra warnings for every group of this election. */
   notes?: string[];
+  /** Files in CEC sequence codes: registry-coded directories to translate them by name. */
+  registryFrom?: string[];
   /** 原住民立委 files that agree only from township level up (see ElGroupDef.townsAndAbove). */
   indigenousTownsOnly?: boolean;
 }
@@ -190,10 +199,27 @@ const P2016: PresLegDef = {
   indigenousTownsOnly: true,
   notes: [B2016_NOTE, "2016 年的中選會檔案名稱帶有選舉種類代碼（例如 elbase_P1.csv）；同目錄的 old/ 為以中選會自編序號編碼的同一份資料，未使用。"],
 };
+const P2012: PresLegDef = {
+  election: E2012,
+  dir: "votedata/votedata/voteData/20120114-總統及立委/",
+  boundary: B2016,
+  presidentTerm: 13,
+  legislatorTerm: 8,
+  splitTowns: 12, // counted from the 區域立委 elprof
+  villages: true,
+  mix: true,
+  // 2014 is the nearest registry-coded election: its 村里長 and 縣市長 files name every unit.
+  registryFrom: ["votedata/votedata/voteData/2014-103年地方公職人員選舉/村里長/", "votedata/votedata/voteData/2014-103年地方公職人員選舉/縣市市長/", "votedata/votedata/voteData/2014-103年地方公職人員選舉/直轄市市長/"],
+  notes: [
+    B2016_NOTE,
+    "2012 年的中選會檔案使用中選會自編的縣市、鄉鎮、村里序號（例如臺北市為 01），已依名稱對應為戶政代碼（參照 2014 年地方選舉檔案）；桃園縣於 2014-12-25 改制為桃園市，其鄉鎮市與村依改制後的區、里對應。",
+    "2012 年的中選會檔案以撇號標示代碼欄位（例如 '01），讀取時移除。",
+  ],
+};
 const P2020: PresLegDef = { election: E2020, dir: "votedata/votedata/voteData/2020總統立委/", boundary: B2020, presidentTerm: 15, legislatorTerm: 10, splitTowns: 12, villages: true, mix: true };
 
 function presidentLegislative(p: PresLegDef): ElGroupDef[] {
-  const base = { election: p.election, boundary: p.boundary, villages: p.villages ?? false, mixSnapshots: p.mix ?? false };
+  const base = { election: p.election, boundary: p.boundary, villages: p.villages ?? false, mixSnapshots: p.mix ?? false, ...(p.registryFrom ? { registryFrom: p.registryFrom } : {}) };
   const indigenous = (kind: "山地" | "平地"): ElGroupDef => ({
     ...base,
     local: kind === "山地" ? "legislator-highland-indigenous" : "legislator-lowland-indigenous",
@@ -524,6 +550,7 @@ export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2024),
   ...presidentLegislative(P2020),
   ...presidentLegislative(P2016),
+  ...presidentLegislative(P2012),
   ...localElections(L22),
   ...localElections(L18),
   ...localElections(L14),
