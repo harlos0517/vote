@@ -1,4 +1,5 @@
 /** Contest groups published in this release. Add an entry to add an election. */
+import type { Office } from "@tw-election/schema";
 import type { BoundaryDef, ElectionDef, ElGroupDef } from "./el-group.ts";
 
 const B2024: BoundaryDef = { versionId: "nlsc-village-1120928", raw: "nlscVillage112", shapefile: /^VILLAGE_NLSC_1120928\.shp$/ };
@@ -40,6 +41,33 @@ export const E2020: ElectionDef = {
   date: "2020-01-11",
   nameZh: "2020年 第15任總統副總統及第10屆立法委員選舉",
   kinds: ["president", "legislative"],
+};
+
+/** 2014 is the nearest registry-coded election: its 村里長 and 縣市長 files name every unit. */
+const REGISTRY_2014 = ["votedata/votedata/voteData/2014-103年地方公職人員選舉/村里長/", "votedata/votedata/voteData/2014-103年地方公職人員選舉/縣市市長/", "votedata/votedata/voteData/2014-103年地方公職人員選舉/直轄市市長/"];
+
+/**
+ * Pre-2014 files: CEC sequence codes, translated by name (adapters/registry.ts). Before
+ * 2010-12-25 the 五都 did not exist yet: 臺北縣 and the 臺中、臺南、高雄 counties are matched to
+ * the later 新北市 and merged cities through mappings/admin-renames.csv.
+ */
+const SEQ_NOTE = (y: string) =>
+  `${y} 年的中選會檔案使用中選會自編的縣市、鄉鎮、村里序號，已依名稱對應為戶政代碼（參照 2014 年地方選舉檔案）；改制的縣市（桃園縣 2014-12-25 改制；臺北縣、臺中縣、臺南縣、高雄縣 2010-12-25 改制或合併）依改制後的區、里對應。`;
+const APOS_NOTE = (y: string) => `${y} 年的中選會檔案以撇號標示代碼欄位（例如 '01），讀取時移除。`;
+const MERGER_NOTE = "2010 年 12 月 25 日五都改制前的選舉：地圖以改制後的縣市與區呈現，原臺北縣、臺中縣、臺南縣、高雄縣的鄉鎮市與村，分別對應到新北市、臺中市、臺南市、高雄市的區與里。";
+
+/** 第7屆立委: 2008-01-12 (中選會 96-08-08 選舉工作進行程序表). */
+export const E2008L: ElectionDef = {
+  id: "2008-01-12-legislative",
+  date: "2008-01-12",
+  nameZh: "2008年 第7屆立法委員選舉",
+  kinds: ["legislative"],
+};
+export const E2008P: ElectionDef = {
+  id: "2008-03-22-president",
+  date: "2008-03-22",
+  nameZh: "2008年 第12任總統副總統選舉",
+  kinds: ["president"],
 };
 
 export const E2012: ElectionDef = {
@@ -180,6 +208,10 @@ interface PresLegDef {
   mix?: boolean;
   /** Extra warnings for every group of this election. */
   notes?: string[];
+  /** Folder names inside `dir` when they differ from 2012–2024's (2008: 區域, 山原, 平原). */
+  subdirs?: Partial<Record<"president" | "district" | "山地" | "平地" | "partyList", string>>;
+  /** Only these offices (2008: 總統 and 立委 were separate elections). */
+  only?: Office[];
   /** Files in CEC sequence codes: registry-coded directories to translate them by name. */
   registryFrom?: string[];
   /** 原住民立委 files that agree only from township level up (see ElGroupDef.townsAndAbove). */
@@ -216,6 +248,27 @@ const P2012: PresLegDef = {
     "2012 年的中選會檔案以撇號標示代碼欄位（例如 '01），讀取時移除。",
   ],
 };
+const P2008L: PresLegDef = {
+  election: E2008L,
+  dir: "votedata/votedata/voteData/2008立委/",
+  subdirs: { district: "區域", 山地: "山原", 平地: "平原" },
+  only: ["legislator-district", "legislator-highland-indigenous", "legislator-lowland-indigenous", "legislator-party-list"],
+  boundary: B2016,
+  presidentTerm: 12,
+  legislatorTerm: 7,
+  splitTowns: 12,
+  villages: true,
+  mix: true,
+  registryFrom: REGISTRY_2014,
+  notes: [B2016_NOTE, SEQ_NOTE("2008"), MERGER_NOTE, APOS_NOTE("2008")],
+};
+const P2008P: PresLegDef = {
+  ...P2008L,
+  election: E2008P,
+  dir: "votedata/votedata/voteData/",
+  subdirs: { president: "20080322-總統" },
+  only: ["president"],
+};
 const P2020: PresLegDef = { election: E2020, dir: "votedata/votedata/voteData/2020總統立委/", boundary: B2020, presidentTerm: 15, legislatorTerm: 10, splitTowns: 12, villages: true, mix: true };
 
 function presidentLegislative(p: PresLegDef): ElGroupDef[] {
@@ -226,7 +279,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
     nameZh: `第${p.legislatorTerm}屆${kind}原住民立法委員選舉`,
     office: kind === "山地" ? "legislator-highland-indigenous" : "legislator-lowland-indigenous",
     electorate: kind === "山地" ? "highland-indigenous" : "lowland-indigenous",
-    archiveDirs: [`${p.dir}${kind}立委/`],
+    archiveDirs: [`${p.dir}${p.subdirs?.[kind] ?? `${kind}立委`}/`],
     contests: "single",
     choiceKind: "candidate",
     seats: 3,
@@ -242,14 +295,14 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       "許多鄉鎮市區的原住民選舉人很少，少數票數即可造成極端的得票率。",
     ],
   });
-  return [
+  const all: ElGroupDef[] = [
     {
       ...base,
       local: "president",
       nameZh: `第${p.presidentTerm}任總統副總統選舉`,
       office: "president",
       electorate: "general",
-      archiveDirs: [`${p.dir}總統/`],
+      archiveDirs: [`${p.dir}${p.subdirs?.president ?? "總統"}/`],
       contests: "single",
       choiceKind: "ticket",
       layout: "admin",
@@ -261,7 +314,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       nameZh: `第${p.legislatorTerm}屆區域立法委員選舉`,
       office: "legislator-district",
       electorate: "general",
-      archiveDirs: [`${p.dir}區域立委/`],
+      archiveDirs: [`${p.dir}${p.subdirs?.district ?? "區域立委"}/`],
       contests: "district",
       contestPrefix: "ly",
       choiceKind: "candidate",
@@ -280,7 +333,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       nameZh: `第${p.legislatorTerm}屆全國不分區及僑居國外國民立法委員選舉（政黨票）`,
       office: "legislator-party-list",
       electorate: "general",
-      archiveDirs: [`${p.dir}不分區政黨/`],
+      archiveDirs: [`${p.dir}${p.subdirs?.partyList ?? "不分區政黨"}/`],
       contests: "single",
       choiceKind: "party",
       seats: 34,
@@ -291,6 +344,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       ],
     },
   ];
+  return p.only ? all.filter((g) => p.only!.includes(g.office)) : all;
 }
 
 /** One 地方公職人員選舉: 縣市長 and the three kinds of 議員, each split by CEC into 直轄市 / 縣市 folders. */
@@ -315,6 +369,10 @@ interface LocalDef {
   councilorWarnings: string[];
   /** Notes for the indigenous-councillor and township / village groups (boundary, file quirks). */
   notes?: string[];
+  /** CEC sequence codes: registry-coded directories to translate them (ElGroupDef.registryFrom). */
+  registryFrom?: string[];
+  /** Combined maps: directories voted on another day (ElGroupDef.dirDates). */
+  dirDates?: { prefix: string; date: string }[];
   /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
   villages?: boolean;
   /** Mix snapshots per township where villages were reorganised (geo/mix.ts). */
@@ -372,6 +430,51 @@ const L14: LocalDef = {
   notes: [APOSTROPHE_NOTE, B2016_NOTE],
 };
 
+/**
+ * 2009-12-05 (17 counties: 縣市長, 縣市議員, 鄉鎮市長) and 2010-11-27 (五都: 市長, 議員) as one
+ * map per office covering all 22 counties; each contest carries its own date.
+ */
+export const E2009: ElectionDef = {
+  id: "2009-12-05-local",
+  date: "2009-12-05",
+  nameZh: "2009–2010年 地方公職人員選舉",
+  kinds: ["local"],
+};
+const L2009 = "votedata/votedata/voteData/20091205-縣市長縣市議員及鄉鎮長/";
+const L2010 = "votedata/votedata/voteData/20101127-五都市長議員及里長/";
+const TWO_ROUNDS =
+  "此地圖合併兩次投票：17 個縣市於 2009-12-05 選出縣市長、縣市議員、鄉鎮市長；新北市、臺北市、臺中市、臺南市、高雄市（五都）於 2010-11-27 選出市長、市議員。側邊欄顯示各場選舉的投票日。";
+const L09: LocalDef = {
+  election: E2009,
+  villages: true,
+  mix: true,
+  boundary: B2016,
+  registryFrom: REGISTRY_2014,
+  dirDates: [{ prefix: L2010, date: "2010-11-27" }],
+  dirs: {
+    mayor: [`${L2009}縣市長/`, `${L2010}市長/`],
+    councilor: [`${L2009}區域議員/`, `${L2010}區域議員/`],
+    lowland: [`${L2009}平地議員/`, `${L2010}平地議員/`],
+    highland: [`${L2009}山地議員/`, `${L2010}山地議員/`],
+    townshipMayor: [`${L2009}鄉鎮市長/`],
+    indigenousChief: [],
+    townshipRep: [],
+    lowlandRep: [],
+    indigenousRep: [],
+    villageChief: [],
+  },
+  mayorWarnings: [TWO_ROUNDS, SEQ_NOTE("2009 與 2010"), APOS_NOTE("2009 與 2010"), B2016_NOTE],
+  councilorWarnings: [
+    TWO_ROUNDS,
+    "162 個選舉區共選出 843 席（2009 年 17 縣市 105 區 543 席；2010 年五都 57 區 300 席），每區 1 至 13 席。縣市與全國層級跨多個選區，以政黨合計呈現；選區層級顯示當選席次最多的政黨。",
+    "新竹市東區、北區分屬不同選區，在鄉鎮層級依選區拆成數塊，界線由村里合併而成。",
+    SEQ_NOTE("2009 與 2010"),
+    APOS_NOTE("2009 與 2010"),
+    B2016_NOTE,
+  ],
+  notes: [TWO_ROUNDS, SEQ_NOTE("2009 與 2010"), APOS_NOTE("2009 與 2010"), B2016_NOTE],
+};
+
 const L18: LocalDef = {
   election: E2018,
   villages: true,
@@ -400,7 +503,8 @@ const L18: LocalDef = {
 
 function localElections(l: LocalDef): ElGroupDef[] {
   const y = l.election.date.slice(0, 4);
-  const base = { election: l.election, boundary: l.boundary, villages: l.villages ?? false, mixSnapshots: l.mix ?? false, contests: "district" as const, choiceKind: "candidate" as const };
+  const extra = { ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}), ...(l.dirDates ? { dirDates: l.dirDates } : {}) };
+  const base = { election: l.election, boundary: l.boundary, villages: l.villages ?? false, mixSnapshots: l.mix ?? false, contests: "district" as const, choiceKind: "candidate" as const, ...extra };
   const indigenous = (kind: "平地" | "山地"): ElGroupDef => {
     const code = kind === "平地" ? "T2" : "T3";
     return {
@@ -463,13 +567,15 @@ function townshipAndVillage(l: LocalDef): ElGroupDef[] {
     boundary: l.boundary,
     villages: l.villages ?? false,
     mixSnapshots: l.mix ?? false,
+    ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}),
+    ...(l.dirDates ? { dirDates: l.dirDates } : {}),
     choiceKind: "candidate" as const,
     electorate: "general" as const,
     layout: "admin",
   };
   const common = [...COMMON_WARNINGS, ...(l.boundary === B2018 ? ["2018 年的中選會檔案以撇號標示代碼欄位（例如 '63），讀取時移除。", B2018_NOTE] : []), ...(l.notes ?? [])];
   const reps = "每個鄉鎮市區分為一至數個選舉區，各選出一至多席。地圖不畫選舉區界線：鄉鎮層級顯示當選席次最多的政黨，村里層級顯示該村里所屬選舉區的結果。";
-  return [
+  const all: ElGroupDef[] = [
     {
       ...base,
       local: "township-mayor",
@@ -541,6 +647,7 @@ function townshipAndVillage(l: LocalDef): ElGroupDef[] {
       warnings: [...common, "每個村里各自選出 1 位村里長；鄉鎮以上層級跨多個村里，以政黨合計呈現。"],
     },
   ];
+  return all.filter((g) => g.archiveDirs.length > 0); // not every election had every office
 }
 
 /** Every village snapshot a mixed-snapshot group may borrow townships from. */
@@ -551,9 +658,12 @@ export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2020),
   ...presidentLegislative(P2016),
   ...presidentLegislative(P2012),
+  ...presidentLegislative(P2008P),
+  ...presidentLegislative(P2008L),
   ...localElections(L22),
   ...localElections(L18),
   ...localElections(L14),
+  ...localElections(L09),
   CONSTITUTIONAL_2022,
   ...[17, 18, 19, 20].map(nationalReferendum(E2021R, B2021, undefined, true)),
   ...[7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(nationalReferendum(E2018R, B2018, L18.dirs.mayor, true)),
