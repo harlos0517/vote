@@ -7,6 +7,7 @@
  *   v2/releases/<release>/parties.json
  *   v2/releases/<release>/groups/<groupId>/metadata.json
  *   v2/releases/<release>/groups/<groupId>/results/<level>.json
+ *   v2/releases/<release>/groups/<groupId>/stations/<county>.json   (polling stations, on demand)
  *   v2/releases/<release>/geography/<boundaryVersion>/<layout>/<level>.geojson
  *
  * A *contest group* is what the UI offers as one map: all contests of one office in one
@@ -45,6 +46,8 @@ export const BoundaryRef = z.object({
   files: z.partialRecord(ReportingLevel, z.string()),
   /** Units whose geometry and results do not line up exactly. */
   notes: z.array(z.object({ unit: z.string(), note: z.string() })),
+  /** 村里-level units with results but no polygon on the map (no boundary, or overlapping groups). */
+  undrawn: z.array(ReportingUnitId).default([]),
 });
 
 /** Same id shape as a contest: `${electionId}.${local}`. */
@@ -75,6 +78,8 @@ export const GroupMetadataFile = z.object({
   boundary: BoundaryRef,
   /** Release-relative paths per level. */
   results: z.partialRecord(ReportingLevel, z.string()),
+  /** Polling-station results, one file per county code (loaded on demand); empty when not published. */
+  stationResults: z.record(z.string().regex(/^\d{5}$/), z.string()).default({}),
   validation: z.array(ValidationCheck),
 });
 

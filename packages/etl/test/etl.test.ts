@@ -379,3 +379,19 @@ describe("restoring a linearly distorted snapshot", () => {
     expect(fitRestore(pairs).check.status).toBe("fail");
   });
 });
+
+describe("polling-station files", () => {
+  it("ids stations per county, splits a station shared by villages, and fails under a village group", async () => {
+    const { stationFiles } = await import("../src/groups/stations.ts");
+    const st = (vil: string, station: string) => ({ key: { prv: "63", cty: "000", dist: "00", town: "010", vil, station }, level: "station" as const, name: "", valid: 10, invalid: 0, cast: 10, electors: 20, populationRaw: 0, votes: new Map(), officialRate: new Map() });
+    const row = (vil: string, station: string, parentId: string) => ({ u: st(vil, station), parentId, contestIds: ["e.c"], votes: { a: 10 } });
+    const f = stationFiles("e.g", [row("0001", "0597", "vil:63000010001"), row("0002", "0598", "vil:63000010002"), row("0003", "0598", "vil:63000010003")]);
+    expect(Object.keys(f)).toEqual(["63000"]);
+    expect(f["63000"]!.units.map((u) => [u.id, u.parentId, u.nameZh])).toEqual([
+      ["st:63000-0597", "vil:63000010001", "第 0597 號投開票所"],
+      ["st:63000-0598@63000010002", "vil:63000010002", "第 0598 號投開票所"],
+      ["st:63000-0598@63000010003", "vil:63000010003", "第 0598 號投開票所"],
+    ]);
+    expect(() => stationFiles("e.g", [row("0001", "0597", "vgrp:63000010-0A01"), row("0002", "0597", "vil:63000010002")])).toThrow(/village group/);
+  });
+});

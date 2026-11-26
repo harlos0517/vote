@@ -4,10 +4,11 @@
  * from packages/etl/mappings/referendum-questions.csv with its source and review status.
  */
 import type { BallotChoice, Contest, GroupResultsFile, GroupUnit, ReferendumRule, ReportingLevel, ValidationCheck } from "@tw-election/schema";
-import { type ElUnit, countyCode, townCode } from "../adapters/cec-el.ts";
+import { type ElUnit, countyCode, keyString, townCode } from "../adapters/cec-el.ts";
 import { AGREE, DISAGREE, type RfDataset } from "../adapters/cec-rf.ts";
 import { PUA_RE } from "../lib/csv.ts";
 import { checkElDataset } from "../validate/el-checks.ts";
+import { type StationInput, stationFiles } from "./stations.ts";
 import { type BuiltGroup, type ElGroupDef, groupId, levelsOf, villageUnitId } from "./el-group.ts";
 
 /** 公民投票法第29條: 有效同意票多於不同意票，且有效同意票達投票權人總額四分之一以上。 */
@@ -105,6 +106,23 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
     };
   }
 
+  // Polling stations, each under the village unit it reports in.
+  let stations: Record<string, GroupResultsFile> | undefined;
+  if (d.villages && results.village) {
+    const emitted = new Set(results.village.units.map((u) => u.id));
+    const villageRow = new Map(ds.units.filter((u) => u.level === "village").map((u) => [keyString(u.key), u]));
+    const rows: StationInput[] = [];
+    for (const u of ds.units) {
+      if (u.level !== "station") continue;
+      const v = villageRow.get(keyString({ ...u.key, station: "0000" }));
+      const unit = v ? unitOf(v) : null;
+      if (!unit || !emitted.has(unit.id)) continue;
+      rows.push({ u, parentId: unit.id, contestIds: [contestId], votes: { agree: u.votes.get(AGREE)!, disagree: u.votes.get(DISAGREE)! } });
+    }
+    stations = stationFiles(gid, rows);
+    checks.push({ id: "stations", status: "pass", detail: `${rows.length} station rows in ${Object.keys(stations).length} counties (sums checked against their villages above)` });
+  }
+
   const names = Object.values(results).flatMap((r) => r!.units.map((u) => u.nameZh));
   const pua = names.filter((s) => PUA_RE.test(s) || s === "");
   checks.push(
@@ -146,6 +164,7 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
     persons: [],
     parties: [],
     results,
+    ...(stations ? { stations } : {}),
     townParts: results.town!.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null })),
     checks,
   };

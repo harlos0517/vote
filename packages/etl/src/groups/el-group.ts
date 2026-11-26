@@ -21,6 +21,7 @@ import { type ElDataset, type ElKey, type ElPartyList, type ElUnit, countyCode, 
 import { PUA_RE } from "../lib/csv.ts";
 import { checkPartyColors, type PartyColor } from "../lib/party-colors.ts";
 import { checkElDataset } from "../validate/el-checks.ts";
+import { type StationInput, stationFiles } from "./stations.ts";
 
 export interface ElectionDef {
   id: string;
@@ -145,6 +146,8 @@ export interface BuiltGroup {
   results: Partial<Record<ReportingLevel, GroupResultsFile>>;
   /** District membership per town-part code, for geometry: "63000010-07" → "63000-07". */
   townParts: { code: string; town: string; district: string | null }[];
+  /** Polling-station results per county code (only for groups published to 村里 level). */
+  stations?: Record<string, GroupResultsFile>;
   checks: ValidationCheck[];
 }
 
@@ -462,6 +465,24 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     };
   }
 
+  // ---- polling stations (village groups only), each under the village unit it reports in
+  let stations: Record<string, GroupResultsFile> | undefined;
+  if (d.villages && results.village) {
+    const emitted = new Set(results.village.units.map((u) => u.id));
+    const villageRow = new Map(ds.units.filter((u) => u.level === "village").map((u) => [keyString(u.key), u]));
+    const rows: StationInput[] = [];
+    for (const u of ds.units) {
+      if (u.level !== "station") continue;
+      const v = villageRow.get(keyString({ ...u.key, station: "0000" }));
+      const m = v ? unitOf(v) : null;
+      if (!m || !emitted.has(m.unit.id) || m.contests.length !== 1) continue;
+      const ci = m.contests[0]!;
+      rows.push({ u, parentId: m.unit.id, contestIds: [ci.id], votes: Object.fromEntries([...u.votes].map(([n, x]) => [choiceId(ci, n), x])) });
+    }
+    stations = stationFiles(gid, rows);
+    checks.push({ id: "stations", status: "pass", detail: `${rows.length} station rows in ${Object.keys(stations).length} counties (sums checked against their villages above)` });
+  }
+
   // ---- each unit once per level (a village split between two 代表 選區 would appear twice)
   const dup = Object.values(results).flatMap((r) => {
     const seen = new Set<string>();
@@ -547,6 +568,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     parties: usedCodes.map((code) => toParty(partyByCode.get(code)!, colors)),
     results,
     townParts,
+    ...(stations ? { stations } : {}),
     checks,
   };
 }

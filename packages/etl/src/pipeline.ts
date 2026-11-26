@@ -51,7 +51,7 @@ interface GroupOutput {
   checks: ValidationCheck[];
   sources: SourceFile[];
   notes: { unit: string; note: string }[];
-  village?: { geo: GeoJSON; path: string };
+  village?: { geo: GeoJSON; path: string; undrawn: string[] };
   boundaryVersion: string;
 }
 
@@ -230,7 +230,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       }
       checks.push(c.check);
       notes.push(...plan.notes, ...[...noShape].map(([unit, note]) => ({ unit, note })));
-      village = { geo: g, path: `geography/${vKey}/village.geojson` };
+      village = { geo: g, path: `geography/${vKey}/village.geojson`, undrawn: [...noShape.keys()].sort() };
     }
     if (unassigned.length) {
       built.group.warnings.push(`分屬兩個選區的鄉鎮中，有 ${unassigned.length} 塊圖面（未編定村里，例如河道）無法對應到選區，以「無資料」顯示。`);
@@ -267,6 +267,12 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       resultPaths[level] = path;
       files.push({ path, body: json(GroupResultsFile.parse(rf)) });
     }
+    const stationPaths: Record<string, string> = {};
+    for (const [cc, sf] of Object.entries(built.stations ?? {})) {
+      const path = `groups/${gid}/stations/${cc}.json`;
+      stationPaths[cc] = path;
+      files.push({ path, body: json(GroupResultsFile.parse(sf)) });
+    }
     const geoPaths: Record<string, string> = {};
     for (const level of built.group.levels) {
       const g = geo[level as keyof Boundaries];
@@ -298,8 +304,9 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       persons: built.persons,
       parties: built.parties,
       sources: dataSources,
-      boundary: { versionId: boundaryVersion, sourceId: DATA_SOURCES.nlscVillageHistory.id, files: geoPaths, notes },
+      boundary: { versionId: boundaryVersion, sourceId: DATA_SOURCES.nlscVillageHistory.id, files: geoPaths, notes, undrawn: village?.undrawn ?? [] },
       results: resultPaths,
+      stationResults: stationPaths,
       validation: checks,
     });
     files.push({ path: `groups/${gid}/metadata.json`, body: json(meta) });
