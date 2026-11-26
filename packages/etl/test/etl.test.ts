@@ -353,3 +353,29 @@ describe("township and village offices", () => {
     expect(lot.map((c) => [c.elected, c.electedNote])).toEqual([[null, "tied-decided-by-lot"], [null, "tied-decided-by-lot"]]);
   });
 });
+
+describe("restoring a linearly distorted snapshot", () => {
+  it("fits an affine map, ignores changed villages, and reports the residual", async () => {
+    const { applyAffine, fitRestore } = await import("../src/geo/restore.ts");
+    // Corrupt coordinates: true lon/lat shrunk by ~1e5 around a point, as in 1070205.
+    const shrink = ([lon, lat]: [number, number]): [number, number] => [118.7556 + (lon - 120.8) / 111000, 0.0002 + (lat - 23.7) / 110500];
+    const pairs = Array.from({ length: 400 }, (_, i) => {
+      const to: [number, number] = [120 + (i % 20) * 0.08, 22 + Math.floor(i / 20) * 0.15];
+      return { from: shrink(to), to };
+    });
+    pairs[7] = { from: pairs[7]!.from, to: [pairs[7]!.to[0] + 0.01, pairs[7]!.to[1]] }; // a village that changed (~1 km)
+    const { t, check } = fitRestore(pairs);
+    expect(check.status).toBe("pass");
+    expect(check.detail).toContain("399 of 400");
+    const back = applyAffine(t, ...shrink([121.5, 25.04]));
+    expect(Math.hypot(back[0] - 121.5, back[1] - 25.04) * 111000).toBeLessThan(0.01);
+  });
+  it("fails when the distortion is not linear", async () => {
+    const { fitRestore } = await import("../src/geo/restore.ts");
+    const pairs = Array.from({ length: 400 }, (_, i) => {
+      const to: [number, number] = [120 + (i % 20) * 0.08, 22 + Math.floor(i / 20) * 0.15];
+      return { from: [to[0] + 0.05 * Math.sin(to[1] * 20), to[1]] as [number, number], to }; // a wobble, not a linear map
+    });
+    expect(fitRestore(pairs).check.status).toBe("fail");
+  });
+});

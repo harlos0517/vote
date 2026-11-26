@@ -14,9 +14,10 @@ import {
 import { DATA_SOURCES, RAW_SOURCES } from "./config/sources.ts";
 import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
-import { type ElDataset, countyCode, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
+import { type ElDataset, countyCode, elFile, mergeElDatasets, readElDir, readElPartyList, townCode } from "./adapters/cec-el.ts";
 import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
 import { type BuiltGroup, isLocalContests, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
+import { restoreSnapshot } from "./geo/restore.ts";
 import { ALL_SNAPSHOTS, GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries, buildVillages } from "./geo/build.ts";
 import { loadVillageGroups, planVillages, villageGeoCode, villageGroupKey } from "./geo/villages.ts";
@@ -64,12 +65,24 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   unzip(join(o.rawDir, "cec-votedata", "votedata.zip"), cecWork, [...new Set(zipDirs)].map((d) => `${d}*`));
   const shapefiles = new Map<string, string>(); // boundary versionId → village .shp
   const snapshotsNeeded = [...GROUPS.map((g) => g.boundary), ...(GROUPS.some((g) => g.mixSnapshots) ? ALL_SNAPSHOTS : [])];
+  snapshotsNeeded.push(...snapshotsNeeded.flatMap((s) => (s.restoreFrom ? [s.restoreFrom] : [])));
   for (const b of new Map(snapshotsNeeded.map((s) => [s.versionId, s])).values()) {
     const raw = RAW_SOURCES[b.raw];
     const villWork = join(o.workDir, "nlsc-village-history", raw.file.replace(/\.bin$/, ""));
     unzip(join(o.rawDir, raw.id, raw.file), villWork);
     unzip(findFile(villWork, /\.zip$/), villWork);
     shapefiles.set(b.versionId, findFile(villWork, b.shapefile));
+  }
+  // Snapshots published with corrupt coordinates (1070205): restore them against a sound one.
+  const restoreChecks: ValidationCheck[] = [];
+  for (const b of new Map(snapshotsNeeded.map((s) => [s.versionId, s])).values()) {
+    if (!b.restoreFrom) continue;
+    const ref = shapefiles.get(b.restoreFrom.versionId);
+    if (!ref) throw new Error(`${b.versionId}: reference snapshot ${b.restoreFrom.versionId} not extracted`);
+    const r = await restoreSnapshot(shapefiles.get(b.versionId)!, ref, join(o.workDir, "geo", b.versionId));
+    log(`[${r.check.status}] ${b.versionId} ${r.check.id}: ${r.check.detail}`);
+    restoreChecks.push({ ...r.check, id: `${b.versionId}:${r.check.id}` });
+    shapefiles.set(b.versionId, r.path);
   }
   const partyColors = loadPartyColors(o.repoRoot);
   const puaNames = loadPuaNames(o.repoRoot);
@@ -81,7 +94,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const villageGroups = loadVillageGroups(o.repoRoot);
   const composites = new Map<string, string>();
   const checks0: ValidationCheck[] = [];
-  const allChecks: ValidationCheck[] = [];
+  const allChecks: ValidationCheck[] = [...restoreChecks];
   for (const def of GROUPS) {
     const gid = groupId(def);
     log(`group ${gid}`);
@@ -99,6 +112,8 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
 
     // Mixed snapshots: townships whose reported villages the year's snapshot lacks come from the nearest one that has them.
     let boundaryVersion = def.boundary.versionId;
+    // Townships for which no snapshot has every reported village (filled in by the mix step).
+    let unresolvedTowns = new Set<string>();
     let shp = shapefiles.get(def.boundary.versionId)!;
     if (def.mixSnapshots && built.results.village) {
       const vils = built.results.village.units.filter((u) => u.id.startsWith("vil:") && u.id !== `vil:${MAJIA}006`).map((u) => u.id.slice(4));
@@ -133,6 +148,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
         }
         checks.push({ id: "boundary-mix", status: "pass", detail: `${mix.swaps.size} townships drawn from ${alts.join(", ")}: ${[...mix.swaps.keys()].join(", ")}` });
       }
+      unresolvedTowns = new Set(mix.unresolved);
       if (mix.unresolved.length) checks.push({ id: "boundary-mix", status: "warn", detail: `no snapshot has all reported villages of ${mix.unresolved.join(", ")}` });
     }
 
@@ -184,6 +200,19 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       // 三和村 is drawn when the snapshot has it in its main layer (up to 1091030); later ones keep it apart.
       const sanhe = built.results.village.units.find((u) => u.id === `vil:${MAJIA}006` && !g!.features.some((f) => f.properties.code === `${MAJIA}006`));
       if (sanhe) noShape.set(sanhe.id, "三和村位於圖資另存的爭議圖層，與內埔鄉、鹽埔鄉、長治鄉圖面重疊，地圖未繪出。");
+      // Villages no snapshot can draw: missing from the base snapshot, in a township no other snapshot
+      // covers either (reorganised before the earliest one, 1070205). A later snapshot may reuse the code.
+      const shaped = new Set(g.features.map((f) => f.properties.code));
+      const baseCodes = await snapshotCodes({ versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes"));
+      const lost = built.results.village.units.filter((u) => {
+        const c = u.id.slice(4);
+        return u.id.startsWith("vil:") && !noShape.has(u.id) && !shaped.has(c) && !baseCodes.has(c) && unresolvedTowns.has(c.slice(0, 8));
+      });
+      for (const u of lost) noShape.set(u.id, "國土測繪中心現存各版村里界圖資都沒有此村里（應已在最早的 1070205 版之前整編），地圖未繪出；票數計入鄉鎮。");
+      if (lost.length) {
+        built.group.warnings.push(`村里層級：${lost.length} 個村里在國土測繪中心現存各版圖資中都沒有界線（已於 2018 年 2 月前整編），地圖未繪出，票數只計入鄉鎮。`);
+        checks.push({ id: "village-no-boundary", status: "warn", detail: `${lost.length} villages are in no available snapshot: ${list(lost.map((u) => u.id.slice(4)))}` });
+      }
       const drawn = built.results.village.units.filter((u) => !noShape.has(u.id)).map((u) => villageGeoCode(u.id));
       // Non-village polygons (未編定 "…S01" and NLSC's other "…P01", "…I01", "…R01" areas), members of groups
       // that cannot be drawn, and — for indigenous electorates — villages without such voters have no result.
@@ -289,7 +318,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     ),
   });
   const allParties = new Map<number, { code: number; name: string }>();
-  for (const g of GROUPS.filter((x) => x.format !== "rf")) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a)).parties) allParties.set(p.code, p);
+  for (const g of GROUPS.filter((x) => x.format !== "rf")) for (const a of g.archiveDirs) for (const p of readElDir(join(cecWork, a), townsFilter(g)).parties) allParties.set(p.code, p);
   files.push({ path: "parties.json", body: json(PartiesFile.parse({ schemaVersion: 2, parties: [...allParties.values()].map((p) => toParty(p, partyColors)) })) });
 
   const warn = allChecks.some((c) => c.status === "warn");
@@ -423,9 +452,12 @@ async function renumberRfVillages(def: ElGroupDef, ds: RfDataset, cecWork: strin
 const RF_FILES = ["rfarea.csv", "rfprof.csv", "rftckt.csv"];
 const EL_FILES = ["elbase.csv", "elcand.csv", "elctks.csv", "elpaty.csv", "elprof.csv"];
 
+/** Row filter for groups whose files agree only from township level up (ElGroupDef.townsAndAbove). */
+const townsFilter = (def: ElGroupDef) => (def.townsAndAbove ? (k: { vil: string; station: string }) => k.vil === "0000" && k.station === "0000" : undefined);
+
 /** All el* directories of a group (merged when there are several), plus any extra adapter. */
 function readGroupData(def: ElGroupDef, cecWork: string): ElDataset {
-  const parts = def.archiveDirs.map((a) => readElDir(join(cecWork, a)));
+  const parts = def.archiveDirs.map((a) => readElDir(join(cecWork, a), townsFilter(def)));
   if (def.extra?.adapter === "chiayi-2022-rerun") {
     const ref = readElDir(join(cecWork, def.extra.refArchiveDir), (k) => countyCode(k) === CHIAYI_CITY);
     const parties = parts.flatMap((p) => p.parties);
@@ -436,8 +468,10 @@ function readGroupData(def: ElGroupDef, cecWork: string): ElDataset {
 
 async function sourceFiles(dir: string, archiveDir: string, names: string[]): Promise<SourceFile[]> {
   const out: SourceFile[] = [];
-  for (const f of names) {
-    const p = join(dir, f);
+  for (const n of names) {
+    // el* files may carry a type suffix (2016: elbase_P1.csv).
+    const p = /^el[a-z]+\.csv$/.test(n) ? elFile(dir, n.slice(0, -4) as Parameters<typeof elFile>[1]) : join(dir, n);
+    const f = p.slice(dir.length).replace(/^\//, "");
     out.push({
       sourceId: RAW_SOURCES.cecVotedata.id,
       path: `${RAW_SOURCES.cecVotedata.file}:${archiveDir}${f}`,

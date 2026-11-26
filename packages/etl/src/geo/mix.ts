@@ -18,7 +18,7 @@ export interface Snapshot {
 
 /** ROC "1091030" in the version id → "2020-10-30". */
 export const snapshotDate = (versionId: string) => {
-  const m = /(\d{3})(\d{2})(\d{2})$/.exec(versionId)!;
+  const m = /(\d{3})(\d{2})(\d{2})(?:-restored)?$/.exec(versionId)!;
   return `${Number(m[1]) + 1911}-${m[2]}-${m[3]}`;
 };
 
