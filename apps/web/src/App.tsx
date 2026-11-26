@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionIcon, Alert, Box, Button, Group, Loader, Paper, Select, Stack, Text, Title, useComputedColorScheme } from "@mantine/core";
 import { DataError } from "@tw-election/data-client";
 import { ColorOptions, Controls, LEVEL_LABEL } from "./components/Controls.tsx";
@@ -108,7 +108,8 @@ export function App() {
   );
   const emptyTown = emptyHover ? [...townNames].find(([id]) => codeOf(id).slice(0, 8) === emptyHover.slice(0, 8))?.[1].replace(/（.*）$/, "") ?? null : null;
   const shown: { unit: UnitView; status: "hover" | "locked" | "overall"; levelName: string } | null =
-    (hovered && units?.get(hovered) && { unit: units.get(hovered)!, status: "hover", levelName: LEVEL_LABEL[level] }) ||
+    // Hovering the locked area itself keeps the locked view (and its village / station pick).
+    (hovered && hovered !== lockedCode && units?.get(hovered) && { unit: units.get(hovered)!, status: "hover", levelName: LEVEL_LABEL[level] }) ||
     (lockedCode && units?.get(lockedCode) && { unit: units.get(lockedCode)!, status: "locked", levelName: LEVEL_LABEL[level] }) ||
     (nationalUnit ? { unit: nationalUnit, status: "overall", levelName: "全國" } : null);
 
@@ -121,9 +122,24 @@ export function App() {
     subAvailable && lockedUnit && m ? (subKind === "村里" ? m.results.village : m.stationResults?.[codeOf(lockedUnit.id).slice(0, 5)]) : undefined;
   const subResults = useResults(release, subPath);
   const subUnits = useMemo(
-    () => (subResults.data && lockedUnit ? [...toUnitViews(subResults.data).values()].filter((u) => u.parentId === lockedUnit.id) : null),
+    () =>
+      subResults.data && lockedUnit
+        ? [...toUnitViews(subResults.data).values()].filter((u) => u.parentId === lockedUnit.id).sort((a, b) => a.id.localeCompare(b.id))
+        : null,
     [subResults.data, lockedUnit],
   );
+  // The picked village / station ("全部" = none). Tied to the locked area: unlocking or locking
+  // another area clears it.
+  const [subPick, setSubPick] = useState<{ parent: string; id: string } | null>(null);
+  // Keyed on the locked id itself (not the shown unit): hovering another area keeps the pick.
+  useEffect(() => setSubPick(null), [view.unit, level]);
+  const subUnit = subPick && lockedUnit && subPick.parent === lockedUnit.id ? (subUnits?.find((u) => u.id === subPick.id) ?? null) : null;
+  /** What the sidebar and ring show: the picked sub-area in place of the locked area. */
+  const display = shown
+    ? subUnit
+      ? { unit: subUnit, title: `${shown.unit.name} ${subUnit.name}`, levelName: subKind!, status: shown.status }
+      : { unit: shown.unit, title: shown.unit.name, levelName: shown.levelName, status: shown.status }
+    : null;
 
   /** County of a unit: walk parent ids (town part → district → county). */
   const countyOf = (u: UnitView): string | null => {
@@ -141,12 +157,12 @@ export function App() {
   // 投票率 always counts 無效票 and 未投票.
   const turnoutMode = ctx ? effectiveMode(ctx, view) === "turnout" : false;
   const den = turnoutMode ? { invalid: true, abstain: true } : { invalid: view.invalid, abstain: view.abstain };
-  const ring = shown && ctx ? ringSlices(shown.unit, ctx, den, view.colorblind) : [];
+  const ring = display && ctx ? ringSlices(display.unit, ctx, den, view.colorblind) : [];
   // Referendum threshold: 同意 must reach 25% of electors; 同意 is the first slice, so mark that point.
   const ringTotal = ring.reduce((x, s) => x + s.value, 0);
   const rule = ctx?.referendum?.rule;
   const quorum = rule?.agreeQuorumOfElectors;
-  const electors = shown?.unit.summary.electors;
+  const electors = display?.unit.summary.electors;
   const marker =
     rule && quorum && electors && ringTotal
       ? { at: (quorum * electors) / ringTotal, label: `通過門檻：${quorumLabel(rule)}（${quorumVotes(quorum, electors, rule.quorumStrict ?? false).toLocaleString("zh-TW")} 票）` }
@@ -238,10 +254,10 @@ export function App() {
                 </Stack>
               </Paper>
             )}
-            {shown && !emptyHover && ring.length > 0 && (
+            {display && !emptyHover && ring.length > 0 && (
               // No frame or background: the ring sits directly on the map.
               <div className={classes.ring}>
-                <VoteRing segments={ring} title={shown.unit.name} subtitle={`投票率 ${fmtPct(turnout(shown.unit.summary), 1)}`} marker={marker} />
+                <VoteRing segments={ring} title={display.title} subtitle={`投票率 ${fmtPct(turnout(display.unit.summary), 1)}`} marker={marker} />
               </div>
             )}
           </div>
@@ -265,20 +281,41 @@ export function App() {
               countyName={countyNames.get(`cty:${emptyHover.slice(0, 5)}`) ?? null}
               townName={emptyTown}
             />
-          ) : ctx && shown && model ? (
+          ) : ctx && shown && display && model ? (
             <Sidebar
               ctx={ctx}
-              unit={shown.unit}
-              levelName={shown.levelName}
+              unit={display.unit}
+              title={display.title}
+              levelName={display.levelName}
               status={shown.status}
-              countyName={countyOf(shown.unit)}
-              townName={shown.unit.parentId ? (townNames.get(shown.unit.parentId) ?? null) : null}
-              currentView={model.describe(shown.unit)}
+              countyName={countyOf(display.unit)}
+              townName={
+                subUnit
+                  ? level === "town"
+                    ? shown.unit.name
+                    : shown.unit.parentId
+                      ? (townNames.get(shown.unit.parentId) ?? null)
+                      : null
+                  : shown.unit.parentId
+                    ? (townNames.get(shown.unit.parentId) ?? null)
+                    : null
+              }
+              currentView={model.describe(display.unit)}
               den={den}
               colorblind={view.colorblind}
               mapLevelLabel={LEVEL_LABEL[level]}
               onUnlock={() => setView({ unit: null })}
-              sub={subAvailable && subKind && shown.status === "locked" ? { kind: subKind, units: lockedUnit ? subUnits : null, loading: !!subPath && subResults.isLoading } : undefined}
+              picker={
+                subAvailable && subKind && lockedUnit && shown.status === "locked"
+                  ? {
+                      kind: subKind,
+                      units: subUnits ?? [],
+                      value: subUnit?.id ?? null,
+                      loading: subResults.isLoading,
+                      onChange: (id) => setSubPick(id ? { parent: lockedUnit.id, id } : null),
+                    }
+                  : undefined
+              }
             />
           ) : (
             !firstError && <Loader size="sm" />
