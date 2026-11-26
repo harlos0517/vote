@@ -9,6 +9,20 @@ const B2024: BoundaryDef = { versionId: "nlsc-village-1120928", raw: "nlscVillag
  */
 const B2018: BoundaryDef = { versionId: "nlsc-village-1071130", raw: "nlscVillage107", shapefile: /^VILLAGE_MOI_1071130\.shp$/ };
 const B2018_NOTE = "界線使用選後 6 天的 1071130 版：選前最近的 1070205 版圖檔座標損毀（國土測繪中心原檔），無法使用。";
+/**
+ * 2016 has no sound snapshot: NLSC's history starts with 1070205 (2018-02-05), published with
+ * corrupt coordinates. Its shapes and attributes are intact and the distortion linear, so the
+ * build restores it by an affine fit against 1071130 (geo/restore.ts). It predates 臺南市's 2018
+ * village reorganisation, which no later snapshot does.
+ */
+const B2016: BoundaryDef = {
+  versionId: "nlsc-village-1070205-restored",
+  raw: "nlscVillage106",
+  shapefile: /^VILLAGE_MOI_1070205\.shp$/,
+  restoreFrom: B2018,
+};
+const B2016_NOTE =
+  "界線使用國土測繪中心 1070205 版（2018-02-05）：此版原檔座標損毀（所有圖形落在約 6 公尺範圍內），但圖形與屬性完整、變形為線性，本站以 1071130 版中未變動的村里擬合仿射轉換還原，誤差約 1 公尺；這是本站的修正，不是國土測繪中心公布的原始座標。";
 const B2020: BoundaryDef = { versionId: "nlsc-village-1081121", raw: "nlscVillage108", shapefile: /^VILLAGE_MOI_1081121\.shp$/ };
 const B2020_1091030: BoundaryDef = { versionId: "nlsc-village-1091030", raw: "nlscVillage109", shapefile: /^VILLAGE_MOI_1091030\.shp$/ };
 const B2021: BoundaryDef = { versionId: "nlsc-village-1101214", raw: "nlscVillage110", shapefile: /^VILLAGE_MOI_1101214\.shp$/ };
@@ -25,6 +39,13 @@ export const E2020: ElectionDef = {
   id: "2020-01-11-president-legislative",
   date: "2020-01-11",
   nameZh: "2020年 第15任總統副總統及第10屆立法委員選舉",
+  kinds: ["president", "legislative"],
+};
+
+export const E2016: ElectionDef = {
+  id: "2016-01-16-president-legislative",
+  date: "2016-01-16",
+  nameZh: "2016年 第14任總統副總統及第9屆立法委員選舉",
   kinds: ["president", "legislative"],
 };
 
@@ -141,9 +162,25 @@ interface PresLegDef {
   villages?: boolean;
   /** Mix snapshots per township where villages were reorganised (geo/mix.ts). */
   mix?: boolean;
+  /** Extra warnings for every group of this election. */
+  notes?: string[];
+  /** 原住民立委 files that agree only from township level up (see ElGroupDef.townsAndAbove). */
+  indigenousTownsOnly?: boolean;
 }
 
 const P2024: PresLegDef = { election: E2024, dir: "votedata/votedata/voteData/2024總統立委/", boundary: B2024, presidentTerm: 16, legislatorTerm: 11, splitTowns: 12, villages: true };
+const P2016: PresLegDef = {
+  election: E2016,
+  dir: "votedata/votedata/voteData/2016總統立委/",
+  boundary: B2016,
+  presidentTerm: 14,
+  legislatorTerm: 9,
+  splitTowns: 12,
+  villages: true,
+  mix: true,
+  indigenousTownsOnly: true,
+  notes: [B2016_NOTE, "2016 年的中選會檔案名稱帶有選舉種類代碼（例如 elbase_P1.csv）；同目錄的 old/ 為以中選會自編序號編碼的同一份資料，未使用。"],
+};
 const P2020: PresLegDef = { election: E2020, dir: "votedata/votedata/voteData/2020總統立委/", boundary: B2020, presidentTerm: 15, legislatorTerm: 10, splitTowns: 12, villages: true, mix: true };
 
 function presidentLegislative(p: PresLegDef): ElGroupDef[] {
@@ -159,8 +196,13 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
     choiceKind: "candidate",
     seats: 3,
     layout: "admin",
+    ...(p.indigenousTownsOnly ? { townsAndAbove: true, villages: false, mixSnapshots: false } : {}),
     warnings: [
-      ...COMMON_WARNINGS,
+      ...(p.indigenousTownsOnly ? COMMON_WARNINGS.slice(1) : COMMON_WARNINGS),
+      ...(p.notes ?? []),
+      ...(p.indigenousTownsOnly
+        ? ["此屆原住民立委的中選會得票檔，有 310 個投開票所與 137 個村里（群組）的得票另列在概況檔沒有的編號下，選舉人數與有效票卻併入其他村里；兩檔只在鄉鎮市區以上一致，因此只發布到鄉鎮市區層級，沒有村里層級。"]
+        : []),
       `全國為單一選區，選出 3 席；僅${kind}原住民選舉人可投票，選舉人數與一般選舉不同。`,
       "許多鄉鎮市區的原住民選舉人很少，少數票數即可造成極端的得票率。",
     ],
@@ -176,7 +218,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       contests: "single",
       choiceKind: "ticket",
       layout: "admin",
-      warnings: [...COMMON_WARNINGS],
+      warnings: [...COMMON_WARNINGS, ...(p.notes ?? [])],
     },
     {
       ...base,
@@ -190,7 +232,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       choiceKind: "candidate",
       layout: `ly${p.election.date.slice(0, 4)}`,
       warnings: [
-        ...COMMON_WARNINGS,
+        ...COMMON_WARNINGS, ...(p.notes ?? []),
         "73 個選舉區各選出 1 席。縣市與全國層級跨多個選區，因此以政黨合計呈現，不比較個別候選人。",
         `${p.splitTowns} 個鄉鎮市區分屬兩個選區，在鄉鎮層級依選區拆成兩塊，界線由村里合併而成。`,
       ],
@@ -209,7 +251,7 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       seats: 34,
       layout: "admin",
       warnings: [
-        ...COMMON_WARNINGS,
+        ...COMMON_WARNINGS, ...(p.notes ?? []),
         "選票上為政黨；席次依全國得票率分配給得票率達 5% 的政黨，地方層級只呈現得票，不分配席次。",
       ],
     },
@@ -442,6 +484,7 @@ export const ALL_SNAPSHOTS: BoundaryDef[] = [B2018, B2020, B2020_1091030, B2021,
 export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2024),
   ...presidentLegislative(P2020),
+  ...presidentLegislative(P2016),
   ...localElections(L22),
   ...localElections(L18),
   CONSTITUTIONAL_2022,
