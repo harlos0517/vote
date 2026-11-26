@@ -57,6 +57,15 @@ export const E2018: ElectionDef = {
 };
 const L2018 = "votedata/votedata/voteData/2018-107年地方公職人員選舉/";
 
+export const E2014: ElectionDef = {
+  id: "2014-11-29-local",
+  date: "2014-11-29",
+  nameZh: "2014年 地方公職人員選舉",
+  kinds: ["local"],
+};
+const L2014 = "votedata/votedata/voteData/2014-103年地方公職人員選舉/";
+const APOSTROPHE_NOTE = "2014 年的中選會檔案以撇號標示代碼欄位（例如 '63），讀取時移除。";
+
 export const E2022: ElectionDef = {
   id: "2022-11-26-local",
   date: "2022-11-26",
@@ -278,6 +287,8 @@ interface LocalDef {
   extra?: ElGroupDef["extra"];
   mayorWarnings: string[];
   councilorWarnings: string[];
+  /** Notes for the indigenous-councillor and township / village groups (boundary, file quirks). */
+  notes?: string[];
   /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
   villages?: boolean;
   /** Mix snapshots per township where villages were reorganised (geo/mix.ts). */
@@ -306,6 +317,33 @@ const L22: LocalDef = {
     "160 個選舉區共選出 841 席，每區 1 至 13 席。縣市與全國層級跨多個選區，以政黨合計呈現；選區層級顯示當選席次最多的政黨。",
     "新竹市東區、北區分屬不同選區，在鄉鎮層級依選區拆成數塊，界線由村里合併而成。",
   ],
+};
+
+const L14: LocalDef = {
+  election: E2014,
+  villages: true,
+  mix: true,
+  boundary: B2016,
+  dirs: {
+    mayor: [`${L2014}直轄市市長/`, `${L2014}縣市市長/`],
+    councilor: [`${L2014}直轄市區域議員/`, `${L2014}縣市區域議員/`],
+    lowland: [`${L2014}直轄市平原議員/`, `${L2014}縣市平原議員/`],
+    highland: [`${L2014}直轄市山原議員/`, `${L2014}縣市山原議員/`],
+    townshipMayor: [`${L2014}縣市鄉鎮市長/`],
+    indigenousChief: [`${L2014}直轄市區長/`],
+    townshipRep: [`${L2014}縣市鄉鎮市民代表/`],
+    lowlandRep: [`${L2014}縣市鄉鎮市民平原代表/`],
+    indigenousRep: [`${L2014}直轄市區民代表/`],
+    villageChief: [`${L2014}村里長/`],
+  },
+  mayorWarnings: [APOSTROPHE_NOTE, B2016_NOTE],
+  councilorWarnings: [
+    "164 個選舉區共選出 841 席，每區 1 至 13 席。縣市與全國層級跨多個選區，以政黨合計呈現；選區層級顯示當選席次最多的政黨。",
+    "新竹市東區、北區分屬不同選區，在鄉鎮層級依選區拆成數塊，界線由村里合併而成。",
+    APOSTROPHE_NOTE,
+    B2016_NOTE,
+  ],
+  notes: [APOSTROPHE_NOTE, B2016_NOTE],
 };
 
 const L18: LocalDef = {
@@ -354,6 +392,7 @@ function localElections(l: LocalDef): ElGroupDef[] {
         `僅${kind}原住民選舉人可投票，選舉人數與一般選舉不同；許多地區的選舉人很少，少數票數即可造成極端的得票率。`,
         `只有設${kind}原住民議員選區的縣市才有資料，其他地區顯示為無資料。`,
         ...(l.boundary === B2018 ? [B2018_NOTE] : []),
+        ...(l.notes ?? []),
       ],
     };
   };
@@ -402,7 +441,7 @@ function townshipAndVillage(l: LocalDef): ElGroupDef[] {
     electorate: "general" as const,
     layout: "admin",
   };
-  const common = [...COMMON_WARNINGS, ...(l.boundary === B2018 ? ["2018 年的中選會檔案以撇號標示代碼欄位（例如 '63），讀取時移除。", B2018_NOTE] : [])];
+  const common = [...COMMON_WARNINGS, ...(l.boundary === B2018 ? ["2018 年的中選會檔案以撇號標示代碼欄位（例如 '63），讀取時移除。", B2018_NOTE] : []), ...(l.notes ?? [])];
   const reps = "每個鄉鎮市區分為一至數個選舉區，各選出一至多席。地圖不畫選舉區界線：鄉鎮層級顯示當選席次最多的政黨，村里層級顯示該村里所屬選舉區的結果。";
   return [
     {
@@ -487,6 +526,7 @@ export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2016),
   ...localElections(L22),
   ...localElections(L18),
+  ...localElections(L14),
   CONSTITUTIONAL_2022,
   ...[17, 18, 19, 20].map(nationalReferendum(E2021R, B2021, undefined, true)),
   ...[7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(nationalReferendum(E2018R, B2018, L18.dirs.mayor, true)),
