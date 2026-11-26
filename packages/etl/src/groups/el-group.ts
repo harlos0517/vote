@@ -410,8 +410,9 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       case "town": {
         const tc = townCode(u.key);
         if (local) {
-          // The township as a whole (dist "00"); 代表 files also have a row per 選區 inside it, not mapped.
-          if (u.key.dist !== "00") return null;
+          // 代表 files have a whole-township row (dist "00") and one per 選區 inside it (not mapped).
+          // Other files have one row per township, whatever its dist (2014 writes "01").
+          if (local === "town-district" && u.key.dist !== "00") return null;
           const cs = contestsInTown.get(tc) ?? [];
           if (!cs.length) return null;
           return { unit: { id: `town:${tc}`, level: "town", nameZh: u.name, parentId: `cty:${cc}`, contestIds: cs.map((c) => c.id) }, contests: cs };
@@ -518,7 +519,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
 
   const levels = levelsOf(d);
   // "臺北市松山區莊敬里長", "連江縣南竿鄉長", "連江縣南竿鄉第1選舉區".
-  const townName = new Map(ds.units.filter((u) => u.level === "town" && u.key.dist === "00").map((u) => [townCode(u.key), u.name]));
+  const townName = new Map(ds.units.filter((u) => u.level === "town" && (local !== "town-district" || u.key.dist === "00")).map((u) => [townCode(u.key), u.name]));
   const villageName = new Map(ds.units.filter((u) => u.level === "village").map((u) => [`${townCode(u.key)}-${u.key.vil}`, u.name]));
   const localContestName = (ci: ContestInfo) => {
     const place = `${countyName.get(ci.county!) ?? ""}${townName.get(ci.key.slice(0, 8)) ?? ""}`;

@@ -109,6 +109,13 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       ? buildRfGroup(def, ds as RfDataset, questions.get(`${def.election.id}#${def.referendumCase}`))
       : buildElGroup(def, ds, partyColors, def.choiceKind === "party" ? readElPartyList(dir) : undefined);
     const checks = [...built.checks, puaCheck, ...checks0.splice(0), ...checkOfficialAnnouncements(o.repoRoot, built)];
+    // Every level the group offers must have units (an empty level once slipped through every join check).
+    const empty = built.group.levels.filter((l) => (built.results[l]?.units.length ?? 0) === 0);
+    checks.push(
+      empty.length
+        ? { id: "levels-non-empty", status: "fail", detail: `offered levels with no units: ${empty.join(", ")}` }
+        : { id: "levels-non-empty", status: "pass", detail: `every offered level has units (${built.group.levels.map((l) => `${l} ${built.results[l]!.units.length}`).join(", ")})` },
+    );
 
     // Mixed snapshots: townships whose reported villages the year's snapshot lacks come from the nearest one that has them.
     let boundaryVersion = def.boundary.versionId;
