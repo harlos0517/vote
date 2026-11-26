@@ -1,11 +1,11 @@
 /**
  * Polling-station results, published per county (groups/<id>/stations/<county>.json) and
  * loaded on demand by the sidebar's station table. Ids follow ids.ts: "st:<county>-<number>",
- * or "st:<county>-<number>@<village code>" where one station's results are split between
- * villages (村里長, or a station number that repeats within a county).
+ * or "st:<county>-<number>@<village unit code>" where a number repeats within a county (one
+ * station split between villages, or two pre-2010 counties merged into one).
  */
 import type { GroupResultsFile, GroupUnit } from "@tw-election/schema";
-import { type ElUnit, countyCode, keyString } from "../adapters/cec-el.ts";
+import { type ElUnit, countyCode } from "../adapters/cec-el.ts";
 
 export interface StationInput {
   u: ElUnit;
@@ -25,9 +25,9 @@ export function stationFiles(groupId: string, rows: StationInput[]): Record<stri
   for (const r of rows) {
     let id = base(r);
     if (count.get(id)! > 1) {
-      // Split station: tell the slices apart by their village (groups have no 11-digit code).
-      if (!r.parentId.startsWith("vil:")) throw new Error(`${groupId}: station ${keyString(r.u.key)} repeats under a village group`);
-      id = `${id}@${r.parentId.slice(4)}`;
+      // Repeated number (a station split between villages, or two pre-2010 counties merged):
+      // tell them apart by the village unit they report under.
+      id = `${id}@${r.parentId.slice(r.parentId.indexOf(":") + 1)}`;
     }
     if (seen.has(id)) throw new Error(`${groupId}: duplicate station id ${id}`);
     seen.add(id);

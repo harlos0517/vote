@@ -48,10 +48,12 @@ export const ContestId = z.string().regex(/^\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.[a-z0-
  *   st:63000-0597            polling station; number is unique within a county
  *                            in all three samples, but NOT stable across elections
  *   st:09007-0003@09007010002  station slice (V1 village-chief contests split one
- *                            shared station by village)
+ *                            shared station by village; also pre-2010 merged counties, whose
+ *                            old county and city both numbered stations from 1)
+ *   st:64000-0099@64000030-Z050  the same, under a village group or a codeless village
  */
 export const ReportingUnitId = z
   .string()
   .regex(
-    /^(nat|cty:\d{5}|dist:\d{5}-\d{2}|town:\d{8}|tp:\d{8}-\d{2}|vil:\d{11}|vgrp:\d{8}-[0-9A-Za-z]{4}|st:\d{5}-\d{4}(@\d{11})?)$/,
+    /^(nat|cty:\d{5}|dist:\d{5}-\d{2}|town:\d{8}|tp:\d{8}-\d{2}|vil:\d{11}|vgrp:\d{8}-[0-9A-Za-z]{4}|st:\d{5}-\d{4}(@(\d{11}|\d{8}-[0-9A-Za-z]{4}))?)$/,
   );
