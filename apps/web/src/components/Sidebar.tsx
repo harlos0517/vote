@@ -1,6 +1,7 @@
-import { Eye, LockSimple } from "@phosphor-icons/react";
 import { ActionIcon, Divider, Group, Select, Stack, Table, Text, ThemeIcon, Title, Tooltip } from "@mantine/core";
+import { EyeIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { ABSTAIN_COLOR, INVALID_COLOR, NEUTRAL } from "../lib/colors.ts";
+import { choiceColorOf } from "../lib/mapView.ts";
 import { fmtInt, fmtPct, turnout, type UnitView } from "../lib/results.ts";
 import {
   abstained,
@@ -15,7 +16,6 @@ import {
   type Denominator,
   type GroupContext,
 } from "../lib/views.ts";
-import { choiceColorOf } from "../lib/mapView.ts";
 import { Fold } from "./Fold.tsx";
 import { Swatch } from "./Legend.tsx";
 import { SourceNotes } from "./SourceNotes.tsx";
@@ -35,7 +35,7 @@ export interface SidebarProps {
   /** Referendum palette (blue / orange). */
   colorblind: boolean;
   onUnlock: () => void;
-  /** Heading: the area's name, or "高義里 第 0588 號投開票所" when a sub-area is picked. */
+  /** Heading: the locked area's name, also while a sub-area is picked (the select names that). */
   title?: string;
   /**
    * Locked view only: pick one village of a township (or polling station of a village) to show
@@ -63,14 +63,14 @@ export function Sidebar(p: SidebarProps) {
         {p.status === "hover" && (
           <Tooltip label="預覽（滑鼠移開後回到鎖定或全國）" withArrow>
             <ThemeIcon variant="transparent" color="gray" size="md" aria-label="預覽">
-              <Eye size={18} />
+              <EyeIcon size={18} />
             </ThemeIcon>
           </Tooltip>
         )}
         {p.status === "locked" && (
           <Tooltip label="解除鎖定（或點選地圖空白處）" withArrow>
             <ActionIcon variant="subtle" color="pink" size="md" onClick={p.onUnlock} aria-label="解除鎖定">
-              <LockSimple size={18} weight="fill" />
+              <LockSimpleIcon size={18} weight="fill" />
             </ActionIcon>
           </Tooltip>
         )}

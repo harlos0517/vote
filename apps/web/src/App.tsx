@@ -285,7 +285,7 @@ export function App() {
             <Sidebar
               ctx={ctx}
               unit={display.unit}
-              title={display.title}
+              title={shown.unit.name} // the select already names the picked village / station
               levelName={display.levelName}
               status={shown.status}
               countyName={countyOf(display.unit)}
