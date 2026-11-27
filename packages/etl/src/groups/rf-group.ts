@@ -165,7 +165,7 @@ export function buildRfGroup(d: ElGroupDef, ds: RfDataset, question: ReferendumQ
     parties: [],
     results,
     ...(stations ? { stations } : {}),
-    townParts: results.town!.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null })),
+    townParts: results.town!.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null, county: u.id.slice(5, 10) })),
     checks,
   };
 }

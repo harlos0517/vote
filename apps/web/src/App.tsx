@@ -141,12 +141,26 @@ export function App() {
       : { unit: shown.unit, title: shown.unit.name, levelName: shown.levelName, status: shown.status }
     : null;
 
-  /** County of a unit: walk parent ids (town part → district → county). */
-  const countyOf = (u: UnitView): string | null => {
-    if (u.id.startsWith("cty:") || u.id === "nat") return null;
-    const code = codeOf(u.id).slice(0, 5);
-    return countyNames.get(`cty:${code}`) ?? null;
+  /** Parent of every loaded unit (this level and the townships), to find a county by walking up. */
+  const parents = useMemo(() => {
+    const p = new Map<string, string | null>();
+    for (const rf of [results.data, towns.data]) for (const u of rf?.units ?? []) p.set(u.id, u.parentId);
+    return p;
+  }, [results.data, towns.data]);
+  /**
+   * County name for a unit id: walk parent ids (village → town → district → county). Before 2010 a
+   * township's county is not its code's first 5 digits (臺中縣 is 66001, its townships 66000xxx).
+   */
+  const countyNameOf = (id: string): string | null => {
+    let cur: string | null | undefined = id;
+    for (let i = 0; cur && i < 5; i++) {
+      if (cur.startsWith("cty:")) return countyNames.get(cur) ?? null;
+      if (cur.startsWith("dist:")) return countyNames.get(`cty:${codeOf(cur).slice(0, 5)}`) ?? null;
+      cur = parents.get(cur);
+    }
+    return countyNames.get(`cty:${codeOf(id).slice(0, 5)}`) ?? null;
   };
+  const countyOf = (u: UnitView): string | null => (u.id.startsWith("cty:") || u.id === "nat" ? null : countyNameOf(u.id));
   /** Districts to outline: the shown unit's own district at town and 村里 level. */
   const highlightDistricts = useMemo(() => {
     if (!shown || shown.status === "overall" || !fine || shown.unit.contestIds.length !== 1) return [];
@@ -278,7 +292,7 @@ export function App() {
               name={featureNames.get(emptyHover) ?? null}
               levelName={LEVEL_LABEL[level]}
               meta={m}
-              countyName={countyNames.get(`cty:${emptyHover.slice(0, 5)}`) ?? null}
+              countyName={countyNameOf(`town:${emptyHover.slice(0, 8)}`)}
               townName={emptyTown}
             />
           ) : ctx && shown && display && model ? (

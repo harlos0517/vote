@@ -504,8 +504,6 @@ interface LocalDef {
   legacy?: { prefixes: string[]; modernPartiesFrom: string[] };
   /** Groups without a 村里 level (2010-06-12 代表: 選區 rows only). */
   noVillages?: ElGroupDef["office"][];
-  /** Pre-2010: old 縣 and 市 of merged counties elected separately (ElGroupDef.oldCountyContests). */
-  oldCountyContests?: boolean;
   /** Pre-2008: the 選區 field of county-, township- and village-wide files means nothing (ElGroupDef.ignoreDist). */
   ignoreDist?: boolean;
   /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
@@ -665,7 +663,6 @@ const L05: LocalDef = {
   boundary: B2016,
   registryFrom: REGISTRY_2014,
   dirDates: [{ prefix: `${L2005}2006`, date: "2006-12-09" }],
-  oldCountyContests: true,
   ignoreDist: true,
   noVillages: ["councilor-lowland-indigenous", "councilor-highland-indigenous"],
   dirs: {
@@ -751,7 +748,6 @@ const L01: LocalDef = {
     { prefix: `${L2005}2002直轄市`, date: "2002-12-07" },
     { prefix: `${L2005}2002`, date: "2002-01-26" },
   ],
-  oldCountyContests: true,
   ignoreDist: true,
   noVillages: ["councilor-lowland-indigenous", "councilor-highland-indigenous"],
   dirs: {
@@ -783,7 +779,6 @@ const L97: LocalDef = {
     { prefix: `${L2005}1998直轄市`, date: "1998-12-05" },
     { prefix: `${L2005}1998`, date: "1998-01-24" },
   ],
-  oldCountyContests: true,
   ignoreDist: true,
   noVillages: ["councilor-lowland-indigenous", "councilor-highland-indigenous", "township-mayor"],
   dirs: {
@@ -813,7 +808,7 @@ const G1994: ElGroupDef[] = [
   },
   {
     election: E1994, local: "provincial-councilor-district", nameZh: "臺灣省議員選舉（區域）", office: "provincial-councilor-district", electorate: "general",
-    archiveDirs: [`${L2005}1994台灣省議員/區域/`], contests: "county", contestPrefix: "pc", contestNameSuffix: "省議員", choiceKind: "candidate", boundary: B2016, villages: false, registryFrom: REGISTRY_2014, layout: "admin", ignoreDist: true, oldCountyContests: true,
+    archiveDirs: [`${L2005}1994台灣省議員/區域/`], contests: "county", contestPrefix: "pc", contestNameSuffix: "省議員", choiceKind: "candidate", boundary: B2016, villages: false, registryFrom: REGISTRY_2014, layout: "admin", ignoreDist: true,
     warnings: [...COMMON_WARNINGS, "臺灣省 21 個縣市各為一個選舉區（複數席次）。平地、山地原住民省議員的中選會檔案只有全省合計，沒有地區資料，不在此地圖。此檔案只到鄉鎮市區層級。", ...NOTES_1994],
   },
   {
@@ -868,7 +863,7 @@ const L18: LocalDef = {
 
 function localElections(l: LocalDef): ElGroupDef[] {
   const y = l.election.date.slice(0, 4);
-  const extra = { ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}), ...(l.dirDates ? { dirDates: l.dirDates } : {}), ...(l.oldCountyContests ? { oldCountyContests: true } : {}), ...(l.ignoreDist ? { ignoreDist: true } : {}) };
+  const extra = { ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}), ...(l.dirDates ? { dirDates: l.dirDates } : {}), ...(l.ignoreDist ? { ignoreDist: true } : {}) };
   const base = { election: l.election, boundary: l.boundary, villages: l.villages ?? false, mixSnapshots: l.mix ?? false, contests: "district" as const, choiceKind: "candidate" as const, ...extra };
   const indigenous = (kind: "平地" | "山地"): ElGroupDef => {
     const code = kind === "平地" ? "T2" : "T3";

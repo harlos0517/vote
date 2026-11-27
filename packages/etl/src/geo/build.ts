@@ -25,6 +25,8 @@ export interface PartAssignment {
   towns: { town: string; part: string; district: string }[];
   /** Villages of split towns → their part and district. */
   villages: { village: string; part: string; district: string }[];
+  /** Towns drawn in another county than their registry one (pre-2010: 臺中縣 66001), with its name. */
+  counties?: { town: string; county: string; name: string }[];
 }
 
 export interface Boundaries {
@@ -40,6 +42,8 @@ export async function buildBoundaries(villageShp: string, workDir: string, parts
   const q = (p: string) => JSON.stringify(p);
   const townsCsv = join(workDir, "towns.csv");
   const villagesCsv = join(workDir, "villages.csv");
+  const countiesCsv = join(workDir, "counties.csv");
+  writeFileSync(countiesCsv, csv("TOWNCODE,tcounty,tcname", (parts.counties ?? []).map((c) => [c.town, c.county, c.name])));
   writeFileSync(townsCsv, csv("TOWNCODE,tpart,tdist", parts.towns.map((t) => [t.town, t.part, t.district])));
   writeFileSync(villagesCsv, csv("VILLCODE,vpart,vdist", parts.villages.map((v) => [v.village, v.part, v.district])));
   const out = { county: join(workDir, "county.geojson"), town: join(workDir, "town.geojson"), district: join(workDir, "district.geojson") };
@@ -50,6 +54,9 @@ export async function buildBoundaries(villageShp: string, workDir: string, parts
       `-simplify ${simplifyPct} keep-shapes`,
       `-join ${q(townsCsv)} keys=TOWNCODE,TOWNCODE string-fields=TOWNCODE,tpart,tdist`,
       `-join ${q(villagesCsv)} keys=VILLCODE,VILLCODE string-fields=VILLCODE,vpart,vdist`,
+      `-join ${q(countiesCsv)} keys=TOWNCODE,TOWNCODE string-fields=TOWNCODE,tcounty,tcname`,
+      // (No local variable here: a "var" in a mapshaper expression becomes a field of the record.)
+      `-each "if (this.properties.tcounty) { COUNTYCODE = this.properties.tcounty; COUNTYNAME = this.properties.tcname; }"`,
       // Villages of split towns that CEC does not list (e.g. 未編定村里) keep the bare town code: no data.
       // Joined fields may be absent entirely (e.g. no split towns), so read them via this.properties.
       `-each "var p = this.properties; part = p.vpart || p.tpart || TOWNCODE; district = p.vdist || p.tdist || ''"`,

@@ -498,20 +498,20 @@ describe("2010-06-12 legacy files", () => {
 
 describe("pre-2008 files", () => {
   const mk = (prv: string, cty: string, dist: string, town: string, vil: string, level: "county" | "district" | "town" | "village" | "station", name: string, valid = 1, station = "0000") => ({ key: { prv, cty, dist, town, vil, station }, level, name, valid, invalid: 0, cast: valid, electors: valid, populationRaw: 0, votes: new Map<number, number>(), officialRate: new Map<number, number>() });
-  it("keeps an old 縣 and 市 as two county-wide contests (選區 01 / 02) under one county row", async () => {
+  it("keeps the old 縣 and 市 apart before 2010: own county rows, townships on registry codes", async () => {
     const { renumberToRegistry } = await import("../src/adapters/registry.ts");
+    const { countyOf } = await import("../src/adapters/cec-el.ts");
     const ref = { county: new Map([["高雄市", "64000"]]), town: new Map([["64000|鹽埕區", "64000010"], ["64000|鳳山區", "64000120"]]), village: new Map<string, string>() };
     const admin = [{ kind: "county" as const, old: "高雄縣", new: "高雄市", source: "x", reviewed: false }];
-    const ds = {
+    const ds: { units: ReturnType<typeof mk>[]; candidates: never[]; parties: never[]; countyOfTown?: Map<string, string> } = {
       units: [mk("02", "000", "00", "000", "0000", "county", "高雄市", 5), mk("02", "000", "00", "001", "0000", "town", "鹽埕區", 5), mk("03", "012", "00", "000", "0000", "county", "高雄縣", 7), mk("03", "012", "00", "003", "0000", "town", "鳳山市", 7)],
       candidates: [],
       parties: [],
     };
-    renumberToRegistry(ds, "e", ref, admin, new Map(), { oldCountyContests: true });
-    expect(ds.units.filter((u) => u.level === "district").map((u) => `${u.name} ${u.key.dist}`).sort()).toEqual(["高雄市 02", "高雄縣 01"]);
-    const county = ds.units.filter((u) => u.level === "county");
-    expect(county.map((u) => [u.name, u.valid, u.votes.size])).toEqual([["高雄市", 12, 0]]);
-    expect(ds.units.filter((u) => u.level === "town").map((u) => `${u.key.town} ${u.key.dist}`).sort()).toEqual(["010 02", "120 01"]);
+    renumberToRegistry(ds, "e", ref, admin, new Map(), { splitOldCounties: true });
+    expect(ds.units.filter((u) => u.level === "county").map((u) => `${u.key.prv}${u.key.cty} ${u.name} ${u.valid}`).sort()).toEqual(["64001 高雄縣 7", "64002 高雄市 5"]);
+    const towns = ds.units.filter((u) => u.level === "town");
+    expect(towns.map((u) => `${u.key.prv}${u.key.cty}${u.key.town} → ${countyOf(ds, u.key)}`).sort()).toEqual(["64000010 → 64002", "64000120 → 64001"]);
   });
   it("gives parties no modern file names their own code, and refuses a name with two modern codes", async () => {
     const { remapLegacyParties } = await import("../src/adapters/cec-el.ts");

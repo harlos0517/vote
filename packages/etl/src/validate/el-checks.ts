@@ -15,8 +15,11 @@ export const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
 const k6 = (prv: string, cty: string, dist: string, town: string, vil: string, station: string): ElKey => ({ prv, cty, dist, town, vil, station });
 
-export function parentKey(u: ElUnit, has: (k: ElKey) => boolean): ElKey | null {
+export function parentKey(u: ElUnit, has: (k: ElKey) => boolean, countyOfTown?: Map<string, string>): ElKey | null {
   const k = u.key;
+  // A township's 選區 and county rows: before 2010, its old county's code (臺中縣 66001), not its own prefix.
+  const oc = countyOfTown?.get(k.prv + k.cty + k.town);
+  const [cp, cc] = oc ? [oc.slice(0, 2), oc.slice(2)] : [k.prv, k.cty];
   switch (u.level) {
     case "station":
       return k6(k.prv, k.cty, k.dist, k.town, k.vil, "0000");
@@ -26,12 +29,12 @@ export function parentKey(u: ElUnit, has: (k: ElKey) => boolean): ElKey | null {
       return has(t) ? t : k6(k.prv, k.cty, "00", k.town, "0000", "0000");
     }
     case "town": {
-      const d = k6(k.prv, k.cty, k.dist, "000", "0000", "0000");
+      const d = k6(cp, cc, k.dist, "000", "0000", "0000");
       if (has(d)) return d;
       // 鄉鎮市民代表: a 選區 inside a township (dist ≠ "00") sums to the whole-township row.
       const whole = k6(k.prv, k.cty, "00", k.town, "0000", "0000");
       if (k.dist !== "00" && has(whole)) return whole;
-      return k6(k.prv, k.cty, "00", "000", "0000", "0000");
+      return k6(cp, cc, "00", "000", "0000", "0000");
     }
     case "district":
       return k6(k.prv, k.cty, "00", "000", "0000", "0000");
@@ -90,7 +93,7 @@ export function checkElDataset(ds: ElDataset, ballotsOf: (k: ElKey) => number[] 
   const children = new Map<string, ElUnit[]>();
   const orphans: string[] = [];
   for (const u of ds.units) {
-    const p = parentKey(u, has);
+    const p = parentKey(u, has, ds.countyOfTown);
     if (!p) continue;
     const pk = keyString(p);
     if (!byKey.has(pk)) orphans.push(`${keyString(u.key)} → missing ${pk}`);

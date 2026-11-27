@@ -2,6 +2,7 @@
 /**
  * tw-etl fetch   download + verify pinned raw sources into data/raw
  * tw-etl build   fetch, extract, validate, build boundaries, write data/out/v1/...
+ *   [--only <prefix,…>]  check only the groups whose id starts with a prefix (e.g. 2005,1994-12-03-local); no release
  * tw-etl publish [--dry-run]     upload the current local release + manifest to R2
  * tw-etl mirror-raw [--dry-run]  copy pinned raw inputs to the private raw bucket
  * tw-etl live-replay --groups <id,id> [--release r] [--start iso] [--interval min] [--seed n] [--poll s]
@@ -56,6 +57,7 @@ const { positionals, values } = parseArgs({
     concurrency: { type: "string" },
     once: { type: "boolean" },
     prefix: { type: "string", multiple: true },
+    only: { type: "string" },
     candidates: { type: "string" },
     "from-group": { type: "string" },
     publish: { type: "boolean" },
@@ -77,7 +79,8 @@ if (cmd === "fetch") {
   await fetchAll(opts);
   console.log("raw sources verified");
 } else if (cmd === "build") {
-  const r = await build(opts);
+  const only = values.only?.split(",").map((x) => x.trim()).filter(Boolean);
+  const r = await build({ ...opts, ...(only?.length ? { only } : {}) });
   if (!r.ok) {
     console.error("validation failed — nothing published; see data/out/reports/failed.md");
     process.exit(1);

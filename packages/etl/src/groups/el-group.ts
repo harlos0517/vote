@@ -17,7 +17,7 @@ import type {
   ReportingLevel,
   ValidationCheck,
 } from "@tw-election/schema";
-import { type ElDataset, type ElKey, type ElPartyList, type ElUnit, countyCode, keyString, townCode } from "../adapters/cec-el.ts";
+import { type ElDataset, type ElKey, type ElPartyList, type ElUnit, countyCode, countyOf, keyString, townCode } from "../adapters/cec-el.ts";
 import { PUA_RE } from "../lib/csv.ts";
 import { checkPartyColors, type PartyColor } from "../lib/party-colors.ts";
 import { checkElDataset } from "../validate/el-checks.ts";
@@ -90,12 +90,6 @@ export interface ElGroupDef {
    */
   listMembersAbsent?: boolean;
   /**
-   * Pre-2010 maps: old 縣 and 市 of a MERGED_2010 county each held their own election
-   * (adapters/registry.ts RenumberOptions.oldCountyContests). "county" contests are then keyed
-   * "<county>-01" (old 縣) / "<county>-02" (old 市) there.
-   */
-  oldCountyContests?: boolean;
-  /**
    * Pre-2008 files of county-, township- or village-wide contests write the 選區 field
    * inconsistently (2005 縣市長: elprof 00, elctks and elcand 01): it means nothing there and is
    * read as "00", as for nationwide contests. Ignored for districted contests.
@@ -159,7 +153,7 @@ function contestIdOf(d: ElGroupDef, county: string | null, dist: string | null, 
   // Lowercase: village keys may carry a G / Z prefix (adapters/registry.ts); ids are lowercase slugs.
   if (isLocalContests(d.contests)) return `${d.election.id}.${prefix}-${key.toLowerCase()}`;
   if (d.contests === "district") return `${d.election.id}.${prefix}-${county}-d${dist}`;
-  if (d.contests === "county") return `${d.election.id}.${prefix}-${key.toLowerCase()}`; // key: county, or county-01/-02 (oldCountyContests)
+  if (d.contests === "county") return `${d.election.id}.${prefix}-${county}`;
   return groupId(d);
 }
 
@@ -180,7 +174,7 @@ export interface BuiltGroup {
   parties: Party[];
   results: Partial<Record<ReportingLevel, GroupResultsFile>>;
   /** District membership per town-part code, for geometry: "63000010-07" → "63000-07". */
-  townParts: { code: string; town: string; district: string | null }[];
+  townParts: { code: string; town: string; district: string | null; county: string }[];
   /** Polling-station results per county code (only for groups published to 村里 level). */
   stations?: Record<string, GroupResultsFile>;
   checks: ValidationCheck[];
@@ -215,16 +209,14 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   const multi = d.contests === "district";
   const byCounty = d.contests === "county";
   const local = isLocalContests(d.contests) ? d.contests : null;
-  const splitCounties = new Set(d.oldCountyContests && byCounty ? ds.units.filter((u) => u.level === "district").map((u) => countyCode(u.key)) : []);
+  // A unit's county: pre-2010 townships of 臺中縣 etc. belong to the old county (ElDataset.countyOfTown).
+  const cOf = (k: ElKey) => countyOf(ds, k);
   const contestKeyOf = (k: ElKey): string | null => {
     switch (d.contests) {
       case "district":
-        return k.dist === "00" ? null : `${countyCode(k)}-${k.dist}`;
+        return k.dist === "00" ? null : `${cOf(k)}-${k.dist}`;
       case "county":
-        if (k.prv === "00") return null;
-        if (d.oldCountyContests && k.dist !== "00") return `${countyCode(k)}-${k.dist}`;
-        // A merged county's own row spans both old counties' contests.
-        return splitCounties.has(countyCode(k)) ? null : countyCode(k);
+        return k.prv === "00" ? null : cOf(k);
       case "town":
         return k.town === "000" ? null : townCode(k);
       case "village":
@@ -243,14 +235,14 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   for (const c of ds.candidates) {
     const key = contestKeyOf(c.key);
     if (!key || infos.has(key)) continue;
-    const county = multi || byCounty || local ? countyCode(c.key) : null;
+    const county = multi || byCounty || local ? cOf(c.key) : null;
     const dist = multi || local === "town-district" ? c.key.dist : null;
     infos.set(key, {
       key,
       id: contestIdOf(d, county, dist, key),
       county,
       dist,
-      choicePrefix: multi ? `${county}-d${dist}.` : byCounty ? `${key}.` : local ? `${key.toLowerCase()}.` : "",
+      choicePrefix: multi ? `${county}-d${dist}.` : byCounty ? `${county}.` : local ? `${key.toLowerCase()}.` : "",
     });
   }
   const contestList = [...infos.values()].sort((a, b) => a.key.localeCompare(b.key));
@@ -356,7 +348,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   // ---- winners: the marked candidates must be the contest's top seats (ties fail loudly)
   const contestLevel = multi ? "district" : byCounty ? "county" : local === "village" ? "village" : local ? "town" : "national";
   const topRowOf = (ci: ContestInfo) =>
-    ds.units.find((u) => (u.level === contestLevel || (byCounty && u.level === "district")) && (contestLevel === "national" || contestKeyOf(u.key) === ci.key));
+    ds.units.find((u) => u.level === contestLevel && (contestLevel === "national" || contestKeyOf(u.key) === ci.key));
   const winnerBad: string[] = [];
   let drawsDecided = 0;
   let quotaInferred = 0;
@@ -456,7 +448,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   }
 
   const unitOf = (u: ElUnit): { unit: GroupUnit; contests: ContestInfo[] } | null => {
-    const cc = countyCode(u.key);
+    const cc = cOf(u.key);
     const ckey = contestKeyOf(u.key);
     const ci = ckey ? infos.get(ckey) : undefined;
     switch (u.level) {
@@ -603,7 +595,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     nameZh: multi
       ? (districtName.get(ci.key) ?? `${countyName.get(ci.county!) ?? ""}第${ci.dist}選區`)
       : byCounty
-        ? `${(ci.key.includes("-") ? districtName.get(ci.key) : undefined) ?? countyName.get(ci.county!) ?? ci.county}${d.contestNameSuffix ?? ""}`
+        ? `${countyName.get(ci.county!) ?? ci.county}${d.contestNameSuffix ?? ""}`
         : local
           ? localContestName(ci)
           : d.nameZh,
@@ -631,10 +623,11 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     ? [] // maxLevel "county"
     : multi
     ? results.town.units.map((u) => {
-        const code = u.id.slice(3); // "63000010-07"
-        return { code, town: code.slice(0, 8), district: `${code.slice(0, 5)}-${code.slice(9)}` };
+        const code = u.id.slice(3); // "63000010-07"; its parent "dist:66001-07" (old county before 2010)
+        const district = u.parentId!.slice(5);
+        return { code, town: code.slice(0, 8), district, county: district.slice(0, 5) };
       })
-    : results.town.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null }));
+    : results.town.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null, county: u.parentId!.slice(4) }));
 
   return {
     group: { id: gid, nameZh: d.nameZh, office: d.office, electorate: d.electorate, levels, warnings: [...d.warnings] }, // own copy: the pipeline appends to it

@@ -114,18 +114,22 @@ const tai = (name: string) => name.replace(/台/gu, "臺");
  * Returns checks for the review status of the renames used.
  */
 /**
- * Counties merged on 2010-12-25 whose two halves both held county-wide elections before then
- * (admin-renames.csv: 臺中縣 → 臺中市, …): [old 縣, old 市]. 臺北縣 became 新北市 alone.
+ * The halves of the counties merged on 2010-12-25 (admin-renames.csv: 臺中縣 → 臺中市, …), with the
+ * site's own 5-digit codes for them (no registry has these codes; real county codes end in 000 or
+ * start with 09 / 10). 臺北縣 became 新北市 with the same area and keeps 65000.
  */
-export const MERGED_2010: [string, string][] = [["臺中縣", "臺中市"], ["臺南縣", "臺南市"], ["高雄縣", "高雄市"]];
+export const OLD_COUNTY_CODES = new Map([
+  ["臺中縣", "66001"], ["臺中市", "66002"],
+  ["臺南縣", "67001"], ["臺南市", "67002"],
+  ["高雄縣", "64001"], ["高雄市", "64002"],
+]);
 
 export interface RenumberOptions {
   /**
-   * Pre-2010 maps where both halves of a MERGED_2010 county elected their own 縣市長 / 議員:
-   * county-wide files put the old 縣 under 選區 "01" and the old 市 under "02" (two contests in
-   * one county, the county row their sum); districted files number the old 市's 選區 from 51.
+   * Files from before the 2010 mergers: keep the old 縣 and 市 apart at county level, under
+   * OLD_COUNTY_CODES. Townships keep their registry codes; ds.countyOfTown records their old county.
    */
-  oldCountyContests?: boolean;
+  splitOldCounties?: boolean;
 }
 
 export function renumberToRegistry(ds: ElDataset, election: string, ref: RegistryReference, admin: AdminRename[], villages: Map<string, VillageRename>, opts: RenumberOptions = {}): ValidationCheck[] {
@@ -185,25 +189,16 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
   for (const [t, names] of byNewTown) if (names.length > 1 && !mergedTowns.has(t)) bad.push(`townships ${names.join(" and ")} both map to ${t}`);
   // Counties merged on 2010-12-25 (臺中縣 + 臺中市 → 臺中市, …) numbered their 選區 from 01 each:
   // later old counties' 選區 continue after the earlier ones' (CEC's 選區 names are kept).
+  // Old county → the county code its own rows (county, 選區) get: split ones keep their old identity.
+  const effective = new Map([...county].map(([oldC, cc]) => [oldC, (opts.splitOldCounties && OLD_COUNTY_CODES.get(oldCountyName.get(oldC) ?? "")) || cc]));
   const distOffset = new Map<string, number>(); // old county → offset
   const nextDist = new Map<string, number>(); // new county → highest 選區 so far
-  for (const [oldC, newC] of [...county].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [oldC, newC] of [...effective].sort(([a], [b]) => a.localeCompare(b))) {
     const dists = ds.units.filter((u) => u.key.prv + u.key.cty === oldC && u.key.dist !== "00").map((u) => Number(u.key.dist));
     if (!dists.length) continue;
     const off = nextDist.get(newC) ?? 0;
     distOffset.set(oldC, off);
     nextDist.set(newC, off + Math.max(...dists));
-  }
-  const splitDist = new Map<string, string>(); // old county → its 選區 in a county-wide file
-  if (opts.oldCountyContests) {
-    const oldName = new Map(ds.units.filter((x) => x.level === "county").map((u) => [u.key.prv + u.key.cty, u.name]));
-    for (const [oldC] of county) {
-      const half = MERGED_2010.flatMap(([a, b]) => (oldName.get(oldC) === a ? [1] : oldName.get(oldC) === b ? [2] : []))[0];
-      if (!half) continue;
-      const districted = ds.units.some((u) => u.key.prv + u.key.cty === oldC && u.key.dist !== "00");
-      if (districted) distOffset.set(oldC, half === 2 ? 50 : 0);
-      else splitDist.set(oldC, half === 1 ? "01" : "02");
-    }
   }
   // Villages: old "prv+cty+town|vil" → new 4-char village field ("0xxx", or "Zxxx" without a code).
   const vil = new Map<string, string>();
@@ -247,18 +242,16 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
     const v = k.vil === "0000" ? "0000" : vil.get(`${oldC}${k.town}|${k.vil}`)!;
     if (!cc || (k.town !== "000" && !t) || !v) throw new Error(`renumber ${election}: unmapped key ${keyString(k)}`);
     const off = distOffset.get(oldC) ?? 0;
-    const split = splitDist.get(oldC);
-    const dist = split && k.dist === "00" ? split : k.dist === "00" || off === 0 ? k.dist : String(Number(k.dist) + off).padStart(2, "0");
-    return { ...k, prv: cc.slice(0, 2), cty: cc.slice(2), dist, town: t ? t.slice(5) : "000", vil: v };
+    const dist = k.dist === "00" || off === 0 ? k.dist : String(Number(k.dist) + off).padStart(2, "0");
+    // County and 選區 rows (and their contests) use the effective county; townships and below their registry code.
+    const at = t ? cc : effective.get(oldC)!;
+    return { ...k, prv: at.slice(0, 2), cty: at.slice(2), dist, town: t ? t.slice(5) : "000", vil: v };
   };
   for (const u of ds.units) { u.key = rekey(u.key); u.level = levelOf(u.key); }
   for (const c of ds.candidates) c.key = rekey(c.key);
-  // Split old counties' own rows are now 選區 rows: the county row is their sum (built below with the merged ones).
-  for (const oldC of splitDist.keys()) {
-    const row = ds.units.find((u) => u.level === "district" && u.key.town === "000" && oldCountyName.get(oldC) === u.name);
-    if (!row) throw new Error(`renumber ${election}: no county row for ${oldCountyName.get(oldC)}`);
-    // No candidate votes: the row spans two contests whose ballot numbers mean different people.
-    ds.units.push({ ...row, key: { ...row.key, dist: "00" }, level: "county", votes: new Map(), officialRate: new Map() });
+  for (const [oldT, t] of town) {
+    const e = effective.get(oldT.slice(0, 5))!;
+    if (e !== t.slice(0, 5)) (ds.countyOfTown ??= new Map()).set(t, e);
   }
   // Merged counties (高雄縣 + 高雄市 → 64000) each had a county row: sum them into one.
   const byKey = new Map<string, ElUnit[]>();

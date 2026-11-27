@@ -14,12 +14,12 @@ import {
 import { DATA_SOURCES, RAW_SOURCES } from "./config/sources.ts";
 import { ensureRaw, findFile, sha256File, unzip } from "./lib/raw.ts";
 import { parseCecCsv } from "./lib/csv.ts";
-import { type ElDataset, type ElUnit, countyCode, elFile, hasOldPartyNumbers, isLegacyDir, mergeElDatasets, readElDir, readElParties, readElPartyList, remapLegacyParties, remapPartyList, townCode } from "./adapters/cec-el.ts";
+import { type ElDataset, type ElUnit, countyCode, countyOf, elFile, hasOldPartyNumbers, isLegacyDir, mergeElDatasets, readElDir, readElParties, readElPartyList, remapLegacyParties, remapPartyList, townCode } from "./adapters/cec-el.ts";
 import { CHIAYI_CITY, readChiayiRerun } from "./adapters/cec-wide-chiayi.ts";
 import { type BuiltGroup, isLocalContests, type ElGroupDef, buildElGroup, groupId, toParty } from "./groups/el-group.ts";
 import { restoreSnapshot } from "./geo/restore.ts";
 import { applyCorrections, loadDataCorrections } from "./adapters/corrections.ts";
-import { fillMissingNames, loadAdminRenames, loadMissingNames, loadVillageRenames, registryReference, renumberToRegistry } from "./adapters/registry.ts";
+import { OLD_COUNTY_CODES, fillMissingNames, loadAdminRenames, loadMissingNames, loadVillageRenames, registryReference, renumberToRegistry } from "./adapters/registry.ts";
 import { ALL_SNAPSHOTS, GROUPS } from "./groups/defs.ts";
 import { type Boundaries, type GeoJSON, type PartAssignment, buildBoundaries, buildVillages } from "./geo/build.ts";
 import { loadVillageGroups, planVillages, villageGeoCode, villageGroupKey } from "./geo/villages.ts";
@@ -38,6 +38,11 @@ export interface PipelineOptions {
   outDir: string;
   repoRoot: string;
   log?: (s: string) => void;
+  /**
+   * Check only: build and validate just the groups whose id starts with one of these prefixes
+   * (e.g. "2005-12-03-local", "1994"), and write no release. A release always needs every group.
+   */
+  only?: string[];
 }
 
 const MAJIA = "10013280";
@@ -55,6 +60,8 @@ interface GroupOutput {
   notes: { unit: string; note: string }[];
   village?: { geo: GeoJSON; path: string; undrawn: string[] };
   boundaryVersion: string;
+  /** Pre-2010: the county layer keeps the old 縣 and 市 apart (geography/…/admin-oldcounties). */
+  oldCountyLayer: boolean;
 }
 
 export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseId?: string; checks: ValidationCheck[] }> {
@@ -93,6 +100,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const adminRenames = loadAdminRenames(o.repoRoot);
   const villageRenames = loadVillageRenames(o.repoRoot);
   const missingNames = loadMissingNames(o.repoRoot);
+  let oldCountyMap: Map<string, string> | null = null; // pre-2010 township → old county, read once
   const dataCorrections = loadDataCorrections(o.repoRoot);
 
   const outputs: GroupOutput[] = [];
@@ -103,6 +111,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
   const checks0: ValidationCheck[] = [];
   const allChecks: ValidationCheck[] = [...restoreChecks];
   for (const def of GROUPS) {
+    if (o.only && !o.only.some((p) => groupId(def).startsWith(p))) continue;
     const gid = groupId(def);
     log(`group ${gid}`);
     const rf = def.format === "rf";
@@ -116,11 +125,14 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
         }))
       : null;
     const prepare = registry
-      ? (part: ElDataset) => {
+      ? (part: ElDataset, dir: string) => {
           const f = fillMissingNames(part, def.election.id, missingNames);
           if (f.filled) checks0.push({ id: "missing-names", status: f.unreviewed ? "warn" : "pass", detail: `${f.filled} unit names CEC left empty filled from missing-names.csv${f.unreviewed ? ` (${f.unreviewed} not yet reviewed)` : ""}` });
           applyPuaNames(part, puaNames);
-          checks0.push(...renumberToRegistry(part, def.election.id, registry, adminRenames, villageRenames, { oldCountyContests: def.oldCountyContests ?? false }));
+          // Before the 2010 mergers (the 2010-11-27 五都 files already describe the merged cities),
+          // the old 縣 and 市 stay apart at county level.
+          const dirDate = def.dirDates?.find((x) => dir.startsWith(x.prefix))?.date ?? def.election.date;
+          checks0.push(...renumberToRegistry(part, def.election.id, registry, adminRenames, villageRenames, { splitOldCounties: dirDate < "2010-11-27" }));
         }
       : undefined;
     const dropped: { unit: ElUnit; note: string; kind: "drop" | "mismatch" }[] = [];
@@ -140,7 +152,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
         if (unit) dropped.push({ unit, note: t.note, kind: t.kind });
       }
     };
-    const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork, ownParties, (part, dir) => { corrected(part, dir); prepare?.(part); });
+    const ds = rf ? readRfGroup(def, cecWork) : readGroupData(def, cecWork, ownParties, (part, dir) => { corrected(part, dir); prepare?.(part, dir); });
     if (!rf && ds.partyRemap) {
       const own = [...ownParties.byName].filter(([, code]) => [...ds.partyRemap!.values()].includes(code));
       if (own.length) checks0.push({ id: "legacy-parties", status: own.some(([n]) => !ownParties.reviewed.has(n)) ? "warn" : "pass", detail: `parties with no CEC code, given the site's own (legacy-parties.csv): ${own.map(([n, c]) => `${n} ${c}`).join(", ")}` });
@@ -212,11 +224,16 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     }
 
     // Groups sharing a boundary version and layout share its shapes (plain "admin" towns are the same).
-    const geoKey = `${boundaryVersion}/${def.layout}`;
+    // Pre-2010 county layers differ (old 縣 and 市 apart): never share them with later groups.
+    // (A group with county rows only, 1994 北高原住民議員, shows it by its county codes.)
+    const oldCodes = new Set(OLD_COUNTY_CODES.values());
+    const split = !!ds.countyOfTown?.size || !!built.results.county?.units.some((u) => oldCodes.has(u.id.slice(4)));
+    const oldCounties = split ? (oldCountyMap ??= pre2010Counties(cecWork, adminRenames, villageRenames, missingNames, puaNames)) : null;
+    const geoKey = `${boundaryVersion}/${def.layout}${split ? "-oldcounties" : ""}`;
     let geo = geoByLayout.get(geoKey);
     if (!geo) {
       log(`  boundaries (${geoKey})`);
-      geo = await buildBoundaries(shp, join(o.workDir, "geo", geoKey), partsFor(def, ds, built), def.contests === "district");
+      geo = await buildBoundaries(shp, join(o.workDir, "geo", geoKey), partsFor(def, ds, built, oldCounties), def.contests === "district");
       geoByLayout.set(geoKey, geo);
     }
     const unassigned: string[] = [];
@@ -224,7 +241,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     // their parts, and 選區 made only of such parts, have no polygon.
     const undrawable = new Set<string>();
     if (def.contests === "district") {
-      const pa = partsFor(def, ds, built);
+      const pa = partsFor(def, ds, built, null);
       const drawnTowns = new Set(pa.towns.map((t) => t.town));
       const withVillages = new Set(pa.villages.map((v) => v.part));
       for (const p of built.townParts) if (!drawnTowns.has(p.town) && !withVillages.has(p.code.replace(/^(\d{8})-/, "$1-"))) undrawable.add(p.code);
@@ -329,7 +346,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     const sources = [];
     for (const a of def.archiveDirs) sources.push(...(await sourceFiles(join(cecWork, a), a, rf ? RF_FILES : EL_FILES)));
     if (def.extra) sources.push(...(await sourceFiles(join(cecWork, def.extra.archiveDir), def.extra.archiveDir, ["cand.csv", "prof.csv"])));
-    outputs.push({ def, built, geo, checks, sources, notes, village, boundaryVersion });
+    outputs.push({ def, built, geo, checks, sources, notes, village, boundaryVersion, oldCountyLayer: split });
   }
 
   const tl = buildTimelines(
@@ -343,12 +360,16 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
     writeReport(o.outDir, "failed", allChecks);
     return { ok: false, checks: allChecks };
   }
+  if (o.only) {
+    log(`checked ${outputs.length} groups (--only ${o.only.join(",")}); no release written — run a full build for that`);
+    return { ok: true, checks: allChecks };
+  }
 
   // emit
   const files: PendingFile[] = [];
   const geoWritten = new Set<string>();
   const dataSources: DataSource[] = [DATA_SOURCES.cec, DATA_SOURCES.nlscVillageHistory];
-  for (const { def, built, geo, checks, sources, notes, village, boundaryVersion } of outputs) {
+  for (const { def, built, geo, checks, sources, notes, village, boundaryVersion, oldCountyLayer } of outputs) {
     const gid = groupId(def);
     const resultPaths: Record<string, string> = {};
     for (const [level, rf] of Object.entries(built.results)) {
@@ -367,7 +388,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       const g = geo[level as keyof Boundaries];
       if (!g) continue;
       // County shapes are identical for every layout: publish them once.
-      const layout = level === "county" ? "admin" : def.layout;
+      const layout = level === "county" ? (oldCountyLayer ? "admin-oldcounties" : "admin") : def.layout;
       const path = `geography/${boundaryVersion}/${layout}/${level}.geojson`;
       geoPaths[level] = path;
       if (!geoWritten.has(path)) {
@@ -440,8 +461,31 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
 }
 
 /** Which village/town goes into which map part (town, or town-within-district). */
-function partsFor(def: ElGroupDef, ds: ElDataset, built: BuiltGroup): PartAssignment {
-  if (def.contests !== "district") return { towns: built.townParts.map((p) => ({ town: p.town, part: p.code, district: "" })), villages: [] };
+/**
+ * Township → old county (臺中縣 66001, 臺中市 66002, …) for every township of the counties merged
+ * in 2010, read from a complete file of that time (2008 總統) so that every pre-2010 group draws
+ * the same county layer, whichever townships it covers.
+ */
+function pre2010Counties(cecWork: string, admin: ReturnType<typeof loadAdminRenames>, villages: ReturnType<typeof loadVillageRenames>, missing: ReturnType<typeof loadMissingNames>, pua: ReturnType<typeof loadPuaNames>): Map<string, string> {
+  const refDirs = GROUPS.find((g) => g.registryFrom)!.registryFrom!;
+  const ref = registryReference(refDirs.map((a) => { const r = readElDir(join(cecWork, a)); applyPuaNames(r, pua); return r; }));
+  const election = "2008-03-22-president";
+  // Townships and up only: the township → county link is all that is needed here.
+  const ds = readElDir(join(cecWork, "votedata/votedata/voteData/20080322-總統/"), (k) => k.vil === "0000" && k.station === "0000", true);
+  fillMissingNames(ds, election, missing);
+  applyPuaNames(ds, pua);
+  renumberToRegistry(ds, election, ref, admin, villages, { splitOldCounties: true });
+  const out = ds.countyOfTown ?? new Map<string, string>();
+  if (new Set(out.values()).size !== OLD_COUNTY_CODES.size) throw new Error(`pre-2010 counties: expected ${OLD_COUNTY_CODES.size} old counties, got ${[...new Set(out.values())].join(", ")}`);
+  return out;
+}
+
+function partsFor(def: ElGroupDef, ds: ElDataset, built: BuiltGroup, oldCounties: Map<string, string> | null): PartAssignment {
+  // Pre-2010: every township of a split county drawn in its old county (臺中縣 66001), not the registry one.
+  const nameOf = new Map([...OLD_COUNTY_CODES].map(([n, c]) => [c, n]));
+  const counties = oldCounties ? [...oldCounties].map(([town, county]) => ({ town, county, name: nameOf.get(county) ?? "" })) : [];
+  const withCounties = (p: PartAssignment): PartAssignment => (counties.length ? { ...p, counties } : p);
+  if (def.contests !== "district") return withCounties({ towns: built.townParts.map((p) => ({ town: p.town, part: p.code, district: "" })), villages: [] });
   const byTown = new Map<string, typeof built.townParts>();
   for (const p of built.townParts) byTown.set(p.town, [...(byTown.get(p.town) ?? []), p]);
   const towns: PartAssignment["towns"] = [];
@@ -452,8 +496,8 @@ function partsFor(def: ElGroupDef, ds: ElDataset, built: BuiltGroup): PartAssign
   }
   const villages: PartAssignment["villages"] = ds.units
     .filter((u) => u.level === "village" && split.has(townCode(u.key)) && /^0\d{3}$/.test(u.key.vil))
-    .map((u) => ({ village: townCode(u.key) + u.key.vil.slice(1), part: `${townCode(u.key)}-${u.key.dist}`, district: `${countyCode(u.key)}-${u.key.dist}` }));
-  return { towns, villages };
+    .map((u) => ({ village: townCode(u.key) + u.key.vil.slice(1), part: `${townCode(u.key)}-${u.key.dist}`, district: `${countyOf(ds, u.key)}-${u.key.dist}` }));
+  return withCounties({ towns, villages });
 }
 
 function checkOfficialAnnouncements(repoRoot: string, built: BuiltGroup): ValidationCheck[] {
@@ -621,7 +665,7 @@ function readGroupData(def: ElGroupDef, cecWork: string, own: LegacyParties, pre
     const parties = parts.flatMap((p) => p.parties);
     parts.push(readChiayiRerun(join(cecWork, def.extra.archiveDir), ref, parties, def.extra.date));
   }
-  return parts.length === 1 ? parts[0]! : mergeElDatasets(parts, def.oldCountyContests ?? false);
+  return parts.length === 1 ? parts[0]! : mergeElDatasets(parts);
 }
 
 async function sourceFiles(dir: string, archiveDir: string, names: string[]): Promise<SourceFile[]> {

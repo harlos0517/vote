@@ -76,6 +76,11 @@ export interface ElDataset {
   contestNotes?: Map<string, ElContestNote>;
   /** Parent units whose children do not add up in CEC's own file (data-corrections known-mismatch): warned, not failed. */
   knownMismatch?: ElUnit[];
+  /**
+   * Townships whose county row is not their registry county (pre-2010 files: 臺中縣's townships
+   * belong to 66001, not 66000): registry township code → county code. See countyOf().
+   */
+  countyOfTown?: Map<string, string>;
   /** Pre-2008 files: printed 得票率 that disagree with the votes only warn (validate/el-checks.ts). */
   ratesUnreliable?: boolean;
   /** Old party number → modern code, set by remapLegacyParties (party-list files need it too). */
@@ -101,6 +106,9 @@ export function levelOf(k: ElKey): ElLevel {
 
 export const keyString = (k: ElKey) => `${k.prv}${k.cty}|${k.dist}|${k.town}|${k.vil}|${k.station}`;
 export const countyCode = (k: ElKey) => k.prv + k.cty;
+/** The county a key belongs to: its own code, or for a township and below its old county (ElDataset.countyOfTown). */
+export const countyOf = (ds: { countyOfTown?: Map<string, string> }, k: ElKey) =>
+  (k.town !== "000" && ds.countyOfTown?.get(k.prv + k.cty + k.town)) || k.prv + k.cty;
 export const townCode = (k: ElKey) => k.prv + k.cty + k.town;
 
 function int(s: string | undefined, what: string): number {
@@ -289,26 +297,14 @@ export interface ElContestNote {
  * Their national rows sum different contests per directory, so they are dropped and one
  * national row is rebuilt from the county rows (summary only; no candidate votes there).
  */
-export function mergeElDatasets(parts: ElDataset[], sumCounties = false): ElDataset {
-  let units = parts.flatMap((p) => p.units.filter((u) => u.level !== "national"));
-  const seen = new Map<string, ElUnit>();
-  const summed: ElUnit[] = [];
+export function mergeElDatasets(parts: ElDataset[]): ElDataset {
+  const units = parts.flatMap((p) => p.units.filter((u) => u.level !== "national"));
+  const seen = new Set<string>();
   for (const u of units) {
     const k = keyString(u.key);
-    const prev = seen.get(k);
-    if (prev && sumCounties && u.level === "county") {
-      // Pre-2010: 高雄縣 (one directory) and 高雄市 (another) are both county 64000 now.
-      prev.valid += u.valid; prev.invalid += u.invalid; prev.cast += u.cast; prev.electors += u.electors;
-      prev.populationRaw = prev.populationRaw && u.populationRaw ? prev.populationRaw + u.populationRaw : 0;
-      for (const [n, v] of u.votes) prev.votes.set(n, (prev.votes.get(n) ?? 0) + v);
-      for (const [n, v] of prev.votes) prev.officialRate.set(n, prev.valid ? Math.round((v / prev.valid) * 10000) / 100 : 0);
-      summed.push(u);
-      continue;
-    }
-    if (prev) throw new Error(`merge: unit ${k} appears in two directories`);
-    seen.set(k, u);
+    if (seen.has(k)) throw new Error(`merge: unit ${k} appears in two directories`);
+    seen.add(k);
   }
-  units = units.filter((u) => !summed.includes(u));
   const counties = units.filter((u) => u.level === "county");
   const sum = (f: (u: ElUnit) => number) => counties.reduce((a, u) => a + f(u), 0);
   const national: ElUnit = {
@@ -331,6 +327,7 @@ export function mergeElDatasets(parts: ElDataset[], sumCounties = false): ElData
     parties: [...parties.values()],
     contestNotes: new Map(parts.flatMap((p) => [...(p.contestNotes ?? [])])),
     knownMismatch: parts.flatMap((p) => p.knownMismatch ?? []),
+    ...(parts.some((p) => p.countyOfTown) ? { countyOfTown: new Map(parts.flatMap((p) => [...(p.countyOfTown ?? [])])) } : {}),
   };
 }
 
