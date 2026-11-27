@@ -63,6 +63,9 @@
  *   苗栗縣's row instead); set the county's summary to their sum.
  * - set-winners <prv|cty|dist|town|vil>=<ballot,ballot,…>: CEC's elected marks for this contest are
  *   wrong and an outside source (named in the note) gives the winners; mark exactly these.
+ * - swap-villages <prv|cty|town|vil~vil>: the file gives two villages each other's registry codes
+ *   (2014 臺南市安南區 塩田里 0024 / 公塭里 0019; NLSC and CEC's later files have 0019 / 0024);
+ *   exchange the two codes on every row of either village (stations and contests too).
  * - ctks-towns-by-name <reference dir>: elctks numbers the townships as the reference directory's
  *   elbase does (2005 平原/山原 議員: the 區域 file's 選區 order), elbase and elprof in the usual
  *   order; move each township's candidate votes to the township of the same name. Only for files
@@ -77,7 +80,7 @@ import { type ElDataset, type ElUnit, keyString } from "./cec-el.ts";
 
 export interface DataCorrection {
   dir: string;
-  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district" | "village-votes-only" | "zero-for-missing" | "town-votes-from-district" | "county-from-districts" | "town-summaries-by-votes" | "set-winners";
+  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district" | "village-votes-only" | "zero-for-missing" | "town-votes-from-district" | "county-from-districts" | "town-summaries-by-votes" | "set-winners" | "swap-villages";
   key: string;
   note: string;
   reviewed: boolean;
@@ -87,7 +90,7 @@ export function loadDataCorrections(repoRoot: string): Map<string, DataCorrectio
   const out = new Map<string, DataCorrection[]>();
   for (const [election, dir, action, key, note, status] of parseCecCsv(readFileSync(join(repoRoot, "packages/etl/mappings/data-corrections.csv"), "utf8"), { header: true, quotedCommas: true })) {
     if (!election || !dir || !key || !note) throw new Error(`data-corrections.csv: bad row ${key}`);
-    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district", "village-votes-only", "zero-for-missing", "town-votes-from-district", "county-from-districts", "town-summaries-by-votes", "set-winners"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
+    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district", "village-votes-only", "zero-for-missing", "town-votes-from-district", "county-from-districts", "town-summaries-by-votes", "set-winners", "swap-villages"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
     if (status !== "reviewed" && status !== "unreviewed") throw new Error(`data-corrections.csv: bad status ${status}`);
     out.set(election, [...(out.get(election) ?? []), { dir, action: action as DataCorrection["action"], key, note, reviewed: status === "reviewed" }]);
   }
@@ -297,6 +300,17 @@ export function applyCorrections(
       if (!d) throw new Error(`data-corrections ${election} ${c.key}: no such 選區`);
       ds.knownMismatch = [...(ds.knownMismatch ?? []), d];
       done.push(`${d.name} (${c.key}) kept as published despite its sums`);
+    } else if (c.action === "swap-villages") {
+      const [prv, cty, town, pair] = want as [string, string, string, string];
+      const [a, b] = pair.split("~") as [string, string];
+      const inTown = (k: { prv: string; cty: string; town: string }) => k.prv === prv && k.cty === cty && k.town === town;
+      const va = ds.units.find((u) => u.level === "village" && inTown(u.key) && u.key.vil === a);
+      const vb = ds.units.find((u) => u.level === "village" && inTown(u.key) && u.key.vil === b);
+      if (!va || !vb) throw new Error(`data-corrections ${election} ${c.key}: both villages must exist`);
+      const swap = (k: { prv: string; cty: string; town: string; vil: string }) => (inTown(k) && (k.vil === a || k.vil === b) ? { ...k, vil: k.vil === a ? b : a } : k);
+      for (const u of ds.units) u.key = swap(u.key) as typeof u.key;
+      for (const x of ds.candidates) x.key = swap(x.key) as typeof x.key;
+      done.push(`${va.name} ${a} ↔ ${vb.name} ${b}`);
     } else if (c.action === "set-winners") {
       const [where, list] = c.key.split("=") as [string, string | undefined];
       const nums = new Set((list ?? "").split(",").filter(Boolean).map(Number));
