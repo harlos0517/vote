@@ -70,6 +70,20 @@ export const E2008P: ElectionDef = {
   kinds: ["president"],
 };
 
+/*
+ * Phase 4, 2004–2006. Dates: zh.wikipedia.org (2004年中華民國總統選舉：2004年3月20日；
+ * 2004年中華民國立法委員選舉：2004年12月11日；2005年中華民國任務型國民大會代表選舉：2005年5月14日；
+ * 2005年中華民國縣市長、縣市議員暨鄉鎮市長選舉：2005年12月3日；2006年中華民國直轄市市長暨市議員選舉：2006年12月9日).
+ */
+export const E2004P: ElectionDef = { id: "2004-03-20-president", date: "2004-03-20", nameZh: "2004年 第11任總統副總統選舉", kinds: ["president"] };
+export const E2004L: ElectionDef = { id: "2004-12-11-legislative", date: "2004-12-11", nameZh: "2004年 第6屆立法委員選舉", kinds: ["legislative"] };
+export const E2005N: ElectionDef = { id: "2005-05-14-national-assembly", date: "2005-05-14", nameZh: "2005年 任務型國民大會代表選舉", kinds: ["national-assembly"] };
+export const E2005: ElectionDef = { id: "2005-12-03-local", date: "2005-12-03", nameZh: "2005–2006年 地方公職人員選舉", kinds: ["local"] };
+/** Old multi-seat 立委 districts (複數選區單記不可讓渡投票). */
+const SNTV_NOTE = (districts: number, seats: number, range: string) =>
+  `區域立委為複數選區：${districts} 個選舉區共選出 ${seats} 席（每區 ${range} 席）。全國不分區及僑居國外國民的席次不在中選會此檔案中。縣市與全國層級以政黨合計呈現。`;
+const OLD_NOTES = (y: string) => [B2016_NOTE, SEQ_NOTE(y), MERGER_NOTE, APOS_NOTE(y), "此年代的中選會檔案使用舊的政黨編號（例如民主進步黨為 2），已依政黨名稱換成現行代碼（無黨籍為 999）。"];
+
 export const E2012: ElectionDef = {
   id: "2012-01-14-president-legislative",
   date: "2012-01-14",
@@ -212,10 +226,16 @@ interface PresLegDef {
   subdirs?: Partial<Record<"president" | "district" | "山地" | "平地" | "partyList", string>>;
   /** Only these offices (2008: 總統 and 立委 were separate elections). */
   only?: Office[];
+  /** Seats of each indigenous 立委 race (default 3; older terms elected more). */
+  indigenousSeats?: number;
+  /** Replaces the 73-single-seat-districts note (older terms: multi-seat districts). */
+  districtNote?: string;
   /** Files in CEC sequence codes: registry-coded directories to translate them by name. */
   registryFrom?: string[];
   /** 原住民立委 files that agree only from township level up (see ElGroupDef.townsAndAbove). */
   indigenousTownsOnly?: boolean;
+  /** The 原住民立委 files stop at township level (2004): no 村里 level, with this note. */
+  indigenousNoVillages?: string;
 }
 
 const P2024: PresLegDef = { election: E2024, dir: "votedata/votedata/voteData/2024總統立委/", boundary: B2024, presidentTerm: 16, legislatorTerm: 11, splitTowns: 12, villages: true };
@@ -269,6 +289,31 @@ const P2008P: PresLegDef = {
   subdirs: { president: "20080322-總統" },
   only: ["president"],
 };
+const P2004P: PresLegDef = {
+  election: E2004P,
+  dir: "votedata/votedata/voteData/",
+  subdirs: { president: "2004   11任總統" },
+  only: ["president"],
+  boundary: B2016,
+  presidentTerm: 11,
+  legislatorTerm: 6,
+  splitTowns: 0,
+  villages: true,
+  mix: true,
+  registryFrom: REGISTRY_2014,
+  notes: [B2016_NOTE, SEQ_NOTE("2004"), MERGER_NOTE],
+};
+const P2004L: PresLegDef = {
+  ...P2004P,
+  election: E2004L,
+  dir: "votedata/votedata/voteData/2004第6屆立法委員/",
+  subdirs: { district: "區域", 山地: "山原", 平地: "平原" },
+  only: ["legislator-district", "legislator-highland-indigenous", "legislator-lowland-indigenous"],
+  indigenousSeats: 4,
+  indigenousNoVillages: "此屆原住民立委的中選會檔案只到鄉鎮市區層級，沒有村里層級。",
+  districtNote: SNTV_NOTE(29, 168, "1 至 13"),
+  notes: OLD_NOTES("2004"),
+};
 const P2020: PresLegDef = { election: E2020, dir: "votedata/votedata/voteData/2020總統立委/", boundary: B2020, presidentTerm: 15, legislatorTerm: 10, splitTowns: 12, villages: true, mix: true };
 
 function presidentLegislative(p: PresLegDef): ElGroupDef[] {
@@ -282,16 +327,18 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
     archiveDirs: [`${p.dir}${p.subdirs?.[kind] ?? `${kind}立委`}/`],
     contests: "single",
     choiceKind: "candidate",
-    seats: 3,
+    seats: p.indigenousSeats ?? 3,
     layout: "admin",
     ...(p.indigenousTownsOnly ? { townsAndAbove: true, villages: false, mixSnapshots: false } : {}),
+    ...(p.indigenousNoVillages ? { villages: false, mixSnapshots: false } : {}),
     warnings: [
+      ...(p.indigenousNoVillages ? [p.indigenousNoVillages] : []),
       ...(p.indigenousTownsOnly ? COMMON_WARNINGS.slice(1) : COMMON_WARNINGS),
       ...(p.notes ?? []),
       ...(p.indigenousTownsOnly
         ? ["此屆原住民立委的中選會得票檔，有 310 個投開票所與 137 個村里（群組）的得票另列在概況檔沒有的編號下，選舉人數與有效票卻併入其他村里；兩檔只在鄉鎮市區以上一致，因此只發布到鄉鎮市區層級，沒有村里層級。"]
         : []),
-      `全國為單一選區，選出 3 席；僅${kind}原住民選舉人可投票，選舉人數與一般選舉不同。`,
+      `全國為單一選區，選出 ${p.indigenousSeats ?? 3} 席；僅${kind}原住民選舉人可投票，選舉人數與一般選舉不同。`,
       "許多鄉鎮市區的原住民選舉人很少，少數票數即可造成極端的得票率。",
     ],
   });
@@ -321,8 +368,8 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       layout: `ly${p.election.date.slice(0, 4)}`,
       warnings: [
         ...COMMON_WARNINGS, ...(p.notes ?? []),
-        "73 個選舉區各選出 1 席。縣市與全國層級跨多個選區，因此以政黨合計呈現，不比較個別候選人。",
-        `${p.splitTowns} 個鄉鎮市區分屬兩個選區，在鄉鎮層級依選區拆成兩塊，界線由村里合併而成。`,
+        p.districtNote ?? "73 個選舉區各選出 1 席。縣市與全國層級跨多個選區，因此以政黨合計呈現，不比較個別候選人。",
+        ...(p.splitTowns ? [`${p.splitTowns} 個鄉鎮市區分屬兩個選區，在鄉鎮層級依選區拆成兩塊，界線由村里合併而成。`] : []),
       ],
     },
     indigenous("山地"),
@@ -377,6 +424,10 @@ interface LocalDef {
   legacy?: { prefixes: string[]; modernPartiesFrom: string[] };
   /** Groups without a 村里 level (2010-06-12 代表: 選區 rows only). */
   noVillages?: ElGroupDef["office"][];
+  /** Pre-2010: old 縣 and 市 of merged counties elected separately (ElGroupDef.oldCountyContests). */
+  oldCountyContests?: boolean;
+  /** Pre-2008: the 選區 field of county-, township- and village-wide files means nothing (ElGroupDef.ignoreDist). */
+  ignoreDist?: boolean;
   /** Publish the 村里 level (Phase 2a: years whose villages match their snapshot). */
   villages?: boolean;
   /** Mix snapshots per township where villages were reorganised (geo/mix.ts). */
@@ -524,6 +575,90 @@ const L10V: LocalDef = {
   ],
 };
 
+const L2005 = "votedata/votedata/voteData/";
+const TWO_ROUNDS_0506 =
+  "此地圖合併兩次投票：臺北市、高雄市以外的縣市於 2005-12-03 選出縣市長、縣市議員、鄉鎮市長；臺北市、高雄市於 2006-12-09 選出市長、市議員。側邊欄顯示各場選舉的投票日。";
+const L05: LocalDef = {
+  election: E2005,
+  villages: true,
+  mix: true,
+  boundary: B2016,
+  registryFrom: REGISTRY_2014,
+  dirDates: [{ prefix: `${L2005}2006`, date: "2006-12-09" }],
+  oldCountyContests: true,
+  ignoreDist: true,
+  noVillages: ["councilor-lowland-indigenous", "councilor-highland-indigenous"],
+  dirs: {
+    mayor: [`${L2005}2005縣市長/`, `${L2005}2006直轄市長/`],
+    councilor: [`${L2005}2005縣市議員/區域/`, `${L2005}2006直轄市議員(區域)/`],
+    lowland: [`${L2005}2005縣市議員/平原/`],
+    highland: [`${L2005}2005縣市議員/山原/`],
+    townshipMayor: [`${L2005}2005鄉鎮市長/`],
+    indigenousChief: [],
+    townshipRep: [],
+    lowlandRep: [],
+    indigenousRep: [],
+    villageChief: [],
+  },
+  mayorWarnings: [TWO_ROUNDS_0506, ...OLD_NOTES("2005 與 2006")],
+  councilorWarnings: [TWO_ROUNDS_0506, ...OLD_NOTES("2005 與 2006")],
+  notes: [TWO_ROUNDS_0506, ...OLD_NOTES("2005 與 2006")],
+};
+
+/** 臺北市、高雄市 原住民議員 before 2010: one race per city, 平地 and 山地 voters together. */
+const cityIndigenous = (election: ElectionDef, dir: string, notes: string[], villages: boolean): ElGroupDef => ({
+  election,
+  local: "councilor-indigenous",
+  nameZh: "臺北市、高雄市原住民議員選舉",
+  office: "councilor-indigenous",
+  electorate: "general",
+  archiveDirs: [dir],
+  contests: "county",
+  contestPrefix: "ti",
+  contestNameSuffix: "原住民議員",
+  choiceKind: "candidate",
+  boundary: B2016,
+  villages,
+  mixSnapshots: villages,
+  registryFrom: REGISTRY_2014,
+  layout: "admin",
+  ignoreDist: true,
+  warnings: [
+    ...COMMON_WARNINGS.slice(1),
+    "臺北市、高雄市各為一個原住民議員選舉區，平地與山地原住民選舉人合併選舉；選舉人數與一般選舉不同。",
+    ...notes,
+  ],
+});
+
+/** 2005 任務型國民大會代表: a party ballot, 300 seats shared by vote share. */
+const NA2005: ElGroupDef = {
+  election: E2005N,
+  local: "national-assembly-party-list",
+  nameZh: "任務型國民大會代表選舉（政黨票）",
+  office: "national-assembly-party-list",
+  electorate: "general",
+  archiveDirs: [`${L2005}2005任務型國代/`],
+  contests: "single",
+  choiceKind: "party",
+  seats: 300,
+  listMembersAbsent: true,
+  partyListThreshold: { pct: 0, basis: "國民大會代表選舉法（2006 年廢止），依政黨得票率分配" },
+  boundary: B2016,
+  villages: true,
+  mixSnapshots: true,
+  registryFrom: REGISTRY_2014,
+  layout: "admin",
+  warnings: [
+    ...COMMON_WARNINGS,
+    "選票上為政黨（及聯盟），300 席依各政黨得票比例分配，不設得票率門檻（本站以最大餘數法重算，與中選會分配結果比對）。",
+    "中選會檔案的當選名單（elrepm.csv）只有 1 人，所以本站只呈現各政黨的得票與席次，不列當選人。",
+    "張亞中等150人聯盟、王廷興等20人聯盟在中選會的政黨代碼表中沒有代碼，本站自編代碼 9001、9002。",
+    B2016_NOTE,
+    SEQ_NOTE("2005"),
+    MERGER_NOTE,
+  ],
+};
+
 const L18: LocalDef = {
   election: E2018,
   villages: true,
@@ -552,7 +687,7 @@ const L18: LocalDef = {
 
 function localElections(l: LocalDef): ElGroupDef[] {
   const y = l.election.date.slice(0, 4);
-  const extra = { ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}), ...(l.dirDates ? { dirDates: l.dirDates } : {}) };
+  const extra = { ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}), ...(l.dirDates ? { dirDates: l.dirDates } : {}), ...(l.oldCountyContests ? { oldCountyContests: true } : {}), ...(l.ignoreDist ? { ignoreDist: true } : {}) };
   const base = { election: l.election, boundary: l.boundary, villages: l.villages ?? false, mixSnapshots: l.mix ?? false, contests: "district" as const, choiceKind: "candidate" as const, ...extra };
   const indigenous = (kind: "平地" | "山地"): ElGroupDef => {
     const code = kind === "平地" ? "T2" : "T3";
@@ -571,11 +706,12 @@ function localElections(l: LocalDef): ElGroupDef[] {
         `僅${kind}原住民選舉人可投票，選舉人數與一般選舉不同；許多地區的選舉人很少，少數票數即可造成極端的得票率。`,
         `只有設${kind}原住民議員選區的縣市才有資料，其他地區顯示為無資料。`,
         ...(l.boundary === B2018 ? [B2018_NOTE] : []),
+        ...(l.noVillages?.includes(kind === "平地" ? "councilor-lowland-indigenous" : "councilor-highland-indigenous") ? ["此次的中選會檔案只到鄉鎮市區層級，沒有村里層級。"] : []),
         ...(l.notes ?? []),
       ],
     };
   };
-  return [
+  const all: ElGroupDef[] = [
     {
       ...base,
       local: "mayor",
@@ -607,6 +743,7 @@ function localElections(l: LocalDef): ElGroupDef[] {
     indigenous("山地"),
     ...townshipAndVillage(l),
   ];
+  return all.map((g) => (l.noVillages?.includes(g.office) ? { ...g, villages: false, mixSnapshots: false } : g));
 }
 
 /** 鄉鎮市長, 山地原住民區長, the three kinds of 代表 and 村里長: races inside townships and villages. */
@@ -619,6 +756,7 @@ function townshipAndVillage(l: LocalDef): ElGroupDef[] {
     ...(l.registryFrom ? { registryFrom: l.registryFrom } : {}),
     ...(l.dirDates ? { dirDates: l.dirDates } : {}),
     ...(l.legacy ? { legacy: l.legacy } : {}),
+    ...(l.ignoreDist ? { ignoreDist: true } : {}),
     choiceKind: "candidate" as const,
     electorate: "general" as const,
     layout: "admin",
@@ -712,6 +850,11 @@ export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2012),
   ...presidentLegislative(P2008P),
   ...presidentLegislative(P2008L),
+  NA2005,
+  ...localElections(L05),
+  cityIndigenous(E2005, `${L2005}2006直轄市議員(原住民)/`, [...OLD_NOTES("2006"), "此檔案只到鄉鎮市區層級。"], false),
+  ...presidentLegislative(P2004L),
+  // ...presidentLegislative(P2004P), — 2004 總統: the CEC files disagree with each other (see docs); not yet built
   ...localElections(L22),
   ...localElections(L18),
   ...localElections(L14),
