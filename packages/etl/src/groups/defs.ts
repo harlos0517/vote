@@ -254,6 +254,8 @@ interface PresLegDef {
   registryFrom?: string[];
   /** 原住民立委 files that agree only from township level up (see ElGroupDef.townsAndAbove). */
   indigenousTownsOnly?: boolean;
+  /** The 總統 files agree only from township level up (2004): read and publish townships and above, with this note. */
+  presidentTownsOnly?: string;
   /** The 原住民立委 files stop at township level (2004): no 村里 level, with this note. */
   indigenousNoVillages?: string;
 }
@@ -375,6 +377,11 @@ const P2001L: PresLegDef = {
   districtNote: SNTV_NOTE(29, 168, "1 至 13"),
   notes: OLD_NOTES("2001"),
 };
+const P2004P_TOWNS: PresLegDef = {
+  ...P2004P,
+  presidentTownsOnly:
+    "此次總統的中選會檔案在村里與投開票所層級彼此不一致（臺北縣等 41 個村里在名稱檔與得票檔記在相鄰的另一個鄉鎮，部分村里的得票與投開票所對不上），因此只發布到鄉鎮市區層級，沒有村里層級。",
+};
 const P2004L: PresLegDef = {
   ...P2004P,
   election: E2004L,
@@ -425,7 +432,8 @@ function presidentLegislative(p: PresLegDef): ElGroupDef[] {
       contests: "single",
       choiceKind: "ticket",
       layout: "admin",
-      warnings: [...COMMON_WARNINGS, ...(p.notes ?? [])],
+      ...(p.presidentTownsOnly ? { townsAndAbove: true, villages: false, mixSnapshots: false } : {}),
+      warnings: [...COMMON_WARNINGS, ...(p.presidentTownsOnly ? [p.presidentTownsOnly] : []), ...(p.notes ?? [])],
     },
     {
       ...base,
@@ -1038,7 +1046,7 @@ export const GROUPS: ElGroupDef[] = [
   ...presidentLegislative(P2001L),
   ...presidentLegislative(P2000P),
   ...presidentLegislative(P2004L),
-  // ...presidentLegislative(P2004P), — 2004 總統: the CEC files disagree with each other (see docs); not yet built
+  ...presidentLegislative(P2004P_TOWNS),
   ...localElections(L22),
   ...localElections(L18),
   ...localElections(L14),

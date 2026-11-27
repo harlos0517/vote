@@ -38,6 +38,8 @@
  *   townships agree with the row's 有效票; set the row's votes to the townships' sums.
  * - winners-from-ctks *: elcand's elected marks disagree with the votes (2005 原住民議員), while
  *   elctks marks the top vote-getters on each contest's own row; take the marks from elctks.
+ * - town-summaries-by-votes <prv|cty>: as town-votes-by-valid, but the summaries are known to be
+ *   the swapped side (no children read to tell).
  * - town-votes-by-valid <prv|cty> (or <prv|cty|town> for its villages): elctks rows are swapped
  *   among the county's townships (2002 南投縣 水里鄉 / 魚池鄉) or a township's villages; give each
  *   vote row to the unit whose 有效票 it sums to (a unique match, else the build fails).
@@ -72,7 +74,7 @@ import { type ElDataset, type ElUnit, keyString } from "./cec-el.ts";
 
 export interface DataCorrection {
   dir: string;
-  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district" | "village-votes-only" | "zero-for-missing" | "town-votes-from-district" | "county-from-districts";
+  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district" | "village-votes-only" | "zero-for-missing" | "town-votes-from-district" | "county-from-districts" | "town-summaries-by-votes";
   key: string;
   note: string;
   reviewed: boolean;
@@ -82,7 +84,7 @@ export function loadDataCorrections(repoRoot: string): Map<string, DataCorrectio
   const out = new Map<string, DataCorrection[]>();
   for (const [election, dir, action, key, note, status] of parseCecCsv(readFileSync(join(repoRoot, "packages/etl/mappings/data-corrections.csv"), "utf8"), { header: true, quotedCommas: true })) {
     if (!election || !dir || !key || !note) throw new Error(`data-corrections.csv: bad row ${key}`);
-    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district", "village-votes-only", "zero-for-missing", "town-votes-from-district", "county-from-districts"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
+    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district", "village-votes-only", "zero-for-missing", "town-votes-from-district", "county-from-districts", "town-summaries-by-votes"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
     if (status !== "reviewed" && status !== "unreviewed") throw new Error(`data-corrections.csv: bad status ${status}`);
     out.set(election, [...(out.get(election) ?? []), { dir, action: action as DataCorrection["action"], key, note, reviewed: status === "reviewed" }]);
   }
@@ -233,7 +235,7 @@ export function applyCorrections(
       if ([...sums.values()].reduce((a, b) => a + b, 0) !== d.valid) throw new Error(`data-corrections ${election} ${c.key}: the townships' votes do not sum to the row's 有效票`);
       for (const [n, v] of sums) { d.votes.set(n, v); d.officialRate.set(n, d.valid ? Math.round((v / d.valid) * 10000) / 100 : 0); }
       done.push(`${d.name} votes of #${diff.map(([n]) => n).join(",")} from its townships`);
-    } else if (c.action === "town-votes-by-valid") {
+    } else if (c.action === "town-votes-by-valid" || c.action === "town-summaries-by-votes") {
       // <prv|cty>: townships of a county; <prv|cty|town>: villages of a township (2002 臺北市 北安里 / 金泰里).
       const [prv, cty, town] = want as [string, string, string | undefined];
       const off = ds.units.filter((u) => u.level === (town ? "village" : "town") && u.key.prv === prv && u.key.cty === cty && (!town || u.key.town === town) && u.votes.size && [...u.votes.values()].reduce((a, b) => a + b, 0) !== u.valid);
@@ -243,7 +245,8 @@ export function applyCorrections(
       const kids = (u: ElUnit) => ds.units.filter((k) => k.level === childLevel && k.key.prv === u.key.prv && k.key.cty === u.key.cty && k.key.dist === u.key.dist && k.key.town === u.key.town && (!town || k.key.vil === u.key.vil));
       const kidVotes = (u: ElUnit) => kids(u).reduce((a, k) => a + total(k), 0);
       // Which side is swapped? Children agreeing with the votes mean the summaries are (2002 南投縣: elprof).
-      const summariesSwapped = off.every((u) => kids(u).length && kidVotes(u) === total(u));
+      // town-summaries-by-votes says so outright (2004 總統 read without villages: 桃園縣's elprof township rows are permuted).
+      const summariesSwapped = c.action === "town-summaries-by-votes" || off.every((u) => kids(u).length && kidVotes(u) === total(u));
       if (new Set(off.map(total)).size !== off.length || new Set(off.map((u) => u.valid)).size !== off.length || off.some((u) => !off.some((x) => x.valid === total(u)))) {
         throw new Error(`data-corrections ${election} ${c.key}: the rows of ${off.map((u) => u.name).join(", ")} are not a unique swap`);
       }
