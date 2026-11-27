@@ -76,6 +76,18 @@ export const E2008P: ElectionDef = {
  * 2005年中華民國縣市長、縣市議員暨鄉鎮市長選舉：2005年12月3日；2006年中華民國直轄市市長暨市議員選舉：2006年12月9日).
  */
 /*
+ * Phase 4, 1994–1998. Dates: zh.wikipedia.org (1994年中華民國省市長暨省市議員選舉：1994年12月3日；1995年中華民國立法委員
+ * 選舉：1995年12月2日；1996年中華民國總統選舉與國民大會代表選舉：1996年3月23日；1997年中華民國縣市長選舉：1997年11月29日；
+ * 1998年中華民國立法委員選舉與直轄市長暨市議員選舉：1998年12月5日); 第14屆縣市議員、第13屆鄉鎮市長：1998年1月24日
+ * （中選會委員會議紀錄、宜蘭縣與彰化縣的選舉資料）。
+ */
+export const E1994: ElectionDef = { id: "1994-12-03-local", date: "1994-12-03", nameZh: "1994年 臺灣省長、省議員及臺北市、高雄市市長、市議員選舉", kinds: ["provincial", "local"] };
+export const E1995L: ElectionDef = { id: "1995-12-02-legislative", date: "1995-12-02", nameZh: "1995年 第3屆立法委員選舉", kinds: ["legislative"] };
+export const E1996: ElectionDef = { id: "1996-03-23-president", date: "1996-03-23", nameZh: "1996年 第9任總統副總統及第3屆國民大會代表選舉", kinds: ["president", "national-assembly"] };
+export const E1997: ElectionDef = { id: "1997-11-29-local", date: "1997-11-29", nameZh: "1997–1998年 地方公職人員選舉", kinds: ["local"] };
+export const E1998L: ElectionDef = { id: "1998-12-05-legislative", date: "1998-12-05", nameZh: "1998年 第4屆立法委員選舉", kinds: ["legislative"] };
+
+/*
  * Phase 4, 2000–2002. Dates: zh.wikipedia.org (2000年中華民國總統選舉：2000年3月18日；2001年中華民國立法委員選舉
  * 與縣市長選舉：2001年12月1日；2002年中華民國直轄市長暨市議員選舉：2002年12月7日); 第15屆縣市議員與第14屆鄉鎮市長：
  * 2002年1月26日（宜蘭縣選舉委員會當選人名單）。
@@ -310,6 +322,37 @@ const P2004P: PresLegDef = {
   mix: true,
   registryFrom: REGISTRY_2014,
   notes: [B2016_NOTE, SEQ_NOTE("2004"), MERGER_NOTE],
+};
+const P1996P: PresLegDef = {
+  ...P2004P,
+  election: E1996,
+  subdirs: { president: "9任總統" },
+  presidentTerm: 9,
+  legislatorTerm: 3,
+  notes: [B2016_NOTE, SEQ_NOTE("1996"), MERGER_NOTE, "此年代的中選會檔案使用舊的政黨編號，已依政黨名稱換成現行代碼（無黨籍為 999）。"],
+};
+const P1995L: PresLegDef = {
+  ...P2004P,
+  election: E1995L,
+  dir: "votedata/votedata/voteData/3屆立委/",
+  subdirs: { district: "區域", 山地: "山原", 平地: "平原" },
+  only: ["legislator-district", "legislator-highland-indigenous", "legislator-lowland-indigenous"],
+  presidentTerm: 9,
+  legislatorTerm: 3,
+  indigenousSeats: 3,
+  indigenousNoVillages: "此屆原住民立委的中選會檔案只到鄉鎮市區層級，沒有村里層級。",
+  districtNote: SNTV_NOTE(27, 122, "1 至 17"),
+  notes: OLD_NOTES("1995"),
+};
+const P1998L: PresLegDef = {
+  ...P1995L,
+  election: E1998L,
+  dir: "votedata/votedata/voteData/4屆立委/",
+  presidentTerm: 10,
+  legislatorTerm: 4,
+  indigenousSeats: 4,
+  districtNote: SNTV_NOTE(29, 168, "1 至 12"),
+  notes: OLD_NOTES("1998"),
 };
 const P2000P: PresLegDef = {
   ...P2004P,
@@ -720,6 +763,75 @@ const L01: LocalDef = {
   notes: [TWO_ROUNDS_0102, ...OLD_NOTES("2002")],
 };
 
+const TWO_ROUNDS_9798 =
+  "此地圖合併三次投票：縣市長於 1997-11-29 選出；縣市議員、鄉鎮市長於 1998-01-24 選出；臺北市、高雄市的市長、市議員於 1998-12-05 選出。側邊欄顯示各場選舉的投票日。";
+const L97: LocalDef = {
+  election: E1997,
+  villages: true,
+  mix: true,
+  boundary: B2016,
+  registryFrom: REGISTRY_2014,
+  dirDates: [
+    { prefix: `${L2005}1998直轄市`, date: "1998-12-05" },
+    { prefix: `${L2005}1998`, date: "1998-01-24" },
+  ],
+  oldCountyContests: true,
+  ignoreDist: true,
+  noVillages: ["councilor-lowland-indigenous", "councilor-highland-indigenous", "township-mayor"],
+  dirs: {
+    mayor: [`${L2005}1997縣市長/`, `${L2005}1998直轄市長/`],
+    councilor: [`${L2005}1998縣市議員/區域/`, `${L2005}1998直轄市議員/區域/`],
+    lowland: [`${L2005}1998縣市議員/平原/`],
+    highland: [`${L2005}1998縣市議員/山原/`],
+    townshipMayor: [`${L2005}1998鄉鎮市長/`],
+    indigenousChief: [],
+    townshipRep: [],
+    lowlandRep: [],
+    indigenousRep: [],
+    villageChief: [],
+  },
+  mayorWarnings: [TWO_ROUNDS_9798, ...OLD_NOTES("1997 與 1998")],
+  councilorWarnings: [TWO_ROUNDS_9798, ...OLD_NOTES("1998")],
+  notes: [TWO_ROUNDS_9798, ...OLD_NOTES("1998")],
+};
+
+/** 1994-12-03: 臺灣省長 and 省議員 (臺灣省 only), 臺北市、高雄市 市長 and 市議員. */
+const NOTES_1994 = [B2016_NOTE, ...OLD_NOTES("1994").slice(1)];
+const G1994: ElGroupDef[] = [
+  {
+    election: E1994, local: "provincial-governor", nameZh: "臺灣省長選舉", office: "provincial-governor", electorate: "general",
+    archiveDirs: [`${L2005}1994台灣省長/`], contests: "single", choiceKind: "candidate", boundary: B2016, villages: false, registryFrom: REGISTRY_2014, layout: "admin", ignoreDist: true,
+    warnings: [...COMMON_WARNINGS, "只有臺灣省的 21 個縣市投票；臺北市、高雄市、金門縣、連江縣不屬於此選舉，顯示為無資料。此檔案只到鄉鎮市區層級。", ...NOTES_1994],
+  },
+  {
+    election: E1994, local: "provincial-councilor-district", nameZh: "臺灣省議員選舉（區域）", office: "provincial-councilor-district", electorate: "general",
+    archiveDirs: [`${L2005}1994台灣省議員/區域/`], contests: "county", contestPrefix: "pc", contestNameSuffix: "省議員", choiceKind: "candidate", boundary: B2016, villages: false, registryFrom: REGISTRY_2014, layout: "admin", ignoreDist: true, oldCountyContests: true,
+    warnings: [...COMMON_WARNINGS, "臺灣省 21 個縣市各為一個選舉區（複數席次）。平地、山地原住民省議員的中選會檔案只有全省合計，沒有地區資料，不在此地圖。此檔案只到鄉鎮市區層級。", ...NOTES_1994],
+  },
+  {
+    election: E1994, local: "mayor", nameZh: "直轄市長選舉", office: "mayor-or-magistrate", electorate: "general",
+    archiveDirs: [`${L2005}1994直轄市長/`], contests: "county", contestPrefix: "c1", contestNameSuffix: "長", choiceKind: "candidate", boundary: B2016, villages: true, mixSnapshots: true, registryFrom: REGISTRY_2014, layout: "admin", ignoreDist: true,
+    warnings: [...COMMON_WARNINGS, "只有臺北市、高雄市選舉市長，其他地區顯示為無資料。", ...NOTES_1994],
+  },
+  {
+    election: E1994, local: "councilor-district", nameZh: "直轄市議員選舉（區域）", office: "councilor-district", electorate: "general",
+    archiveDirs: [`${L2005}1994直轄市議員/區域/`], contests: "district", contestPrefix: "t1", choiceKind: "candidate", boundary: B2016, villages: true, mixSnapshots: true, registryFrom: REGISTRY_2014, layout: "t1-1994",
+    warnings: [...COMMON_WARNINGS, "只有臺北市、高雄市選舉市議員，其他地區顯示為無資料。", ...NOTES_1994],
+  },
+  { ...cityIndigenous(E1994, `${L2005}1994直轄市議員/原住民/`, [...NOTES_1994, "此檔案只有市的合計。"], false), maxLevel: "county" },
+];
+
+/** 1996 第3屆國民大會代表（區域）: SNTV districts; the indigenous files have a national row only. */
+const NA1996: ElGroupDef = {
+  election: E1996, local: "national-assembly-district", nameZh: "第3屆國民大會代表選舉（區域）", office: "national-assembly-district", electorate: "general",
+  archiveDirs: [`${L2005}1996國大代表/區域/`], contests: "district", contestPrefix: "na", choiceKind: "candidate", boundary: B2016, villages: false, registryFrom: REGISTRY_2014, layout: "na-1996",
+  warnings: [
+    ...COMMON_WARNINGS,
+    "區域國大代表為複數選區：56 個選舉區共選出 227 席（每區 2 至 10 席）。全國不分區、僑居國外國民與平地、山地原住民國大代表不在此地圖（原住民的中選會檔案只有全國合計）。縣市與全國層級以政黨合計呈現。此檔案只到鄉鎮市區層級。",
+    ...OLD_NOTES("1996"),
+  ],
+};
+
 const L18: LocalDef = {
   election: E2018,
   villages: true,
@@ -915,6 +1027,13 @@ export const GROUPS: ElGroupDef[] = [
   ...localElections(L05),
   cityIndigenous(E2005, `${L2005}2006直轄市議員(原住民)/`, [...OLD_NOTES("2006"), "此檔案只到鄉鎮市區層級。"], false),
   ...localElections(L01),
+  ...G1994,
+  ...presidentLegislative(P1995L),
+  ...presidentLegislative(P1996P),
+  NA1996,
+  ...localElections(L97),
+  { ...cityIndigenous(E1997, `${L2005}1998直轄市議員/原住民/`, [...OLD_NOTES("1998"), "此檔案只有市的合計。"], false), maxLevel: "county" },
+  ...presidentLegislative(P1998L),
   cityIndigenous(E2001, `${L2005}2002直轄市議員(原住民)/`, [...OLD_NOTES("2002"), "此檔案只到鄉鎮市區層級。"], false),
   ...presidentLegislative(P2001L),
   ...presidentLegislative(P2000P),

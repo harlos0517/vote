@@ -101,6 +101,8 @@ export interface ElGroupDef {
    * read as "00", as for nationwide contests. Ignored for districted contests.
    */
   ignoreDist?: boolean;
+  /** The files stop above township level (1994 北高 原住民議員: county rows only). */
+  maxLevel?: "county";
   /** Party-list threshold and its legal basis (default PARTY_LIST_THRESHOLD, 5%). */
   partyListThreshold?: { pct: number; basis: string };
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
@@ -137,6 +139,7 @@ export const toParty = (p: { code: number; name: string }, colors: Map<number, P
 export const groupId = (d: ElGroupDef) => `${d.election.id}.${d.local}`;
 
 export function levelsOf(d: ElGroupDef): ReportingLevel[] {
+  if (d.maxLevel === "county") return ["national", "county"];
   const base: ReportingLevel[] = d.contests === "district" ? ["national", "county", "district", "town"] : ["national", "county", "town"];
   return d.villages ? [...base, "village"] : base;
 }
@@ -624,12 +627,14 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     warnings: ds.contestNotes?.get(ci.key)?.warnings ?? [],
   }));
 
-  const townParts = multi
-    ? results.town!.units.map((u) => {
+  const townParts = !results.town
+    ? [] // maxLevel "county"
+    : multi
+    ? results.town.units.map((u) => {
         const code = u.id.slice(3); // "63000010-07"
         return { code, town: code.slice(0, 8), district: `${code.slice(0, 5)}-${code.slice(9)}` };
       })
-    : results.town!.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null }));
+    : results.town.units.map((u) => ({ code: u.id.slice(5), town: u.id.slice(5), district: null }));
 
   return {
     group: { id: gid, nameZh: d.nameZh, office: d.office, electorate: d.electorate, levels, warnings: [...d.warnings] }, // own copy: the pipeline appends to it

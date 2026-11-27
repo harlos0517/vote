@@ -104,7 +104,8 @@ export const countyCode = (k: ElKey) => k.prv + k.cty;
 export const townCode = (k: ElKey) => k.prv + k.cty + k.town;
 
 function int(s: string | undefined, what: string): number {
-  if (s === undefined || !/^\d+$/.test(s)) throw new Error(`expected integer for ${what}, got ${JSON.stringify(s)}`);
+  // A minus sign is read (1996 總統 has 無效票 -9) so the non-negative check can name the row.
+  if (s === undefined || !/^-?\d+$/.test(s)) throw new Error(`expected integer for ${what}, got ${JSON.stringify(s)}`);
   return Number(s);
 }
 
@@ -144,7 +145,10 @@ export function elFile(dir: string, name: "elbase" | "elcand" | "elctks" | "elpa
 export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => true, singleContest = false, opts: ElReadOptions = {}): ElDataset {
   const keyOf = singleContest ? (r: string[]): ElKey => ({ ...keyOfRow(r), dist: "00" }) : keyOfRow;
   const legacy = opts.legacy ?? false;
-  const readEl = (path: string) => readElRaw(path, legacy);
+  // Unit-key columns padded to their width: 1997 縣市長's elbase writes 神岡鄉 as dist "0", town "08".
+  const WIDTH = [2, 3, 2, 3, 4];
+  const padKey = (r: string[]) => r.map((f, i) => (i < 5 && /^\d+$/.test(f) ? f.padStart(WIDTH[i]!, "0") : f));
+  const readEl = (path: string) => readElRaw(path, legacy).map(padKey);
   const base = readEl(elFile(dir, "elbase"));
   // Names are looked up with the district code first ("臺北市第01選區" lives at dist 01), then
   // without it: elbase may use dist "00" where results use "01" (總統), so the fallback key
@@ -218,7 +222,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       ...(legacy ? { legacyMarks: true } : {}),
     }));
 
-  const parties = readEl(elFile(dir, "elpaty")).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
+  const parties = readElRaw(elFile(dir, "elpaty"), legacy).map((r) => ({ code: int(r[0], "party code"), name: r[1]! }));
   return { units: [...units.values()], candidates, parties };
 }
 

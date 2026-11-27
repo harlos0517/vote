@@ -32,7 +32,8 @@
  * - stations-votes-only <prv|cty>: the county's polling-station rows in elprof disagree with their
  *   own candidate votes, which add up to the villages (2006 高雄市長); keep the votes and drop the
  *   stations' summaries (valid = Σ votes, the rest unknown).
- * - district-votes-from-towns <prv|cty|dist> (or <prv|cty> for a county row): the row's candidate
+ * - district-votes-from-towns <prv|cty|dist> (or <prv|cty> for a county row, "national" for the
+ *   national row from the counties): the row's candidate
  *   votes do not add up (or a candidate has fewer votes than in some of its townships), while the
  *   townships agree with the row's 有效票; set the row's votes to the townships' sums.
  * - winners-from-ctks *: elcand's elected marks disagree with the votes (2005 原住民議員), while
@@ -46,6 +47,17 @@
  * - town-summary-from-district <prv|cty|dist>: a one-township 選區 whose township row has the
  *   選區's four numbers in the wrong columns (2002 連江縣); copy the 選區's.
  * - known-mismatch-district <prv|cty|dist>: like known-mismatch, for a 選區 row.
+ * - village-votes-only <prv|cty|town|vil>: the village's summary is impossible (1996 總統: 有效票
+ *   98, 無效票 -9, 投票數 89) while its votes agree with elctks; keep the votes, the village and its
+ *   stations' other columns unknown.
+ * - zero-for-missing *: some rows leave out candidates who got no votes there (1994 省議員 in
+ *   mountain townships); where a row's listed votes already sum to its 有效票, add the missing
+ *   candidates with 0.
+ * - town-votes-from-district <prv|cty|dist>: a one-township 選區 whose township votes fall short
+ *   of its 有效票 while the 選區 row's add up (1998 桃園市); copy the 選區's votes.
+ * - county-from-districts <prv|cty>: the county row disagrees with its 選區 rows (or, without
+ *   選區, its townships), which add up elsewhere (1998 新竹縣 leaves out its 第9選區, counted in
+ *   苗栗縣's row instead); set the county's summary to their sum.
  * - ctks-towns-by-name <reference dir>: elctks numbers the townships as the reference directory's
  *   elbase does (2005 平原/山原 議員: the 區域 file's 選區 order), elbase and elprof in the usual
  *   order; move each township's candidate votes to the township of the same name. Only for files
@@ -60,7 +72,7 @@ import { type ElDataset, type ElUnit, keyString } from "./cec-el.ts";
 
 export interface DataCorrection {
   dir: string;
-  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district";
+  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district" | "village-votes-only" | "zero-for-missing" | "town-votes-from-district" | "county-from-districts";
   key: string;
   note: string;
   reviewed: boolean;
@@ -70,7 +82,7 @@ export function loadDataCorrections(repoRoot: string): Map<string, DataCorrectio
   const out = new Map<string, DataCorrection[]>();
   for (const [election, dir, action, key, note, status] of parseCecCsv(readFileSync(join(repoRoot, "packages/etl/mappings/data-corrections.csv"), "utf8"), { header: true, quotedCommas: true })) {
     if (!election || !dir || !key || !note) throw new Error(`data-corrections.csv: bad row ${key}`);
-    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
+    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district", "village-votes-only", "zero-for-missing", "town-votes-from-district", "county-from-districts"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
     if (status !== "reviewed" && status !== "unreviewed") throw new Error(`data-corrections.csv: bad status ${status}`);
     out.set(election, [...(out.get(election) ?? []), { dir, action: action as DataCorrection["action"], key, note, reviewed: status === "reviewed" }]);
   }
@@ -208,10 +220,12 @@ export function applyCorrections(
       done.push(`${fixed} of ${towns.length} townships of ${c.key} from their villages`);
     } else if (c.action === "district-votes-from-towns") {
       // <prv|cty|dist>: a 選區 row; <prv|cty>: the county row (nationwide contests).
+      // "national": the national row from the counties (1995 原住民立委).
       const [prv, cty, dist] = want as [string, string, string | undefined];
-      const d = ds.units.find((u) => u.level === (dist ? "district" : "county") && u.key.prv === prv && u.key.cty === cty && (!dist || u.key.dist === dist));
+      const national = c.key === "national";
+      const d = national ? ds.units.find((u) => u.level === "national") : ds.units.find((u) => u.level === (dist ? "district" : "county") && u.key.prv === prv && u.key.cty === cty && (!dist || u.key.dist === dist));
       if (!d) throw new Error(`data-corrections ${election} ${c.key}: no such 選區 or county`);
-      const ts = ds.units.filter((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && (!dist || u.key.dist === dist));
+      const ts = national ? ds.units.filter((u) => u.level === "county") : ds.units.filter((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && (!dist || u.key.dist === dist));
       const sums = new Map<number, number>();
       for (const t of ts) for (const [n, v] of t.votes) sums.set(n, (sums.get(n) ?? 0) + v);
       const diff = [...sums].filter(([n, v]) => d.votes.get(n) !== v);
@@ -277,6 +291,56 @@ export function applyCorrections(
       if (!d) throw new Error(`data-corrections ${election} ${c.key}: no such 選區`);
       ds.knownMismatch = [...(ds.knownMismatch ?? []), d];
       done.push(`${d.name} (${c.key}) kept as published despite its sums`);
+    } else if (c.action === "county-from-districts") {
+      const [prv, cty] = want as [string, string];
+      const county = ds.units.find((u) => u.level === "county" && u.key.prv === prv && u.key.cty === cty);
+      if (!county) throw new Error(`data-corrections ${election} ${c.key}: no such county`);
+      const dists = ds.units.filter((u) => u.level === "district" && u.key.prv === prv && u.key.cty === cty);
+      const kids = dists.length ? dists : ds.units.filter((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty);
+      if (FIELDS.every((f) => kids.reduce((a, k) => a + k[f], 0) === county[f])) throw new Error(`data-corrections ${election} ${c.key}: the county already adds up — remove the row`);
+      const before = FIELDS.map((f) => county[f]).join("/");
+      for (const f of FIELDS) county[f] = kids.reduce((a, k) => a + k[f], 0);
+      done.push(`${county.name} ${before} → ${FIELDS.map((f) => county[f]).join("/")} from its ${dists.length ? "選區" : "townships"}`);
+    } else if (c.action === "town-votes-from-district") {
+      const [prv, cty, dist] = want as [string, string, string];
+      const d = ds.units.find((u) => u.level === "district" && u.key.prv === prv && u.key.cty === cty && u.key.dist === dist);
+      const ts = ds.units.filter((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && u.key.dist === dist);
+      if (!d || ts.length !== 1) throw new Error(`data-corrections ${election} ${c.key}: needs a 選區 with exactly one township`);
+      const t = ts[0]!;
+      const total = (u: ElUnit) => [...u.votes.values()].reduce((a, b) => a + b, 0);
+      if (total(t) === t.valid || total(d) !== t.valid) throw new Error(`data-corrections ${election} ${c.key}: not applicable — remove the row`);
+      t.votes = new Map(d.votes);
+      t.officialRate = new Map([...d.votes].map(([n, v]) => [n, t.valid ? Math.round((v / t.valid) * 10000) / 100 : 0]));
+      done.push(`${t.name} votes from ${d.name}`);
+    } else if (c.action === "zero-for-missing") {
+      const ballots = new Map<string, Set<number>>();
+      for (const x of ds.candidates) {
+        const k = `${x.key.prv}${x.key.cty}|${x.key.dist}`;
+        ballots.set(k, (ballots.get(k) ?? new Set()).add(x.ballotNumber));
+      }
+      const all = new Set(ds.candidates.map((x) => x.ballotNumber));
+      const contestOf = (u: ElUnit) => ballots.get(`${u.key.prv}${u.key.cty}|${u.key.dist}`) ?? ballots.get(`${u.key.prv}${u.key.cty}|00`) ?? (ballots.size === 1 ? all : undefined);
+      const fixed: string[] = [];
+      for (const u of ds.units) {
+        const want = contestOf(u);
+        if (!want || !u.votes.size || u.level === "national") continue;
+        const missing = [...want].filter((n) => !u.votes.has(n));
+        if (!missing.length) continue;
+        if ([...u.votes.values()].reduce((a, b) => a + b, 0) !== u.valid) continue; // not provably zero
+        for (const n of missing) { u.votes.set(n, 0); u.officialRate.set(n, 0); }
+        fixed.push(`${u.name || keyParts(u).join("|")} #${missing.join(",")}`);
+      }
+      if (!fixed.length) throw new Error(`data-corrections ${election} ${c.key}: no row leaves out a candidate — remove the row`);
+      done.push(`${fixed.length} rows given 0 for the candidates they leave out: ${fixed.slice(0, 8).join("; ")}${fixed.length > 8 ? " …" : ""}`);
+    } else if (c.action === "village-votes-only") {
+      // <prv|cty|town>: a township row instead (1998 寶山鄉 山地議員: 投票數 7, 選舉人數 6).
+      const us = want.length === 3
+        ? ds.units.filter((u) => u.level === "town" && keyParts(u).slice(0, 3).join("|") === c.key)
+        : ds.units.filter((u) => (u.level === "village" || u.level === "station") && keyParts(u).join("|") === c.key);
+      if (!us.length) throw new Error(`data-corrections ${election} ${c.key}: no such village or township`);
+      if (us.every((u) => u.invalid >= 0 && u.valid + u.invalid === u.cast && u.cast <= u.electors)) throw new Error(`data-corrections ${election} ${c.key}: the summary is possible — remove the row`);
+      for (const u of us) { u.partial = true; u.valid = [...u.votes.values()].reduce((a, b) => a + b, 0); u.invalid = 0; u.cast = 0; u.electors = 0; u.populationRaw = 0; }
+      done.push(`${c.key}: votes only (summary unknown) for ${us.length} rows`);
     } else if (c.action === "winners-from-ctks") {
       let changed = 0;
       for (const x of ds.candidates) {

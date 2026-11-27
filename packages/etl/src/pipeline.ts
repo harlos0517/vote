@@ -220,6 +220,22 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       geoByLayout.set(geoKey, geo);
     }
     const unassigned: string[] = [];
+    // Townships split between 選區 in a file without village rows cannot be cut (1998 縣市議員 新竹市):
+    // their parts, and 選區 made only of such parts, have no polygon.
+    const undrawable = new Set<string>();
+    if (def.contests === "district") {
+      const pa = partsFor(def, ds, built);
+      const drawnTowns = new Set(pa.towns.map((t) => t.town));
+      const withVillages = new Set(pa.villages.map((v) => v.part));
+      for (const p of built.townParts) if (!drawnTowns.has(p.town) && !withVillages.has(p.code.replace(/^(\d{8})-/, "$1-"))) undrawable.add(p.code);
+      const byDistrict = new Map<string, string[]>();
+      for (const p of built.townParts) if (p.district) byDistrict.set(p.district, [...(byDistrict.get(p.district) ?? []), p.code]);
+      for (const [d, ps] of byDistrict) if (ps.every((x) => undrawable.has(x))) undrawable.add(d);
+      if (undrawable.size) {
+        const names = new Map(built.results.town!.units.map((u) => [u.id.slice(3), u.nameZh]));
+        built.group.warnings.push(`${[...new Set([...undrawable].filter((c) => names.has(c)).map((c) => names.get(c)!.replace(/（.*）$/, "")))].join("、")}分屬不同選區，但此檔案沒有村里資料可以拆分，這些鄉鎮的各選區部分不畫在地圖上（縣市層級仍有資料）。`);
+      }
+    }
     // Indigenous-councillor groups only have districts in some counties/towns, and township / village
     // offices exist only where they are elected (no 鄉鎮市長 in 直轄市): the rest is expected to be empty.
     const partial = def.electorate !== "general" || isLocalContests(def.contests);
@@ -230,7 +246,7 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       if (level === "national" || level === "village") continue;
       const g = geo[level as keyof Boundaries];
       if (!g) { checks.push({ id: `geo-join-${level}`, status: "fail", detail: "no geometry built" }); continue; }
-      const c = joinCheck(`geo-join-${level}`, g, built.results[level]!.units.map((u) => u.id.slice(u.id.indexOf(":") + 1)), outside);
+      const c = joinCheck(`geo-join-${level}`, g, built.results[level]!.units.map((u) => u.id.slice(u.id.indexOf(":") + 1)), outside, undrawable);
       checks.push(c.check);
       unassigned.push(...c.extraFeatures);
     }
@@ -479,19 +495,22 @@ const list = (xs: string[], n = 12) => (xs.length > n ? `${xs.slice(0, n).join("
  * Units ↔ polygons. `outside` marks polygons expected to have no result: areas a partial group
  * (原住民議員) has no district in. Other unmatched polygons are warned about.
  */
-function joinCheck(id: string, g: GeoJSON, unitCodes: string[], outside: (code: string) => boolean): { check: ValidationCheck; extraFeatures: string[] } {
+function joinCheck(id: string, g: GeoJSON, unitCodes: string[], outside: (code: string) => boolean, undrawable = new Set<string>()): { check: ValidationCheck; extraFeatures: string[] } {
   const feat = new Set(g.features.map((f) => f.properties.code!));
   const units = new Set(unitCodes);
-  const noGeo = [...units].filter((c) => !feat.has(c));
+  const known = [...units].filter((c) => !feat.has(c) && undrawable.has(c));
+  const noGeo = [...units].filter((c) => !feat.has(c) && !undrawable.has(c));
   const extraAll = [...feat].filter((c) => !units.has(c));
   const extra = extraAll.filter((c) => !outside(c));
   const out = extraAll.length - extra.length;
   if (noGeo.length) {
     return { check: { id, status: "fail", detail: `units without polygon: ${list(noGeo)}` }, extraFeatures: extra };
   }
-  const outText = out ? `; ${out} polygons have no result by design (outside the group's areas, non-village areas or undrawable groups)` : "";
+  const outText =
+    (out ? `; ${out} polygons have no result by design (outside the group's areas, non-village areas or undrawable groups)` : "") +
+    (known.length ? `; ${known.length} township parts not drawn (split between 選區, no village rows to split them): ${list(known)}` : "");
   return {
-    check: extra.length
+    check: extra.length || known.length
       ? { id, status: "warn", detail: `${units.size} units matched${outText}; ${extra.length} polygons have no result and show as 無資料 (${list(extra)})` }
       : { id, status: "pass", detail: `${units.size} units ↔ ${units.size} polygons${outText || ", 1:1"}` },
     extraFeatures: extra,
@@ -557,7 +576,7 @@ interface LegacyParties {
   byName: Map<string, number>;
   reviewed: Set<string>;
 }
-/** mappings/legacy-parties.csv: old parties and alliances no modern CEC file names, with the site's own codes. */
+/** mappings/legacy-parties.csv: old parties and alliances no modern CEC file names, with the site's own codes (9001…), or the chosen code for a name two modern codes share. */
 function loadLegacyParties(repoRoot: string): LegacyParties {
   const byName = new Map<string, number>();
   const reviewed = new Set<string>();
