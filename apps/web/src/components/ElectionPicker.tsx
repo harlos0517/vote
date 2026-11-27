@@ -24,26 +24,17 @@ export function ElectionPicker({ index, groupId, onChange }: { index: ReleaseInd
   const cases = cat.key === "referendum" ? groups.filter((g) => g.office === current.office).sort((a, b) => b.date.localeCompare(a.date) || caseNo(a) - caseNo(b)) : [];
   return (
     <Group gap="sm" wrap="wrap" style={{ flex: narrow ? "1 1 100%" : "0 1 auto", justifyContent: "flex-start" }}>
-      {narrow ? (
-        // Eight categories do not fit a phone's width as buttons.
-        <Select
-          size="xs"
-          w="100%"
-          aria-label="選舉類別"
-          value={cat.key}
-          onChange={(k) => k && go(cats.find((c) => c.key === k)!.subs[0]!.office)}
-          allowDeselect={false}
-          data={cats.map((c) => ({ value: c.key, label: c.label }))}
-        />
-      ) : (
-        <SegmentedControl
-          size="xs"
-          aria-label="選舉類別"
-          value={cat.key}
-          onChange={(k) => go(cats.find((c) => c.key === k)!.subs[0]!.office)}
-          data={cats.map((c) => ({ value: c.key, label: c.label }))}
-        />
-      )}
+      {/* A dropdown at every width: the categories no longer fit a row of buttons, even on desktop. */}
+      <Select
+        size="xs"
+        w={narrow ? "100%" : 190}
+        aria-label="選舉類別"
+        value={cat.key}
+        onChange={(k) => k && go(cats.find((c) => c.key === k)!.subs[0]!.office)}
+        allowDeselect={false}
+        maxDropdownHeight={360}
+        data={cats.map((c) => ({ value: c.key, label: c.label }))}
+      />
       {subs.length > 1 && (
         <SegmentedControl
           size="xs"

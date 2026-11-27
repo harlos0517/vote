@@ -425,3 +425,14 @@ describe("blackScaleEnd", () => {
     expect(blackScaleEnd("#1B9431")).toBe("#1B9431");
   });
 });
+
+describe("year slider labels", () => {
+  it("labels every year while they fit, then thins them, keeping the last and the selected", async () => {
+    const { labelledSlots } = await import("../components/YearSlider.tsx");
+    expect([...labelledSlots(5, 2)].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
+    expect([...labelledSlots(9, 8)].sort((a, b) => a - b)).toEqual([0, 2, 4, 6, 8]);
+    // Selected 5: its neighbours 4 and 6 lose their labels.
+    expect([...labelledSlots(9, 5)].sort((a, b) => a - b)).toEqual([0, 2, 5, 8]);
+    expect([...labelledSlots(11, 0)].sort((a, b) => a - b)).toEqual([0, 2, 4, 6, 8, 10]);
+  });
+});
