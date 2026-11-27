@@ -279,7 +279,7 @@ export function buildPrelimReferendum(p: PrelimReferendumInput): PrelimGroup {
     persons: [],
     parties: [],
     sources: [
-      { id: "cec-referendum-announcement", publisher: "中央選舉委員會", title: nameZh, url: p.question.source.match(/https:\/\/\S+/)?.[0] ?? "https://web.cec.gov.tw/central", license: "未標示", attribution: "主文：中央選舉委員會公告" },
+      { id: "cec-referendum-announcement", publisher: "中央選舉委員會", title: nameZh, url: p.question.source.match(/https:\/\/[^\s；，、（）]+/)?.[0] ?? "https://web.cec.gov.tw/central", license: "未標示", attribution: "主文：中央選舉委員會公告" },
       ...base.metadata.sources.filter((x) => x.id === base.metadata.boundary.sourceId),
     ],
     boundary: {
