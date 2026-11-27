@@ -146,6 +146,12 @@ export async function build(o: PipelineOptions): Promise<{ ok: boolean; releaseI
       if (own.length) checks0.push({ id: "legacy-parties", status: own.some(([n]) => !ownParties.reviewed.has(n)) ? "warn" : "pass", detail: `parties with no CEC code, given the site's own (legacy-parties.csv): ${own.map(([n, c]) => `${n} ${c}`).join(", ")}` });
     }
     if (def.election.date < "2008-01-01") ds.ratesUnreliable = true;
+    if (!rf) {
+      // Old files list a few candidates without a name (2002 雲林縣議員第6選區 #1, 0 votes): never guess one.
+      const unnamed = (ds as ElDataset).candidates.filter((c) => !c.name.trim());
+      for (const c of unnamed) c.name = "（中選會檔案未載姓名）";
+      if (unnamed.length) checks0.push({ id: "unnamed-candidates", status: "warn", detail: `CEC gives no name for ${unnamed.length} candidates (shown as 「（中選會檔案未載姓名）」): ${unnamed.map((c) => `${countyCode(c.key)}-${c.key.dist} #${c.ballotNumber}`).join(", ")}` });
+    }
     const puaCheck = applyPuaNames(ds, puaNames);
     if (rf && def.rfTownCodesFrom && def.villages) {
       checks0.push(await renumberRfVillages(def, ds as RfDataset, cecWork, { versionId: def.boundary.versionId, shp: shapefiles.get(def.boundary.versionId)! }, join(o.workDir, "geo", "codes")));

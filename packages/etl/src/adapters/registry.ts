@@ -147,6 +147,7 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
     m.set(stem(name), m.has(stem(name)) ? null : code);
   }
   const oldCountyName = new Map(ds.units.filter((x) => x.level === "county").map((u) => [u.key.prv + u.key.cty, u.name]));
+  const mergedTowns = new Set<string>(); // new codes reached by an admin-renames town row (several old townships may share one)
   for (const u of ds.units.filter((x) => x.level === "town")) {
     const oldT = u.key.prv + u.key.cty + u.key.town;
     if (town.has(oldT)) continue; // several rows per town (districts)
@@ -157,7 +158,7 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
     if (tr) {
       const code = ref.town.get(`${cc}|${tr.new}`);
       if (!code) bad.push(`town rename ${tr.old} → ${tr.new}: no such town in ${cc}`);
-      else { town.set(oldT, code); usedAdmin.push(tr); }
+      else { town.set(oldT, code); usedAdmin.push(tr); mergedTowns.add(code); }
       continue;
     }
     // A renamed county's 鄉鎮市 became 區 with the same stem (中壢市 → 中壢區).
@@ -176,7 +177,8 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
   // (代表 files also have a row per 選區 inside a township, under the same old code: compare codes.)
   const byNewTown = new Map<string, string[]>();
   for (const [oldT, t] of town) byNewTown.set(t, [...(byNewTown.get(t) ?? []), oldT]);
-  for (const [t, names] of byNewTown) if (names.length > 1) bad.push(`townships ${names.join(" and ")} both map to ${t}`);
+  // (Except townships merged by an admin-renames row: 臺南市中區 + 西區 → 中西區, summed below.)
+  for (const [t, names] of byNewTown) if (names.length > 1 && !mergedTowns.has(t)) bad.push(`townships ${names.join(" and ")} both map to ${t}`);
   // Counties merged on 2010-12-25 (臺中縣 + 臺中市 → 臺中市, …) numbered their 選區 from 01 each:
   // later old counties' 選區 continue after the earlier ones' (CEC's 選區 names are kept).
   const distOffset = new Map<string, number>(); // old county → offset
@@ -258,7 +260,7 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
   const byKey = new Map<string, ElUnit[]>();
   for (const u of ds.units) byKey.set(keyString(u.key), [...(byKey.get(keyString(u.key)) ?? []), u]);
   const dupes = [...byKey.values()].filter((us) => us.length > 1);
-  const notCounty = dupes.filter((us) => us[0]!.level !== "county");
+  const notCounty = dupes.filter((us) => us[0]!.level !== "county" && !(us[0]!.level === "town" && mergedTowns.has(us[0]!.key.prv + us[0]!.key.cty + us[0]!.key.town)));
   if (notCounty.length) throw new Error(`renumber ${election}: units collide after renumbering: ${notCounty.slice(0, 6).map((us) => `${keyString(us[0]!.key)} (${us.map((u) => u.name || "∅").join(" / ")})`).join("; ")}`);
   for (const us of dupes) {
     const [first, ...rest] = us as [ElUnit, ...ElUnit[]];
@@ -269,7 +271,9 @@ export function renumberToRegistry(ds: ElDataset, election: string, ref: Registr
     }
     // Shares of the summed row are recomputed (the published ones belong to the old counties).
     for (const [n, v] of first.votes) first.officialRate.set(n, first.valid ? Math.round((v / first.valid) * 10000) / 100 : 0);
-    const renamedTo = admin.find((a) => a.kind === "county" && us.some((u) => u.name === a.old))?.new;
+    const renamedTo = first.level === "town"
+      ? admin.find((a) => a.kind === "town" && us.some((u) => a.old.endsWith(u.name)))?.new
+      : admin.find((a) => a.kind === "county" && us.some((u) => u.name === a.old))?.new;
     if (renamedTo) first.name = renamedTo;
     ds.units = ds.units.filter((u) => !rest.includes(u));
   }

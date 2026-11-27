@@ -75,6 +75,14 @@ export const E2008P: ElectionDef = {
  * 2004年中華民國立法委員選舉：2004年12月11日；2005年中華民國任務型國民大會代表選舉：2005年5月14日；
  * 2005年中華民國縣市長、縣市議員暨鄉鎮市長選舉：2005年12月3日；2006年中華民國直轄市市長暨市議員選舉：2006年12月9日).
  */
+/*
+ * Phase 4, 2000–2002. Dates: zh.wikipedia.org (2000年中華民國總統選舉：2000年3月18日；2001年中華民國立法委員選舉
+ * 與縣市長選舉：2001年12月1日；2002年中華民國直轄市長暨市議員選舉：2002年12月7日); 第15屆縣市議員與第14屆鄉鎮市長：
+ * 2002年1月26日（宜蘭縣選舉委員會當選人名單）。
+ */
+export const E2000P: ElectionDef = { id: "2000-03-18-president", date: "2000-03-18", nameZh: "2000年 第10任總統副總統選舉", kinds: ["president"] };
+export const E2001L: ElectionDef = { id: "2001-12-01-legislative", date: "2001-12-01", nameZh: "2001年 第5屆立法委員選舉", kinds: ["legislative"] };
+export const E2001: ElectionDef = { id: "2001-12-01-local", date: "2001-12-01", nameZh: "2001–2002年 地方公職人員選舉", kinds: ["local"] };
 export const E2004P: ElectionDef = { id: "2004-03-20-president", date: "2004-03-20", nameZh: "2004年 第11任總統副總統選舉", kinds: ["president"] };
 export const E2004L: ElectionDef = { id: "2004-12-11-legislative", date: "2004-12-11", nameZh: "2004年 第6屆立法委員選舉", kinds: ["legislative"] };
 export const E2005N: ElectionDef = { id: "2005-05-14-national-assembly", date: "2005-05-14", nameZh: "2005年 任務型國民大會代表選舉", kinds: ["national-assembly"] };
@@ -302,6 +310,27 @@ const P2004P: PresLegDef = {
   mix: true,
   registryFrom: REGISTRY_2014,
   notes: [B2016_NOTE, SEQ_NOTE("2004"), MERGER_NOTE],
+};
+const P2000P: PresLegDef = {
+  ...P2004P,
+  election: E2000P,
+  subdirs: { president: "2000年10任總統" },
+  presidentTerm: 10,
+  legislatorTerm: 5,
+  notes: [B2016_NOTE, SEQ_NOTE("2000"), MERGER_NOTE, "此年代的中選會檔案使用舊的政黨編號，已依政黨名稱換成現行代碼（無黨籍為 999）。"],
+};
+const P2001L: PresLegDef = {
+  ...P2004P,
+  election: E2001L,
+  dir: "votedata/votedata/voteData/5屆立委/",
+  subdirs: { district: "區域", 山地: "山原", 平地: "平原" },
+  only: ["legislator-district", "legislator-highland-indigenous", "legislator-lowland-indigenous"],
+  presidentTerm: 10,
+  legislatorTerm: 5,
+  indigenousSeats: 4,
+  indigenousNoVillages: "此屆原住民立委的中選會檔案只到鄉鎮市區層級，沒有村里層級。",
+  districtNote: SNTV_NOTE(29, 168, "1 至 13"),
+  notes: OLD_NOTES("2001"),
 };
 const P2004L: PresLegDef = {
   ...P2004P,
@@ -659,6 +688,38 @@ const NA2005: ElGroupDef = {
   ],
 };
 
+const TWO_ROUNDS_0102 =
+  "此地圖合併三次投票：縣市長於 2001-12-01 選出；縣市議員、鄉鎮市長於 2002-01-26 選出；臺北市、高雄市的市長、市議員於 2002-12-07 選出。側邊欄顯示各場選舉的投票日。";
+const L01: LocalDef = {
+  election: E2001,
+  villages: true,
+  mix: true,
+  boundary: B2016,
+  registryFrom: REGISTRY_2014,
+  dirDates: [
+    { prefix: `${L2005}2002直轄市`, date: "2002-12-07" },
+    { prefix: `${L2005}2002`, date: "2002-01-26" },
+  ],
+  oldCountyContests: true,
+  ignoreDist: true,
+  noVillages: ["councilor-lowland-indigenous", "councilor-highland-indigenous"],
+  dirs: {
+    mayor: [`${L2005}2001縣市長/`, `${L2005}2002直轄市長/`],
+    councilor: [`${L2005}2002縣市議員/區域/`, `${L2005}2002直轄市議員(區域)/`],
+    lowland: [`${L2005}2002縣市議員/平原/`],
+    highland: [`${L2005}2002縣市議員/山原/`],
+    townshipMayor: [`${L2005}2002鄉鎮市長選舉/`],
+    indigenousChief: [],
+    townshipRep: [],
+    lowlandRep: [],
+    indigenousRep: [],
+    villageChief: [],
+  },
+  mayorWarnings: [TWO_ROUNDS_0102, ...OLD_NOTES("2001 與 2002")],
+  councilorWarnings: [TWO_ROUNDS_0102, ...OLD_NOTES("2002")],
+  notes: [TWO_ROUNDS_0102, ...OLD_NOTES("2002")],
+};
+
 const L18: LocalDef = {
   election: E2018,
   villages: true,
@@ -853,6 +914,10 @@ export const GROUPS: ElGroupDef[] = [
   NA2005,
   ...localElections(L05),
   cityIndigenous(E2005, `${L2005}2006直轄市議員(原住民)/`, [...OLD_NOTES("2006"), "此檔案只到鄉鎮市區層級。"], false),
+  ...localElections(L01),
+  cityIndigenous(E2001, `${L2005}2002直轄市議員(原住民)/`, [...OLD_NOTES("2002"), "此檔案只到鄉鎮市區層級。"], false),
+  ...presidentLegislative(P2001L),
+  ...presidentLegislative(P2000P),
   ...presidentLegislative(P2004L),
   // ...presidentLegislative(P2004P), — 2004 總統: the CEC files disagree with each other (see docs); not yet built
   ...localElections(L22),

@@ -177,7 +177,8 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
       invalid: int(r[7], `invalid ${id}`),
       cast: int(r[8], `cast ${id}`),
       electors: int(r[9], `electors ${id}`),
-      populationRaw: int(r[10], `population ${id}`),
+      // Old files may write a fraction here (2001: "177357.813553689"); population is then unknown.
+      populationRaw: legacy && /^\d+\.\d+$/.test(r[10] ?? "") ? 0 : int(r[10], `population ${id}`),
       votes: new Map(),
       officialRate: new Map(),
     });

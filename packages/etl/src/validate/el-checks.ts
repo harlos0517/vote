@@ -113,7 +113,7 @@ export function checkElDataset(ds: ElDataset, ballotsOf: (k: ElKey) => number[] 
     if (parent.votes.size > 0) {
       for (const [n, v] of parent.votes) {
         const s = sum(kids.map((k) => k.votes.get(n) ?? 0));
-        if (s !== v) bad.push(`${pk} #${n} Σ${s}≠${v}`);
+        if (s !== v) sink.push(`${pk} #${n} Σ${s}≠${v}`);
       }
     }
   }

@@ -3,8 +3,8 @@
  * applied right after reading, in the file's own codes. Every listed correction must apply (the
  * inconsistency must really be there), or the build fails; everything else stays strict.
  *
- * - village-from-stations <prv|cty|town|vil>: the village's summary row disagrees with its own
- *   stations, which agree with the candidate votes; take the stations' sums.
+ * - village-from-stations <prv|cty|town|vil>: the village's summary row (or its candidate votes)
+ *   disagrees with its own stations, which agree with the candidate votes; take the stations' sums.
  * - drop-villages <prv|cty|town>: the township's village rows do not add up to the township row,
  *   which another source confirms, or their candidate votes disagree with their own 有效票 (2004
  *   宜蘭縣: stations permuted between elprof and elctks); publish the township without village figures.
@@ -37,6 +37,15 @@
  *   townships agree with the row's 有效票; set the row's votes to the townships' sums.
  * - winners-from-ctks *: elcand's elected marks disagree with the votes (2005 原住民議員), while
  *   elctks marks the top vote-getters on each contest's own row; take the marks from elctks.
+ * - town-votes-by-valid <prv|cty> (or <prv|cty|town> for its villages): elctks rows are swapped
+ *   among the county's townships (2002 南投縣 水里鄉 / 魚池鄉) or a township's villages; give each
+ *   vote row to the unit whose 有效票 it sums to (a unique match, else the build fails).
+ * - districts-from-towns <prv|cty|dist>: the 選區 row's 有效票 etc. disagree with its townships,
+ *   whose candidate votes add up to the 選區's and to their own 有效票 (2002 臺中縣); take the
+ *   townships' sums (and the county row's, when it was the sum of its 選區 rows).
+ * - town-summary-from-district <prv|cty|dist>: a one-township 選區 whose township row has the
+ *   選區's four numbers in the wrong columns (2002 連江縣); copy the 選區's.
+ * - known-mismatch-district <prv|cty|dist>: like known-mismatch, for a 選區 row.
  * - ctks-towns-by-name <reference dir>: elctks numbers the townships as the reference directory's
  *   elbase does (2005 平原/山原 議員: the 區域 file's 選區 order), elbase and elprof in the usual
  *   order; move each township's candidate votes to the township of the same name. Only for files
@@ -51,7 +60,7 @@ import { type ElDataset, type ElUnit, keyString } from "./cec-el.ts";
 
 export interface DataCorrection {
   dir: string;
-  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns";
+  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district";
   key: string;
   note: string;
   reviewed: boolean;
@@ -61,7 +70,7 @@ export function loadDataCorrections(repoRoot: string): Map<string, DataCorrectio
   const out = new Map<string, DataCorrection[]>();
   for (const [election, dir, action, key, note, status] of parseCecCsv(readFileSync(join(repoRoot, "packages/etl/mappings/data-corrections.csv"), "utf8"), { header: true, quotedCommas: true })) {
     if (!election || !dir || !key || !note) throw new Error(`data-corrections.csv: bad row ${key}`);
-    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
+    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
     if (status !== "reviewed" && status !== "unreviewed") throw new Error(`data-corrections.csv: bad status ${status}`);
     out.set(election, [...(out.get(election) ?? []), { dir, action: action as DataCorrection["action"], key, note, reviewed: status === "reviewed" }]);
   }
@@ -92,11 +101,15 @@ export function applyCorrections(
       if (!v) throw new Error(`data-corrections ${election} ${c.key}: no such village`);
       const st = ds.units.filter((u) => u.level === "station" && keyString({ ...u.key, station: "0000" }) === keyString(v.key));
       const sum = (f: (typeof FIELDS)[number]) => st.reduce((a, s) => a + s[f], 0);
-      if (!st.length || FIELDS.every((f) => sum(f) === v[f])) throw new Error(`data-corrections ${election} ${c.key}: the village already agrees with its stations — remove the row`);
-      for (const f of FIELDS) v[f] = sum(f);
+      const votesAgree = [...v.votes].every(([n, x]) => st.reduce((a, s) => a + (s.votes.get(n) ?? 0), 0) === x);
+      if (!st.length || (FIELDS.every((f) => sum(f) === v[f]) && votesAgree)) throw new Error(`data-corrections ${election} ${c.key}: the village already agrees with its stations — remove the row`);
+      // The stations' summary replaces the village's when it differs and is itself consistent; otherwise
+      // (2002 海城里: same 有效票, stations' other columns off) only the votes are taken.
+      const summaryAgrees = FIELDS.every((f) => sum(f) === v[f]) || sum("valid") + sum("invalid") !== sum("cast");
+      if (!summaryAgrees) for (const f of FIELDS) v[f] = sum(f);
       for (const n of [...v.votes.keys()]) v.votes.set(n, st.reduce((a, s) => a + (s.votes.get(n) ?? 0), 0));
       for (const [n, x] of v.votes) v.officialRate.set(n, v.valid ? Math.round((x / v.valid) * 10000) / 100 : 0);
-      done.push(`${v.name} (${c.key}) from its ${st.length} stations`);
+      done.push(`${v.name} (${c.key}) ${summaryAgrees ? "votes" : "summary and votes"} from its ${st.length} stations`);
     } else if (c.action === "duplicate-no-code") {
       const [prv, cty, town, vil] = want as [string, string, string, string];
       const b = ds.units.find((u) => u.level === "village" && keyParts(u).join("|") === c.key);
@@ -111,7 +124,8 @@ export function applyCorrections(
       const [prv, cty] = want as [string, string];
       const inCounty = (u: ElUnit) => u.key.prv === prv && u.key.cty === cty;
       const vs = ds.units.filter((u) => u.level === "village" && inCounty(u));
-      if (!vs.length || vs.some((v) => v.partial)) throw new Error(`data-corrections ${election} ${c.key}: needs full village rows`);
+      if (!vs.length) throw new Error(`data-corrections ${election} ${c.key}: needs village rows`);
+      const partial = vs.some((v) => v.partial); // villages with votes only (2002): the parts know their 有效票 alone
       const old = ds.units.filter((u) => u.level === "town" && inCounty(u));
       const nameOf = new Map(old.map((u) => [u.key.town, u.name]));
       const parts = new Map<string, ElUnit[]>();
@@ -125,6 +139,7 @@ export function applyCorrections(
           key: { prv, cty, dist, town, vil: "0000", station: "0000" }, level: "town", name: nameOf.get(town) ?? "",
           valid, invalid: us.reduce((a, v) => a + v.invalid, 0), cast: us.reduce((a, v) => a + v.cast, 0), electors: us.reduce((a, v) => a + v.electors, 0),
           populationRaw: 0, votes, officialRate: new Map([...votes].map(([n, x]) => [n, valid ? Math.round((x / valid) * 10000) / 100 : 0])),
+          ...(partial ? { partial: true, invalid: 0, cast: 0, electors: 0 } : {}),
         };
       });
       ds.units = [...ds.units.filter((u) => !old.includes(u)), ...built];
@@ -145,15 +160,26 @@ export function applyCorrections(
       const ballots = new Map<string, number[]>(); // contest key (county|dist) → ballot numbers
       for (const x of ds.candidates) {
         const k = `${x.key.prv}${x.key.cty}|${x.key.dist}`;
-        ballots.set(k, [...(ballots.get(k) ?? []), x.ballotNumber]);
+        if (!ballots.get(k)?.includes(x.ballotNumber)) ballots.set(k, [...(ballots.get(k) ?? []), x.ballotNumber]); // running mates share a number
       }
       const filled: string[] = [];
       for (const t of ds.units.filter((u) => u.level === "town")) {
-        const want = ballots.get(`${t.key.prv}${t.key.cty}|${t.key.dist}`) ?? ballots.get(`${t.key.prv}${t.key.cty}|00`) ?? [];
+        // Nationwide contests (總統) key their candidates at the national row.
+        const want = ballots.get(`${t.key.prv}${t.key.cty}|${t.key.dist}`) ?? ballots.get(`${t.key.prv}${t.key.cty}|00`) ?? ballots.get("00000|00") ?? [];
         const missing = want.filter((n) => !t.votes.has(n));
-        if (!missing.length || !t.votes.size) continue;
+        if (!t.votes.size) continue;
         const vs = ds.units.filter((u) => u.level === "village" && u.key.prv === t.key.prv && u.key.cty === t.key.cty && u.key.dist === t.key.dist && u.key.town === t.key.town);
         const sum = (n: number) => vs.reduce((a, v) => a + (v.votes.get(n) ?? 0), 0);
+        // Wrong rows of any kind (2002 新竹市東區, 嘉義市東區): replace them all when the villages
+        // add up to the township's 有效票 and the township's own rows do not.
+        const villageTotal = want.reduce((a, n) => a + sum(n), 0);
+        const townTotal = [...t.votes.values()].reduce((a, b) => a + b, 0);
+        if (vs.length && villageTotal === t.valid && townTotal !== t.valid) {
+          for (const n of want) { t.votes.set(n, sum(n)); t.officialRate.set(n, t.valid ? Math.round((sum(n) / t.valid) * 10000) / 100 : 0); }
+          filled.push(`${t.name} (all candidates; its villages add up to its 有效票)`);
+          continue;
+        }
+        if (!missing.length) continue;
         if (!vs.length) throw new Error(`data-corrections ${election} ${c.key}: ${t.name} lacks candidates and has no villages`);
         // Either the listed rows are right and the rest is cut off (宜蘭市), or the last listed row
         // holds the sum of itself and the cut-off ones (安樂區: "#17" = Σ #12–17).
@@ -193,6 +219,64 @@ export function applyCorrections(
       if ([...sums.values()].reduce((a, b) => a + b, 0) !== d.valid) throw new Error(`data-corrections ${election} ${c.key}: the townships' votes do not sum to the row's 有效票`);
       for (const [n, v] of sums) { d.votes.set(n, v); d.officialRate.set(n, d.valid ? Math.round((v / d.valid) * 10000) / 100 : 0); }
       done.push(`${d.name} votes of #${diff.map(([n]) => n).join(",")} from its townships`);
+    } else if (c.action === "town-votes-by-valid") {
+      // <prv|cty>: townships of a county; <prv|cty|town>: villages of a township (2002 臺北市 北安里 / 金泰里).
+      const [prv, cty, town] = want as [string, string, string | undefined];
+      const off = ds.units.filter((u) => u.level === (town ? "village" : "town") && u.key.prv === prv && u.key.cty === cty && (!town || u.key.town === town) && u.votes.size && [...u.votes.values()].reduce((a, b) => a + b, 0) !== u.valid);
+      if (off.length < 2) throw new Error(`data-corrections ${election} ${c.key}: no swapped townships — remove the row`);
+      const total = (u: ElUnit) => [...u.votes.values()].reduce((a, b) => a + b, 0);
+      const childLevel = town ? "station" : "village";
+      const kids = (u: ElUnit) => ds.units.filter((k) => k.level === childLevel && k.key.prv === u.key.prv && k.key.cty === u.key.cty && k.key.dist === u.key.dist && k.key.town === u.key.town && (!town || k.key.vil === u.key.vil));
+      const kidVotes = (u: ElUnit) => kids(u).reduce((a, k) => a + total(k), 0);
+      // Which side is swapped? Children agreeing with the votes mean the summaries are (2002 南投縣: elprof).
+      const summariesSwapped = off.every((u) => kids(u).length && kidVotes(u) === total(u));
+      if (new Set(off.map(total)).size !== off.length || new Set(off.map((u) => u.valid)).size !== off.length || off.some((u) => !off.some((x) => x.valid === total(u)))) {
+        throw new Error(`data-corrections ${election} ${c.key}: the rows of ${off.map((u) => u.name).join(", ")} are not a unique swap`);
+      }
+      if (summariesSwapped) {
+        const sums = off.map((u) => ({ valid: u.valid, f: FIELDS.map((f) => u[f]), pop: u.populationRaw }));
+        for (const u of off) { const r = sums.find((x) => x.valid === total(u))!; FIELDS.forEach((f, i) => (u[f] = r.f[i]!)); u.populationRaw = r.pop; }
+      } else {
+        const rows = off.map((u) => ({ votes: u.votes, rate: u.officialRate, total: total(u) }));
+        for (const t of off) { const r = rows.find((x) => x.total === t.valid)!; t.votes = r.votes; t.officialRate = r.rate; }
+      }
+      done.push(`${summariesSwapped ? "summaries" : "vote rows"} of ${off.map((t) => t.name).join(", ")} swapped back`);
+    } else if (c.action === "districts-from-towns") {
+      const [prv, cty, dist] = want as [string, string, string];
+      const d = ds.units.find((u) => u.level === "district" && u.key.prv === prv && u.key.cty === cty && u.key.dist === dist);
+      const ts = ds.units.filter((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && u.key.dist === dist);
+      if (!d || !ts.length) throw new Error(`data-corrections ${election} ${c.key}: no such 選區 or townships`);
+      const sums = new Map<number, number>();
+      for (const t of ts) for (const [n, v] of t.votes) sums.set(n, (sums.get(n) ?? 0) + v);
+      if ([...d.votes].some(([n, v]) => sums.get(n) !== v)) throw new Error(`data-corrections ${election} ${c.key}: the 選區's votes differ from its townships'`);
+      if (ts.some((t) => [...t.votes.values()].reduce((a, b) => a + b, 0) !== t.valid)) throw new Error(`data-corrections ${election} ${c.key}: the townships' votes do not match their 有效票`);
+      if (FIELDS.every((f) => ts.reduce((a, t) => a + t[f], 0) === d[f])) throw new Error(`data-corrections ${election} ${c.key}: the 選區 already adds up — remove the row`);
+      const before = FIELDS.map((f) => d[f]).join("/");
+      // The county row was the sum of its 選區 rows (2002 臺中縣): keep it so.
+      const county = ds.units.find((u) => u.level === "county" && u.key.prv === prv && u.key.cty === cty);
+      const dists = ds.units.filter((u) => u.level === "district" && u.key.prv === prv && u.key.cty === cty);
+      const countyWasSum = county && FIELDS.every((f) => dists.reduce((a, x) => a + x[f], 0) === county[f]);
+      for (const f of FIELDS) d[f] = ts.reduce((a, t) => a + t[f], 0);
+      if (countyWasSum) for (const f of FIELDS) county[f] = dists.reduce((a, x) => a + x[f], 0);
+      for (const [n, v] of d.votes) d.officialRate.set(n, d.valid ? Math.round((v / d.valid) * 10000) / 100 : 0);
+      done.push(`${d.name} ${before} → ${FIELDS.map((f) => d[f]).join("/")} from its townships`);
+    } else if (c.action === "town-summary-from-district") {
+      const [prv, cty, dist] = want as [string, string, string];
+      const d = ds.units.find((u) => u.level === "district" && u.key.prv === prv && u.key.cty === cty && u.key.dist === dist);
+      const ts = ds.units.filter((u) => u.level === "town" && u.key.prv === prv && u.key.cty === cty && u.key.dist === dist);
+      if (!d || ts.length !== 1) throw new Error(`data-corrections ${election} ${c.key}: needs a 選區 with exactly one township`);
+      const t = ts[0]!;
+      const a = FIELDS.map((f) => t[f]).sort((x, y) => x - y).join(), b = FIELDS.map((f) => d[f]).sort((x, y) => x - y).join();
+      if (a !== b) throw new Error(`data-corrections ${election} ${c.key}: ${t.name}'s numbers are not the 選區's in another order`);
+      if (FIELDS.every((f) => t[f] === d[f])) throw new Error(`data-corrections ${election} ${c.key}: already the same — remove the row`);
+      for (const f of FIELDS) t[f] = d[f];
+      done.push(`${t.name} summary columns from ${d.name}`);
+    } else if (c.action === "known-mismatch-district") {
+      const [prv, cty, dist] = want as [string, string, string];
+      const d = ds.units.find((u) => u.level === "district" && u.key.prv === prv && u.key.cty === cty && u.key.dist === dist);
+      if (!d) throw new Error(`data-corrections ${election} ${c.key}: no such 選區`);
+      ds.knownMismatch = [...(ds.knownMismatch ?? []), d];
+      done.push(`${d.name} (${c.key}) kept as published despite its sums`);
     } else if (c.action === "winners-from-ctks") {
       let changed = 0;
       for (const x of ds.candidates) {
