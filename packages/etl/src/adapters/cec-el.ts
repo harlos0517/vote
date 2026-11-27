@@ -34,11 +34,15 @@ export interface ElUnit {
   votes: Map<number, number>;
   /** ballot number -> official percentage as published (2 decimals) */
   officialRate: Map<number, number>;
+  /** elctks's own elected mark per ballot number ("*", …; old files only, data-corrections winners-from-ctks). */
+  ctksMarks?: Map<number, string>;
   /**
    * Only candidate votes are known (2010-06-12 files list villages and 選區 in elctks alone):
    * valid = Σ votes; invalid, cast and electors are unknown (published as null).
    */
   partial?: boolean;
+  /** A village row whose name repeats another's in the township (data-corrections duplicate-no-code): never given a registry code. */
+  noVillageCode?: boolean;
 }
 
 export interface ElCandidate {
@@ -72,6 +76,10 @@ export interface ElDataset {
   contestNotes?: Map<string, ElContestNote>;
   /** Parent units whose children do not add up in CEC's own file (data-corrections known-mismatch): warned, not failed. */
   knownMismatch?: ElUnit[];
+  /** Pre-2008 files: printed 得票率 that disagree with the votes only warn (validate/el-checks.ts). */
+  ratesUnreliable?: boolean;
+  /** Old party number → modern code, set by remapLegacyParties (party-list files need it too). */
+  partyRemap?: Map<number, number>;
 }
 
 const keyOfRow = (r: string[]): ElKey => ({
@@ -143,6 +151,8 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
   // keeps the dist-"00" row and is never overwritten by a district row.
   const exact = new Map<string, string>();
   const loose = new Map<string, string>();
+  // 2005 任務型國代 joins a joint station's villages with ";" (西坪里;坪林里), elsewhere "、".
+  for (const r of base) if (r[5]) r[5] = r[5].replace(/;/g, "、");
   for (const r of base) {
     exact.set(`${r[0]}${r[1]}|${r[2]}|${r[3]}|${r[4]}`, r[5]!);
     const lk = `${r[0]}${r[1]}|${r[3]}|${r[4]}`;
@@ -186,6 +196,7 @@ export function readElDir(dir: string, belongs: (k: ElKey) => boolean = () => tr
     if (u.votes.has(n)) throw new Error(`duplicate elctks ${keyString(k)} #${n}`);
     u.votes.set(n, int(r[7], "votes"));
     u.officialRate.set(n, Number(r[8]));
+    if (legacy && r[9]) (u.ctksMarks ??= new Map()).set(n, r[9]);
     if (u.partial) u.valid += u.votes.get(n)!;
   }
 
@@ -237,12 +248,13 @@ export interface ElPartyList {
 
 /** Read the party-list extras that only 不分區政黨 directories have. */
 export function readElPartyList(dir: string): ElPartyList {
-  const members = readElRaw(elFile(dir, "elrepm")).map((r) => ({
+  // Trimmed: 2005's files pad numbers with spaces ("7.0479 ").
+  const members = readElRaw(elFile(dir, "elrepm"), true).map((r) => ({
     partyCode: int(r[0], "party code"),
     rank: int(r[1], "list rank"),
     name: r[2]!,
     gender: r[3] === "1" ? ("M" as const) : r[3] === "2" ? ("F" as const) : null,
-    birthYearROC: /^\d{7}$/.test(r[4] ?? "") ? Number(r[4]!.slice(0, 3)) : null,
+    birthYearROC: /^\d{7}$/.test(r[4] ?? "") ? Number(r[4]!.slice(0, 3)) : /^\d{3}$/.test(r[4] ?? "") ? Number(r[4]) : null,
     incumbent: r[8] === "Y" ? true : r[8] === "N" ? false : null,
     electedMark: (r[9] ?? "").trim(),
   }));
@@ -250,7 +262,7 @@ export function readElPartyList(dir: string): ElPartyList {
     if (s === undefined || !/^\d+(\.\d+)?$/.test(s)) throw new Error(`expected number for ${what}, got ${JSON.stringify(s)}`);
     return Number(s);
   };
-  const results = readElRaw(elFile(dir, "elretks")).map((r) => ({
+  const results = readElRaw(elFile(dir, "elretks"), true).map((r) => ({
     partyCode: int(r[0], "party code"),
     voteSharePct: num(r[1], "vote share"),
     qualifiedSharePct: num(r[2], "qualified share"),
@@ -272,14 +284,26 @@ export interface ElContestNote {
  * Their national rows sum different contests per directory, so they are dropped and one
  * national row is rebuilt from the county rows (summary only; no candidate votes there).
  */
-export function mergeElDatasets(parts: ElDataset[]): ElDataset {
-  const units = parts.flatMap((p) => p.units.filter((u) => u.level !== "national"));
-  const seen = new Set<string>();
+export function mergeElDatasets(parts: ElDataset[], sumCounties = false): ElDataset {
+  let units = parts.flatMap((p) => p.units.filter((u) => u.level !== "national"));
+  const seen = new Map<string, ElUnit>();
+  const summed: ElUnit[] = [];
   for (const u of units) {
     const k = keyString(u.key);
-    if (seen.has(k)) throw new Error(`merge: unit ${k} appears in two directories`);
-    seen.add(k);
+    const prev = seen.get(k);
+    if (prev && sumCounties && u.level === "county") {
+      // Pre-2010: 高雄縣 (one directory) and 高雄市 (another) are both county 64000 now.
+      prev.valid += u.valid; prev.invalid += u.invalid; prev.cast += u.cast; prev.electors += u.electors;
+      prev.populationRaw = prev.populationRaw && u.populationRaw ? prev.populationRaw + u.populationRaw : 0;
+      for (const [n, v] of u.votes) prev.votes.set(n, (prev.votes.get(n) ?? 0) + v);
+      for (const [n, v] of prev.votes) prev.officialRate.set(n, prev.valid ? Math.round((v / prev.valid) * 10000) / 100 : 0);
+      summed.push(u);
+      continue;
+    }
+    if (prev) throw new Error(`merge: unit ${k} appears in two directories`);
+    seen.set(k, u);
   }
+  units = units.filter((u) => !summed.includes(u));
   const counties = units.filter((u) => u.level === "county");
   const sum = (f: (u: ElUnit) => number) => counties.reduce((a, u) => a + f(u), 0);
   const national: ElUnit = {
@@ -306,24 +330,48 @@ export function mergeElDatasets(parts: ElDataset[]): ElDataset {
 }
 
 /**
- * Replace the 2010-06-12 files' old party numbers (1 國民黨, 2 民進黨, …, 99 無) with the modern
- * CEC codes, matched by party name against `modern`; 99 ("無") is 999. Unknown names fail.
+ * Replace old party numbers (2010-06-12 and pre-2008 files: 1 國民黨, 2 民進黨, …, 99 無) with the
+ * modern CEC codes, matched by party name against `modern`; 99 ("無") is 999. Names no modern
+ * file has take the site's own code from `own` (mappings/legacy-parties.csv); a name with two
+ * modern codes, or none at all, fails.
  */
-export function remapLegacyParties(ds: ElDataset, modern: ElParty[]): { mapped: string[] } {
-  const byName = new Map(modern.map((p) => [p.name, p.code]));
+export function remapLegacyParties(ds: ElDataset, modern: ElParty[], own: Map<string, number> = new Map()): { mapped: string[] } {
+  const byName = new Map<string, Set<number>>();
+  for (const p of modern) byName.set(p.name, (byName.get(p.name) ?? new Set()).add(p.code));
   const map = new Map<number, number>();
   for (const p of ds.parties) {
-    const code = p.code === 99 && p.name === "無" ? 999 : byName.get(p.name);
-    if (code === undefined) throw new Error(`legacy party ${p.code} ${p.name}: no modern party of that name`);
+    const codes = [...(byName.get(p.name) ?? [])];
+    if (codes.length > 1 && !own.has(p.name)) throw new Error(`legacy party ${p.code} ${p.name}: modern codes ${codes.join(", ")} share the name — add it to legacy-parties.csv`);
+    const code = p.code === 99 && p.name === "無" ? 999 : (own.get(p.name) ?? codes[0]);
+    if (code === undefined) throw new Error(`legacy party ${p.code} ${p.name}: no modern party of that name — add it to legacy-parties.csv`);
     map.set(p.code, code);
   }
+  ds.partyRemap = map;
   for (const c of ds.candidates) {
     const code = map.get(c.partyCode);
     if (code === undefined) throw new Error(`legacy candidate ${c.name}: unknown party ${c.partyCode}`);
     c.partyCode = code;
   }
-  ds.parties = [...map].map(([, code]) => modern.find((p) => p.code === code) ?? { code: 999, name: "無黨籍及未經政黨推薦" });
+  ds.parties = [...map].map(([old, code]) =>
+    code === 999 ? (modern.find((p) => p.code === 999) ?? { code: 999, name: "無黨籍及未經政黨推薦" }) : { code, name: ds.parties.find((p) => p.code === old)!.name },
+  );
   return { mapped: [...map].map(([a, b]) => `${a}→${b}`) };
+}
+
+/** Old (pre-2008, 2010-06-12) files number parties 1, 2, … with 99 = 「無」; modern files use 999. */
+export const isLegacyDir = (dir: string): boolean => readElParties(dir).some((p) => p.code === 99 && p.name === "無");
+
+/** Old party numbers without the old layout (2005 任務型國代: 2 = 民主進步黨, which is 16 in modern files). */
+export const hasOldPartyNumbers = (dir: string): boolean => isLegacyDir(dir) || readElParties(dir).some((p) => p.code === 2 && p.name === "民主進步黨");
+
+/** Apply a dataset's party remap to its party-list files. */
+export function remapPartyList(list: ElPartyList, map: Map<number, number>): ElPartyList {
+  const to = (c: number) => {
+    const x = map.get(c);
+    if (x === undefined) throw new Error(`party list: party ${c} not in elpaty`);
+    return x;
+  };
+  return { members: list.members.map((m) => ({ ...m, partyCode: to(m.partyCode) })), results: list.results.map((r) => ({ ...r, partyCode: to(r.partyCode) })) };
 }
 
 /** A directory's party list alone (elpaty), e.g. as modern codes for remapLegacyParties. */

@@ -289,7 +289,7 @@ function PartyListTable({ ctx, unit, den, d, abst }: TableProps) {
         </Table.Tbody>
       </Table>
       <Text size="xs" c="dimmed">
-        共 {total} 席，依全國得票率分配給得票率達 {pl.thresholdPct}% 的政黨（{pl.thresholdBasis}）。「全國席次」為全國結果，不是該地區的席次。
+        共 {total} 席，{pl.thresholdPct ? `依全國得票率分配給得票率達 ${pl.thresholdPct}% 的政黨（${pl.thresholdBasis}）。` : `依全國得票率分配，不設門檻（${pl.thresholdBasis}）。`}「全國席次」為全國結果，不是該地區的席次。
       </Text>
       {national && (
         <>

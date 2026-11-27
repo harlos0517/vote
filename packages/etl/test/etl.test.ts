@@ -495,3 +495,42 @@ describe("2010-06-12 legacy files", () => {
     expect(h(tree(31))).toBe("fail");
   });
 });
+
+describe("pre-2008 files", () => {
+  const mk = (prv: string, cty: string, dist: string, town: string, vil: string, level: "county" | "district" | "town" | "village" | "station", name: string, valid = 1, station = "0000") => ({ key: { prv, cty, dist, town, vil, station }, level, name, valid, invalid: 0, cast: valid, electors: valid, populationRaw: 0, votes: new Map<number, number>(), officialRate: new Map<number, number>() });
+  it("keeps an old 縣 and 市 as two county-wide contests (選區 01 / 02) under one county row", async () => {
+    const { renumberToRegistry } = await import("../src/adapters/registry.ts");
+    const ref = { county: new Map([["高雄市", "64000"]]), town: new Map([["64000|鹽埕區", "64000010"], ["64000|鳳山區", "64000120"]]), village: new Map<string, string>() };
+    const admin = [{ kind: "county" as const, old: "高雄縣", new: "高雄市", source: "x", reviewed: false }];
+    const ds = {
+      units: [mk("02", "000", "00", "000", "0000", "county", "高雄市", 5), mk("02", "000", "00", "001", "0000", "town", "鹽埕區", 5), mk("03", "012", "00", "000", "0000", "county", "高雄縣", 7), mk("03", "012", "00", "003", "0000", "town", "鳳山市", 7)],
+      candidates: [],
+      parties: [],
+    };
+    renumberToRegistry(ds, "e", ref, admin, new Map(), { oldCountyContests: true });
+    expect(ds.units.filter((u) => u.level === "district").map((u) => `${u.name} ${u.key.dist}`).sort()).toEqual(["高雄市 02", "高雄縣 01"]);
+    const county = ds.units.filter((u) => u.level === "county");
+    expect(county.map((u) => [u.name, u.valid, u.votes.size])).toEqual([["高雄市", 12, 0]]);
+    expect(ds.units.filter((u) => u.level === "town").map((u) => `${u.key.town} ${u.key.dist}`).sort()).toEqual(["010 02", "120 01"]);
+  });
+  it("gives parties no modern file names their own code, and refuses a name with two modern codes", async () => {
+    const { remapLegacyParties } = await import("../src/adapters/cec-el.ts");
+    const ds: { units: never[]; candidates: never[]; parties: { code: number; name: string }[]; partyRemap?: Map<number, number> } = { units: [], candidates: [], parties: [{ code: 11, name: "張亞中等150人聯盟" }, { code: 2, name: "民主進步黨" }] };
+    remapLegacyParties(ds, [{ code: 16, name: "民主進步黨" }], new Map([["張亞中等150人聯盟", 9001]]));
+    expect([...ds.partyRemap!]).toEqual([[11, 9001], [2, 16]]);
+    expect(() => remapLegacyParties({ units: [], candidates: [], parties: [{ code: 3, name: "勞動黨" }] }, [{ code: 15, name: "勞動黨" }, { code: 33, name: "勞動黨" }])).toThrow(/15, 33/);
+  });
+  it("gives a repeated village name no code, and moves township votes numbered in another file's order", async () => {
+    const { applyCorrections } = await import("../src/adapters/corrections.ts");
+    const a = mk("01", "005", "00", "017", "0254", "village", "西坪里"), b = mk("01", "005", "00", "017", "0259", "village", "西坪里");
+    const ds1 = { units: [a, b, mk("01", "005", "00", "017", "0259", "station", "", 1, "0007")], candidates: [], parties: [] };
+    applyCorrections(ds1, "e", "a/x/", new Map([["e", [{ dir: "x/", action: "duplicate-no-code" as const, key: "01|005|017|0259", note: "n", reviewed: false }]]]));
+    expect([(a as { noVillageCode?: boolean }).noVillageCode, (b as { noVillageCode?: boolean }).noVillageCode, b.name]).toEqual([undefined, true, "西坪里（重複列名）"]);
+    // elctks numbers 三重/中和 the other way round (as the reference file does).
+    const t2 = mk("01", "001", "11", "002", "0000", "town", "三重市", 247), t3 = mk("01", "001", "11", "003", "0000", "town", "中和市", 451);
+    t2.votes = new Map([[1, 451]]); t3.votes = new Map([[1, 247]]);
+    const ref = { units: [mk("01", "001", "02", "002", "0000", "town", "中和市"), mk("01", "001", "05", "003", "0000", "town", "三重市")], candidates: [], parties: [] };
+    applyCorrections({ units: [t2, t3], candidates: [], parties: [] }, "e", "a/y/", new Map([["e", [{ dir: "y/", action: "ctks-towns-by-name" as const, key: "ref/", note: "n", reviewed: false }]]]), () => ref);
+    expect([t2.votes.get(1), t3.votes.get(1)]).toEqual([247, 451]);
+  });
+});

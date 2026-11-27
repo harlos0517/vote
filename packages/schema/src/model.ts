@@ -85,6 +85,16 @@ export const Office = z.enum([
   "referendum-national",
   "referendum-local",
   "constitutional-referendum", // 修憲複決
+  // Offices that no longer exist (Phase 4: 1994–2005)
+  "provincial-governor", // 臺灣省長 (1994)
+  "provincial-councilor-district", // 臺灣省議員(區域)
+  "provincial-councilor-lowland-indigenous", // 臺灣省議員(平地原住民)
+  "provincial-councilor-highland-indigenous", // 臺灣省議員(山地原住民)
+  "national-assembly-district", // 國民大會代表(區域) (1996)
+  "national-assembly-lowland-indigenous", // 國民大會代表(平地原住民)
+  "national-assembly-highland-indigenous", // 國民大會代表(山地原住民)
+  "national-assembly-party-list", // 任務型國民大會代表 (2005, party ballot)
+  "councilor-indigenous", // 臺北市、高雄市 原住民議員 (before 2010: one race, 平地 and 山地 together)
 ]);
 
 /** Who may vote. Indigenous contests have a different electorate on the same map. */

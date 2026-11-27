@@ -140,7 +140,11 @@ export function checkElDataset(ds: ElDataset, ballotsOf: (k: ElKey) => number[] 
       if (Math.abs(ours - theirs) > (oneDecimal ? 0.051 : 0.011)) rateBad.push(`${keyString(u.key)} #${n} ${ours}≠${theirs}`);
     }
   }
-  add("official-rate-reproducible", rateBad, "recomputed vote share = published 得票率 (±0.01) for every unit with candidate rows");
+  if (ds.ratesUnreliable && rateBad.length) {
+    // Pre-2008 files: the votes add up, but many printed 得票率 do not follow from them (the site
+    // shows its own shares, never the printed ones).
+    out.push({ id: "official-rate-reproducible", status: "warn", detail: `${rateBad.length} printed 得票率 do not follow from the votes (pre-2008 file; shares are recomputed), e.g. ${rateBad.slice(0, 5).join("; ")}` });
+  } else add("official-rate-reproducible", rateBad, "recomputed vote share = published 得票率 (±0.01) for every unit with candidate rows");
   return out;
 }
 

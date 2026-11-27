@@ -27,7 +27,7 @@ export interface ElectionDef {
   id: string;
   date: string;
   nameZh: string;
-  kinds: ("president" | "legislative" | "local" | "referendum")[];
+  kinds: ("president" | "legislative" | "local" | "referendum" | "national-assembly" | "provincial")[];
 }
 
 export interface ElGroupDef {
@@ -84,6 +84,25 @@ export interface ElGroupDef {
    * with directories whose elpaty gives the modern party codes to remap their old ones.
    */
   legacy?: { prefixes: string[]; modernPartiesFrom: string[] };
+  /**
+   * The party-list file names (almost) no members (2005 任務型國代: elrepm.csv has 1 of 300): publish
+   * the parties' votes and seats only; member checks are skipped.
+   */
+  listMembersAbsent?: boolean;
+  /**
+   * Pre-2010 maps: old 縣 and 市 of a MERGED_2010 county each held their own election
+   * (adapters/registry.ts RenumberOptions.oldCountyContests). "county" contests are then keyed
+   * "<county>-01" (old 縣) / "<county>-02" (old 市) there.
+   */
+  oldCountyContests?: boolean;
+  /**
+   * Pre-2008 files of county-, township- or village-wide contests write the 選區 field
+   * inconsistently (2005 縣市長: elprof 00, elctks and elcand 01): it means nothing there and is
+   * read as "00", as for nationwide contests. Ignored for districted contests.
+   */
+  ignoreDist?: boolean;
+  /** Party-list threshold and its legal basis (default PARTY_LIST_THRESHOLD, 5%). */
+  partyListThreshold?: { pct: number; basis: string };
   /** Seats per contest (default 1); 原住民立委 elect 3 in one nationwide contest. */
   seats?: number;
   /** Boundary layout name used in geography paths ("admin" = plain counties/towns). */
@@ -137,7 +156,7 @@ function contestIdOf(d: ElGroupDef, county: string | null, dist: string | null, 
   // Lowercase: village keys may carry a G / Z prefix (adapters/registry.ts); ids are lowercase slugs.
   if (isLocalContests(d.contests)) return `${d.election.id}.${prefix}-${key.toLowerCase()}`;
   if (d.contests === "district") return `${d.election.id}.${prefix}-${county}-d${dist}`;
-  if (d.contests === "county") return `${d.election.id}.${prefix}-${county}`;
+  if (d.contests === "county") return `${d.election.id}.${prefix}-${key.toLowerCase()}`; // key: county, or county-01/-02 (oldCountyContests)
   return groupId(d);
 }
 
@@ -193,12 +212,16 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
   const multi = d.contests === "district";
   const byCounty = d.contests === "county";
   const local = isLocalContests(d.contests) ? d.contests : null;
+  const splitCounties = new Set(d.oldCountyContests && byCounty ? ds.units.filter((u) => u.level === "district").map((u) => countyCode(u.key)) : []);
   const contestKeyOf = (k: ElKey): string | null => {
     switch (d.contests) {
       case "district":
         return k.dist === "00" ? null : `${countyCode(k)}-${k.dist}`;
       case "county":
-        return k.prv === "00" ? null : countyCode(k);
+        if (k.prv === "00") return null;
+        if (d.oldCountyContests && k.dist !== "00") return `${countyCode(k)}-${k.dist}`;
+        // A merged county's own row spans both old counties' contests.
+        return splitCounties.has(countyCode(k)) ? null : countyCode(k);
       case "town":
         return k.town === "000" ? null : townCode(k);
       case "village":
@@ -224,7 +247,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       id: contestIdOf(d, county, dist, key),
       county,
       dist,
-      choicePrefix: multi ? `${county}-d${dist}.` : byCounty ? `${county}.` : local ? `${key.toLowerCase()}.` : "",
+      choicePrefix: multi ? `${county}-d${dist}.` : byCounty ? `${key}.` : local ? `${key.toLowerCase()}.` : "",
     });
   }
   const contestList = [...infos.values()].sort((a, b) => a.key.localeCompare(b.key));
@@ -260,7 +283,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
       if (isList) {
         // The ballot row is the party itself; its people are the list members.
         if (!partyByCode.has(principal.partyCode)) throw new Error(`unknown party code ${principal.partyCode}`);
-        const members = list!.members.filter((m) => m.partyCode === principal.partyCode).sort((a, b) => a.rank - b.rank);
+        const members = d.listMembersAbsent ? [] : list!.members.filter((m) => m.partyCode === principal.partyCode).sort((a, b) => a.rank - b.rank);
         const ids: string[] = [];
         for (const m of members) {
           const pid = `${ci.id}.p${principal.partyCode}.r${m.rank}`;
@@ -329,7 +352,8 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
 
   // ---- winners: the marked candidates must be the contest's top seats (ties fail loudly)
   const contestLevel = multi ? "district" : byCounty ? "county" : local === "village" ? "village" : local ? "town" : "national";
-  const topRowOf = (ci: ContestInfo) => ds.units.find((u) => u.level === contestLevel && (contestLevel === "national" || contestKeyOf(u.key) === ci.key));
+  const topRowOf = (ci: ContestInfo) =>
+    ds.units.find((u) => (u.level === contestLevel || (byCounty && u.level === "district")) && (contestLevel === "national" || contestKeyOf(u.key) === ci.key));
   const winnerBad: string[] = [];
   let drawsDecided = 0;
   let quotaInferred = 0;
@@ -339,7 +363,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     const row = topRowOf(ci);
     if (!row) { winnerBad.push(`${ci.id}: no contest-level row`); continue; }
     if (isList) {
-      partyList = checkPartyList(ci, row, list!, candidacies, seats, ballotsByContest.get(ci.key)!, ds, winnerBad);
+      partyList = checkPartyList(ci, row, list!, candidacies, seats, ballotsByContest.get(ci.key)!, ds, winnerBad, d.partyListThreshold ?? PARTY_LIST_THRESHOLD, d.listMembersAbsent ?? false);
       continue;
     }
     const n = seatsOf(ci);
@@ -348,16 +372,23 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     const top = new Set(nums.slice(0, n));
     const mine = candidacies.filter((c) => c.contestId === ci.id && c.role === "principal");
     const votesOf = (c: Candidacy) => row.votes.get(c.ballotNumber) ?? 0;
-    // 2010-06-12 files mark every winner "*" (no "!"): one marked woman outside the top n, with
-    // the lowest-ranked man inside it unmarked, is a 婦女保障名額 seat — record it as such.
-    // (Only races of 4 seats or more have the reserved seat: 每滿四名應有婦女當選名額一名.)
+    // Old files mark every winner "*" (no "!"): marked women outside the top n, as many men inside
+    // it unmarked, are 婦女保障名額 seats — record them as such. (每滿四名應有婦女當選名額一名: races
+    // of 4 seats or more, at most one reserved seat per 4.)
     if (n >= 4 && ds.candidates.some((c) => c.legacyMarks && contestKeyOf(c.key) === ci.key)) {
       const outside = mine.filter((c) => c.elected && !top.has(c.ballotNumber) && votesOf(c) < cut);
-      const unmarkedTop = mine.filter((c) => !c.elected && top.has(c.ballotNumber) && votesOf(c) > (outside[0] ? votesOf(outside[0]) : Infinity));
-      if (outside.length === 1 && outside[0]!.gender === "F" && unmarkedTop.length === 1 && unmarkedTop[0]!.gender === "M") {
-        outside[0]!.electedNote = "women-quota";
-        unmarkedTop[0]!.electedNote = "displaced-by-women-quota";
-        quotaInferred++;
+      const best = Math.max(...outside.map(votesOf));
+      const unmarkedTop = mine.filter((c) => !c.elected && top.has(c.ballotNumber) && votesOf(c) > best);
+      if (
+        outside.length >= 1 &&
+        outside.length <= Math.floor(n / 4) &&
+        outside.every((c) => c.gender === "F") &&
+        unmarkedTop.length === outside.length &&
+        unmarkedTop.every((c) => c.gender === "M")
+      ) {
+        for (const c of outside) c.electedNote = "women-quota";
+        for (const c of unmarkedTop) c.electedNote = "displaced-by-women-quota";
+        quotaInferred += outside.length;
       }
     }
     // 婦女保障名額: a woman outside the top n ("!") takes the place of the lowest-ranked man in it.
@@ -393,11 +424,11 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     winnerBad.length
       ? { id: "winner-consistent", status: "fail", detail: winnerBad.slice(0, 5).join("; ") }
       : isList
-        ? { id: "winner-consistent", status: "pass", detail: `${seats} seats: CEC's per-party seats match the elected list members, the ${PARTY_LIST_THRESHOLD.pct}% threshold and a largest-remainder recount; published vote shares reproduce` }
+        ? { id: "winner-consistent", status: "pass", detail: `${seats} seats: CEC's per-party seats match ${d.listMembersAbsent ? "(no list members in the file)" : "the elected list members"}, the ${(d.partyListThreshold ?? PARTY_LIST_THRESHOLD).pct}% threshold and a largest-remainder recount; published vote shares reproduce` }
         : {
             id: "winner-consistent",
             status: "pass",
-            detail: `${contestList.length} contests, ${contestList.reduce((a, ci) => a + seatsOf(ci), 0)} seats: the elected candidates have the most votes${candidacies.some((c) => c.electedNote === "women-quota") ? " (women-quota seats replace the lowest-ranked man)" : ""}${lotSeats ? `; ${lotSeats} seats tied between two candidates and decided by lot (the draw's result is not in the data)` : ""}${drawsDecided ? `; ${drawsDecided} seats tied at the cut-off and decided by lot, the draw's winner marked elected` : ""}${quotaInferred ? `; ${quotaInferred} 婦女保障名額 seats inferred (the 2010-06-12 files mark every winner "*")` : ""}${keptAsPublished ? `; ${keptAsPublished} contests kept as CEC marks them (data-corrections winner-as-published)` : ""}`,
+            detail: `${contestList.length} contests, ${contestList.reduce((a, ci) => a + seatsOf(ci), 0)} seats: the elected candidates have the most votes${candidacies.some((c) => c.electedNote === "women-quota") ? " (women-quota seats replace the lowest-ranked man)" : ""}${lotSeats ? `; ${lotSeats} seats tied between two candidates and decided by lot (the draw's result is not in the data)` : ""}${drawsDecided ? `; ${drawsDecided} seats tied at the cut-off and decided by lot, the draw's winner marked elected` : ""}${quotaInferred ? `; ${quotaInferred} 婦女保障名額 seats inferred (the old files mark every winner "*")` : ""}${keptAsPublished ? `; ${keptAsPublished} contests kept as CEC marks them (data-corrections winner-as-published)` : ""}`,
           },
   );
 
@@ -569,7 +600,7 @@ export function buildElGroup(d: ElGroupDef, ds: ElDataset, colors: Map<number, P
     nameZh: multi
       ? (districtName.get(ci.key) ?? `${countyName.get(ci.county!) ?? ""}第${ci.dist}選區`)
       : byCounty
-        ? `${countyName.get(ci.county!) ?? ci.county}${d.contestNameSuffix ?? ""}`
+        ? `${(ci.key.includes("-") ? districtName.get(ci.key) : undefined) ?? countyName.get(ci.county!) ?? ci.county}${d.contestNameSuffix ?? ""}`
         : local
           ? localContestName(ci)
           : d.nameZh,
@@ -624,12 +655,14 @@ function checkPartyList(
   ballots: number[],
   ds: ElDataset,
   bad: string[],
+  threshold: { pct: number; basis: string },
+  membersAbsent: boolean,
 ): NonNullable<Contest["partyList"]> {
   const codeOfBallot = new Map(ds.candidates.map((c) => [c.ballotNumber, c.partyCode]));
   const votes = new Map(ballots.map((n) => [codeOfBallot.get(n)!, row.votes.get(n) ?? 0]));
   const total = [...votes.values()].reduce((a, b) => a + b, 0);
   const published = new Map(list.results.map((r) => [r.partyCode, r]));
-  const recount = largestRemainder(votes, seats, PARTY_LIST_THRESHOLD.pct);
+  const recount = largestRemainder(votes, seats, threshold.pct);
   let seatSum = 0;
   for (const [code, v] of votes) {
     const r = published.get(code);
@@ -638,6 +671,7 @@ function checkPartyList(
     const share = total ? (v / total) * 100 : 0;
     if (Math.abs(share - r.voteSharePct) > 0.00006) bad.push(`${ci.id}: party ${code} share ${share.toFixed(4)} vs published ${r.voteSharePct}`);
     if ((recount.get(code) ?? 0) !== r.seats) bad.push(`${ci.id}: party ${code} seats ${r.seats} vs recount ${recount.get(code) ?? 0}`);
+    if (membersAbsent) continue;
     const elected = candidacies.filter((c) => c.partyId === partyId(code) && c.elected).length;
     if (elected !== r.seats) bad.push(`${ci.id}: party ${code} has ${elected} elected list members vs ${r.seats} seats`);
     const nominated = list.members.filter((m) => m.partyCode === code).length;
@@ -650,14 +684,14 @@ function checkPartyList(
     bad.push(`${ci.id}: elretks has non-zero rows for parties not on the ballot: ${extra.filter((r) => r.voteSharePct || r.seats || r.nominated).map((r) => r.partyCode).join(", ")}`);
   }
   return {
-    thresholdPct: PARTY_LIST_THRESHOLD.pct,
-    thresholdBasis: PARTY_LIST_THRESHOLD.basis,
+    thresholdPct: threshold.pct,
+    thresholdBasis: threshold.basis,
     allocation: [...votes.keys()].map((code) => {
       const r = published.get(code)!;
       return {
         partyId: partyId(code),
         voteSharePct: r.voteSharePct,
-        qualifiedSharePct: r.voteSharePct >= PARTY_LIST_THRESHOLD.pct ? r.qualifiedSharePct : null,
+        qualifiedSharePct: r.voteSharePct >= threshold.pct ? r.qualifiedSharePct : null,
         nominated: r.nominated,
         seats: r.seats,
       };

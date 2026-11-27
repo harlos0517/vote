@@ -28,6 +28,15 @@ export const OFFICE_LABEL: Partial<Record<Office, string>> = {
   "indigenous-district-rep": "山地原住民區民代表",
   "village-chief": "村里長",
   "referendum-national": "全國性公投",
+  "provincial-governor": "臺灣省長",
+  "provincial-councilor-district": "區域省議員",
+  "provincial-councilor-lowland-indigenous": "平地原住民省議員",
+  "provincial-councilor-highland-indigenous": "山地原住民省議員",
+  "national-assembly-district": "區域國大代表",
+  "national-assembly-lowland-indigenous": "平地原住民國大代表",
+  "national-assembly-highland-indigenous": "山地原住民國大代表",
+  "national-assembly-party-list": "任務型國大代表",
+  "councilor-indigenous": "原住民議員（平地山地合選）",
   "constitutional-referendum": "修憲複決",
 };
 

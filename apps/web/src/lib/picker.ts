@@ -30,6 +30,7 @@ export const CATEGORIES: Category[] = [
       { office: "councilor-district", label: "區域" },
       { office: "councilor-highland-indigenous", label: "山地原住民" },
       { office: "councilor-lowland-indigenous", label: "平地原住民" },
+      { office: "councilor-indigenous", label: "原住民（平山合選）" },
     ],
   },
   {
@@ -50,6 +51,26 @@ export const CATEGORIES: Category[] = [
     ],
   },
   { key: "village", label: "村里長", subs: [{ office: "village-chief", label: "村里長" }] },
+  {
+    key: "national-assembly",
+    label: "國民大會代表",
+    subs: [
+      { office: "national-assembly-district", label: "區域" },
+      { office: "national-assembly-highland-indigenous", label: "山地原住民" },
+      { office: "national-assembly-lowland-indigenous", label: "平地原住民" },
+      { office: "national-assembly-party-list", label: "任務型" },
+    ],
+  },
+  {
+    key: "provincial",
+    label: "臺灣省長／省議員",
+    subs: [
+      { office: "provincial-governor", label: "省長" },
+      { office: "provincial-councilor-district", label: "區域省議員" },
+      { office: "provincial-councilor-highland-indigenous", label: "山地原住民" },
+      { office: "provincial-councilor-lowland-indigenous", label: "平地原住民" },
+    ],
+  },
   {
     key: "referendum",
     label: "公投",

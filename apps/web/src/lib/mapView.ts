@@ -289,7 +289,7 @@ export function buildMapView(ctx: GroupContext, units: UnitView[], vIn: ViewStat
         groups,
         note: [
           v.shadeTop ? (multi ? "顏色越深，該黨席次占比越高。" : `顏色越深，${ctx.partyList ? "該黨" : "該候選人"}得票率越高（分母：${denLabel}）。`) : "",
-          ctx.partyList ? `席次依全國得票分配（門檻 ${ctx.partyList.thresholdPct}%），地區得票最多不代表在該地區獲得席次。` : "",
+          ctx.partyList ? `席次依全國得票分配（${ctx.partyList.thresholdPct ? `門檻 ${ctx.partyList.thresholdPct}%` : "不設門檻"}），地區得票最多不代表在該地區獲得席次。` : "",
         ].filter(Boolean).join("") || undefined,
       },
       describe: (u) => {
