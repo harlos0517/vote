@@ -26,6 +26,9 @@ jobs:
     runs-on: ubuntu-24.04
     # Configure required reviewers on this environment so publishing needs approval.
     environment: data-release
+    env:
+      # 1994–2006 elections make the build need a larger heap than Node's default.
+      NODE_OPTIONS: --max-old-space-size=12288
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
