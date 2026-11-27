@@ -36,8 +36,9 @@
  *   national row from the counties): the row's candidate
  *   votes do not add up (or a candidate has fewer votes than in some of its townships), while the
  *   townships agree with the row's 有效票; set the row's votes to the townships' sums.
- * - winners-from-ctks *: elcand's elected marks disagree with the votes (2005 原住民議員), while
- *   elctks marks the top vote-getters on each contest's own row; take the marks from elctks.
+ * - winners-from-ctks * (or <prv|cty|dist>;<prv|cty|dist>… for some 選區 only): elcand's elected
+ *   marks disagree with the votes (2005 原住民議員), while elctks marks the top vote-getters on each
+ *   contest's own row; take the marks from elctks.
  * - town-summaries-by-votes <prv|cty>: as town-votes-by-valid, but the summaries are known to be
  *   the swapped side (no children read to tell).
  * - town-votes-by-valid <prv|cty> (or <prv|cty|town> for its villages): elctks rows are swapped
@@ -60,6 +61,8 @@
  * - county-from-districts <prv|cty>: the county row disagrees with its 選區 rows (or, without
  *   選區, its townships), which add up elsewhere (1998 新竹縣 leaves out its 第9選區, counted in
  *   苗栗縣's row instead); set the county's summary to their sum.
+ * - set-winners <prv|cty|dist|town|vil>=<ballot,ballot,…>: CEC's elected marks for this contest are
+ *   wrong and an outside source (named in the note) gives the winners; mark exactly these.
  * - ctks-towns-by-name <reference dir>: elctks numbers the townships as the reference directory's
  *   elbase does (2005 平原/山原 議員: the 區域 file's 選區 order), elbase and elprof in the usual
  *   order; move each township's candidate votes to the township of the same name. Only for files
@@ -74,7 +77,7 @@ import { type ElDataset, type ElUnit, keyString } from "./cec-el.ts";
 
 export interface DataCorrection {
   dir: string;
-  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district" | "village-votes-only" | "zero-for-missing" | "town-votes-from-district" | "county-from-districts" | "town-summaries-by-votes";
+  action: "village-from-stations" | "drop-villages" | "known-mismatch" | "cast-from-valid-invalid" | "winner-as-published" | "duplicate-no-code" | "ctks-towns-by-name" | "towns-from-villages" | "town-votes-from-villages" | "stations-votes-only" | "town-parts-from-villages" | "winners-from-ctks" | "district-votes-from-towns" | "town-votes-by-valid" | "districts-from-towns" | "town-summary-from-district" | "known-mismatch-district" | "village-votes-only" | "zero-for-missing" | "town-votes-from-district" | "county-from-districts" | "town-summaries-by-votes" | "set-winners";
   key: string;
   note: string;
   reviewed: boolean;
@@ -84,7 +87,7 @@ export function loadDataCorrections(repoRoot: string): Map<string, DataCorrectio
   const out = new Map<string, DataCorrection[]>();
   for (const [election, dir, action, key, note, status] of parseCecCsv(readFileSync(join(repoRoot, "packages/etl/mappings/data-corrections.csv"), "utf8"), { header: true, quotedCommas: true })) {
     if (!election || !dir || !key || !note) throw new Error(`data-corrections.csv: bad row ${key}`);
-    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district", "village-votes-only", "zero-for-missing", "town-votes-from-district", "county-from-districts", "town-summaries-by-votes"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
+    if (!["village-from-stations", "drop-villages", "known-mismatch", "cast-from-valid-invalid", "winner-as-published", "duplicate-no-code", "ctks-towns-by-name", "towns-from-villages", "town-votes-from-villages", "stations-votes-only", "town-parts-from-villages", "winners-from-ctks", "district-votes-from-towns", "town-votes-by-valid", "districts-from-towns", "town-summary-from-district", "known-mismatch-district", "village-votes-only", "zero-for-missing", "town-votes-from-district", "county-from-districts", "town-summaries-by-votes", "set-winners"].includes(action ?? "")) throw new Error(`data-corrections.csv: bad action ${action}`);
     if (status !== "reviewed" && status !== "unreviewed") throw new Error(`data-corrections.csv: bad status ${status}`);
     out.set(election, [...(out.get(election) ?? []), { dir, action: action as DataCorrection["action"], key, note, reviewed: status === "reviewed" }]);
   }
@@ -294,6 +297,15 @@ export function applyCorrections(
       if (!d) throw new Error(`data-corrections ${election} ${c.key}: no such 選區`);
       ds.knownMismatch = [...(ds.knownMismatch ?? []), d];
       done.push(`${d.name} (${c.key}) kept as published despite its sums`);
+    } else if (c.action === "set-winners") {
+      const [where, list] = c.key.split("=") as [string, string | undefined];
+      const nums = new Set((list ?? "").split(",").filter(Boolean).map(Number));
+      const cs = ds.candidates.filter((x) => [x.key.prv, x.key.cty, x.key.dist, x.key.town, x.key.vil].join("|") === where);
+      if (!cs.length || !nums.size || [...nums].some((n) => !cs.some((x) => x.ballotNumber === n))) throw new Error(`data-corrections ${election} ${c.key}: no such contest or ballot numbers`);
+      const changed = cs.filter((x) => (x.electedMark === "*") !== nums.has(x.ballotNumber));
+      if (!changed.length) throw new Error(`data-corrections ${election} ${c.key}: CEC already marks these — remove the row`);
+      for (const x of cs) x.electedMark = nums.has(x.ballotNumber) ? "*" : "";
+      done.push(`winners of ${where} set to #${[...nums].join(",")} (${changed.map((x) => x.name).join(", ")} changed)`);
     } else if (c.action === "county-from-districts") {
       const [prv, cty] = want as [string, string];
       const county = ds.units.find((u) => u.level === "county" && u.key.prv === prv && u.key.cty === cty);
@@ -346,7 +358,9 @@ export function applyCorrections(
       done.push(`${c.key}: votes only (summary unknown) for ${us.length} rows`);
     } else if (c.action === "winners-from-ctks") {
       let changed = 0;
+      const only = c.key === "*" ? null : new Set(c.key.split(";"));
       for (const x of ds.candidates) {
+        if (only && !only.has([x.key.prv, x.key.cty, x.key.dist].join("|"))) continue;
         const row = ds.units.find((u) => u.key.prv === x.key.prv && u.key.cty === x.key.cty && u.key.dist === x.key.dist && u.key.town === x.key.town && u.key.vil === x.key.vil && u.key.station === "0000");
         if (!row?.votes.has(x.ballotNumber)) continue; // no elctks rows at all for this contest (2005 屏東縣山地第16選區)
         const mark = row.ctksMarks?.get(x.ballotNumber) ?? "";

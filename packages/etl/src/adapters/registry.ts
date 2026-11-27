@@ -98,6 +98,10 @@ export function registryReference(datasets: ElDataset[]): RegistryReference {
       else if (u.level === "village" && /^0\d{3}$/.test(u.key.vil) && !u.name.includes("、")) ref.village.set(`${cc}${u.key.town}|${u.name}`, `${cc}${u.key.town}${u.key.vil.slice(1)}`);
     }
   }
+  // The 2014 files give 臺南市北門區 塩田里 and 公塭里 each other's codes; NLSC (every snapshot) and
+  // CEC's 2016, 2020 and 2022 files have 塩田里 = 67000350019, 公塭里 = 67000350024.
+  const swapped = [["67000350|塩田里", "67000350024", "67000350019"], ["67000350|公塭里", "67000350019", "67000350024"]] as const;
+  if (swapped.every(([k, bad]) => ref.village.get(k) === bad)) for (const [k, , good] of swapped) ref.village.set(k, good);
   return ref;
 }
 
