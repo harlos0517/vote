@@ -428,11 +428,14 @@ describe("blackScaleEnd", () => {
 
 describe("year slider labels", () => {
   it("labels every year while they fit, then thins them, keeping the last and the selected", async () => {
-    const { labelledSlots } = await import("../components/YearSlider.tsx");
-    expect([...labelledSlots(5, 2)].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
-    expect([...labelledSlots(9, 8)].sort((a, b) => a - b)).toEqual([0, 2, 4, 6, 8]);
+    const { labelledSlots, sliderWidth } = await import("../components/YearSlider.tsx");
+    const sorted = (s: Set<number>) => [...s].sort((a, b) => a - b);
+    // Desktop: the box widens so 11 years all keep their labels.
+    expect(sliderWidth(11) - 72).toBeGreaterThanOrEqual(10 * 42);
+    expect(sorted(labelledSlots(11, 3, sliderWidth(11) - 72))).toHaveLength(11);
+    // A 210 px track (a narrow phone) fits 6 labels: every other year, the last and the selected.
+    expect(sorted(labelledSlots(9, 8, 210))).toEqual([0, 2, 4, 6, 8]);
     // Selected 5: its neighbours 4 and 6 lose their labels.
-    expect([...labelledSlots(9, 5)].sort((a, b) => a - b)).toEqual([0, 2, 5, 8]);
-    expect([...labelledSlots(11, 0)].sort((a, b) => a - b)).toEqual([0, 2, 4, 6, 8, 10]);
+    expect(sorted(labelledSlots(9, 5, 210))).toEqual([0, 2, 5, 8]);
   });
 });
