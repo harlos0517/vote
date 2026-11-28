@@ -154,7 +154,7 @@ pnpm etl live-prelim --candidates packages/etl/mappings/candidates-2026-township
 pnpm etl live-prelim --referendum 22 --election 2026-11-28-referendum --from-group 2022-11-26-constitutional-referendum.case-1 --feed cec-2026-11-28-local
 ```
 
-- 主文取自 `packages/etl/mappings/referendum-questions.csv`：中央選舉委員會公告中選務字第1153150284號（115-08-28，https://web.cec.gov.tw/central/article/64314），2026-11-26 由 Claude 對照公告 PDF 公告事項二（二）逐字核對，已標示 `reviewed`。
+- 主文取自 `packages/etl/mappings/referendum-questions.csv`：中央選舉委員會公告中選務字第1153150284號（115-08-28，https://web.cec.gov.tw/central/article/64314），2026-11-26 由 Claude 對照公告 PDF 公告事項二（二）逐字核對，已標示 `reviewed`；2026-11-28 使用者另行逐字核對一致，並與開票網站 `F1/question.html` 相同。
 - 通過門檻依公民投票法第29條（同意多於不同意，且同意達投票權人總額四分之一以上）。
 - 統計單位與界線沿用 2022 年修憲複決（全國、縣市、鄉鎮市區）。
 - 開票網站的公投頁面代碼是 `F1`（`https://vote.cec.gov.tw/2026-ref/zh-TW/`），開票時以 `--prefix 2026-11-28-referendum.case-22=F1` 與該群組自己的 `--base` 指定。

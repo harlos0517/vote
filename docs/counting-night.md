@@ -15,10 +15,10 @@
 
 ## 一、11/27 以前
 
-- [ ] 推送 `main`，確認 **Deploy site** 成功（即時開票畫面目前只在本機 commit）。
-- [ ] GitHub repo → Settings → Secrets and variables → Actions → **Variables** 新增 `LIVE_FEED` = `cec-2026-11-28-local`，重新部署網站，確認標題列出現「即時開票」按鈕。
-- [ ] 用真的瀏覽器打開網頁，確認顯示「尚未開票」、各縣市候選人與號次、0 票，沒有任何預測或比例數字。
-- [ ] 審核 `packages/etl/mappings/candidates-2026-mayor.csv`：逐筆對照每列 `source` 的公告，特別是 `method` 為 `scan` 的 36 筆；確認後把 `status` 改為 `reviewed`。（2026-11-26 Claude 已以維基百科各縣市候選人表比對 81 筆一致，並改為 `reviewed`；如需人工複核，請另行確認。）
+- [x] 推送 `main`，確認 **Deploy site** 成功（11-28 確認：線上網站的 bundle 已含即時開票畫面）。
+- [x] GitHub repo → Settings → Secrets and variables → Actions → **Variables** 新增 `LIVE_FEED` = `cec-2026-11-28-local`，重新部署網站，確認標題列出現「即時開票」按鈕。（11-28 確認：線上 bundle 含 `cec-2026-11-28-local`；使用者以瀏覽器確認按鈕出現，點擊後開啟 `https://vote.harlos.tw/#/?live=cec-2026-11-28-local`。）
+- [x] 用真的瀏覽器打開網頁，確認顯示「尚未開票」、各縣市候選人與號次、0 票，沒有任何預測或比例數字。（11-28 使用者確認。）
+- [x] 審核 `packages/etl/mappings/candidates-2026-mayor.csv`：逐筆對照每列 `source` 的公告，特別是 `method` 為 `scan` 的 36 筆；確認後把 `status` 改為 `reviewed`。（2026-11-26 Claude 已以維基百科各縣市候選人表比對 81 筆一致，並改為 `reviewed`；如需人工複核，請另行確認。2026-11-28 再以中選會開票網站候選人簡歷頁 `CC` 比對，22 縣市 81 筆號次、姓名、政黨全部一致。）
   - 有修正時重新產生並上傳群組檔（不會動到 `0000.json` 與 `latest.json`）：
 
     ```bash
@@ -29,7 +29,7 @@
     pnpm etl live-publish --feed cec-2026-11-28-local
     ```
 
-- [ ] 上傳新增的鄉鎮市長與第22案群組（已在本機產生；上傳後網頁標題列會出現選舉類別選單）：
+- [x] 上傳新增的鄉鎮市長與第22案群組（已在本機產生；上傳後網頁標題列會出現選舉類別選單）。11-28 確認：R2 上的 manifest 有三個群組，本機檔案與 `.published.json` 記錄一致。
 
   ```bash
   pnpm etl live-publish --feed cec-2026-11-28-local --dry-run
@@ -39,13 +39,13 @@
   pnpm etl live-publish --feed cec-2026-11-28-local
   ```
 
-- [ ] 審核 `packages/etl/mappings/candidates-2026-township-mayor.csv`（對照中選會登記彙總表附件 7，特別是 10 位只保留漢字姓名的原住民族候選人），以及 `referendum-questions.csv` 中第22案主文（對照中選會公告）。有修正時重跑 `docs/live-feed.md` 中對應的 `live-prelim` 指令，再上傳。
-  - 2026-11-26 Claude 已對照各縣（市）候選人名單公告與選舉公報：459 筆改為 `reviewed`；第22案主文已逐字核對。
+- [x] 審核 `packages/etl/mappings/candidates-2026-township-mayor.csv`（對照中選會登記彙總表附件 7，特別是 10 位只保留漢字姓名的原住民族候選人），以及 `referendum-questions.csv` 中第22案主文（對照中選會公告）。有修正時重跑 `docs/live-feed.md` 中對應的 `live-prelim` 指令，再上傳。
+  - 2026-11-26 Claude 已對照各縣（市）候選人名單公告與選舉公報：459 筆改為 `reviewed`；第22案主文已逐字核對。2026-11-28 再以開票網站 `CD` 頁比對 198 鄉鎮 460 人漢字姓名一致；第22案主文與開票網站 `F1/question.html` 一致。
   - [x] 5 位不在公告名單上的登記者（李貞秀、廖芳毅、張榮法、黃奕焮、蔡西湖）已自 CSV 刪除；伸港鄉「黄永欽」經公報確認無誤（見 `docs/live-feed.md`）。
-  - [ ] 鄉鎮市長群組（本機已產生的是 465 人版本）需以目前 CSV 重跑 `live-prelim` 再上傳。
-  - [ ] `status` 改變後，重跑 `live-prelim` 會改變網頁上「尚未人工審核」「主文已人工核對」等字樣；決定是否重新產生並上傳。
-- [x] 三個推薦政黨（臺灣SoR無法黨、三勢團結促進聯盟、台聯黨）已依內政部政黨名冊對應中選會代碼 366、203、95（`party-names.csv`）；重跑縣市長群組的 `live-prelim` 後生效。
-- [ ] （建議）在正式網站演練一次：上傳重播 feed，邊播放邊上傳，打開 `https://vote.harlos.tw/#/?live=replay-2022-11-26-local` 看地圖是否隨開票進度上色。兩個指令分別開兩個終端機：
+  - [x] 鄉鎮市長群組已以目前 CSV 重跑 `live-prelim` 並上傳（群組檔 11-26 01:54 產生，晚於 CSV 最後修改；460 人）。
+  - [x] `status` 改變後，重跑 `live-prelim` 會改變網頁上「尚未人工審核」「主文已人工核對」等字樣；決定是否重新產生並上傳。（11-28：目前群組檔已是審核後版本，網頁顯示「0 筆待審核」與「主文已人工核對」；第22案主文另經使用者 11-28 逐字核對一致，「主文已人工核對」字樣保留。）
+- [x] 三個推薦政黨（臺灣SoR無法黨、三勢團結促進聯盟、台聯黨）已依內政部政黨名冊對應中選會代碼 366、203、95（`party-names.csv`）；已重跑縣市長群組的 `live-prelim` 並上傳，已生效（11-28 確認群組檔中政黨代碼正確）。
+- [x] （建議）在正式網站演練一次（使用者已於投票日前數日完成）：上傳重播 feed，邊播放邊上傳，打開 `https://vote.harlos.tw/#/?live=replay-2022-11-26-local` 看地圖是否隨開票進度上色。兩個指令分別開兩個終端機：
 
   ```bash
   pnpm etl live-play --feed replay-2022-11-26-local --speed 12
