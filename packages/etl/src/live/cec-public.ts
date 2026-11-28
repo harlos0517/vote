@@ -7,7 +7,7 @@
  * be checked once the site opens on election day, so every assumption below fails loudly.
  *
  *   result page   <base>/<prefix>/<c5><y2><d3><v3><b4>.html   (HTML fragment)
- *                 prefix = CEC election-type code (P1, L1…L4, and presumably C1, T1… in 2026)
+ *                 prefix = CEC election-type code (P1, L1…L4 in 2024; TC, TD, F1 in 2026)
  *                 c county, y electoral district, d town, v village, b polling station
  *
  * Rules this poller keeps (docs/live-feed.md): read only what the site serves openly, from one
@@ -86,7 +86,11 @@ const TIME_RE = /資料(?:更新)?時間\s*[:：]\s*(\d{2}\/\d{2}\s+\d{2}:\d{2}(
 export function parseResultPage(html: string): ParsedPage {
   const flat = text(html);
   const progress = PROGRESS_RE.exec(flat);
-  if (!progress) throw new PageFormatError("no 已送/應送 polling-station count on the page");
+  if (!progress) {
+    // 2026 pages before counting (stage "prior") have an empty subtitle where 2024 printed the count.
+    const empty = /vote-table-header-subtitle">\s*<\/div>/.test(html);
+    throw new PageFormatError(`no 已送/應送 polling-station count on the page${empty ? " (subtitle empty: counting not started?)" : ""}`);
+  }
   const time = TIME_RE.exec(flat);
   const head = { reported: int(progress[1]!), total: int(progress[2]!), dataTime: time?.[1]?.replace(/\s+/, " ") ?? null };
   if (flat.includes("同意票數")) {
@@ -100,7 +104,8 @@ export function parseResultPage(html: string): ParsedPage {
   const headers = [...thead.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => text(m[1]!));
   const col = (...names: string[]) => headers.findIndex((h) => names.some((n) => h.includes(n)));
   const iNo = col("號次");
-  const iName = col("候選人姓名", "政黨");
+  // 「候選人姓名」 (2024); 2026's roster pages say 「姓名」, so its result pages may too.
+  const iName = col("姓名", "政黨");
   const iVotes = col("得票數");
   const iMark = col("註記");
   if (iNo < 0 || iName < 0 || iVotes < 0) throw new PageFormatError(`unexpected columns: ${headers.join(" | ")}`);
@@ -110,6 +115,10 @@ export function parseResultPage(html: string): ParsedPage {
     const cells = [...tr[1]!.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]!);
     if (cells.length !== headers.length) throw new PageFormatError(`row has ${cells.length} cells, header has ${headers.length}`);
     const divs = [...cells[iName]!.matchAll(/<div\b[^>]*>([\s\S]*?)<\/div>/g)].map((m) => text(m[1]!)).filter(Boolean);
+    // A vacant ballot number: a registrant struck off after numbers were drawn keeps an empty
+    // row (2026 金門縣金湖鎮 號次 2). Votes marked there are invalid, so skip it — but only when
+    // it really is empty; a nameless row with votes is not something to guess about.
+    if (divs.length === 0 && text(cells[iName]!) === "" && /^0?$/.test(text(cells[iVotes]!).replace(/[,\s]/g, ""))) continue;
     choices.push({
       ballotNumber: int(text(cells[iNo]!)),
       names: divs.length > 0 ? divs : [text(cells[iName]!)],
@@ -128,6 +137,9 @@ const REFERENDUM_LABELS: Record<string, keyof ParsedReferendum> = {
   無效票數: "invalid",
   投票數: "ballotsCast",
   投票權人數: "electors",
+  // 2026: electors of the stations already reported, beside a fixed 「投票權人總數」. The live
+  // summary covers reported stations only, so this is the matching figure.
+  已完成投票所投票權人數: "electors",
 };
 
 /**
@@ -337,6 +349,21 @@ export interface GroupPlan {
   levels: ReportingLevel[];
   /** contestId → page prefix, for contests whose code cannot be derived (referendums). */
   prefixes?: Record<string, string>;
+  /** This group's site, when it differs from the poller's (2026: local elections and the referendum are separate apps). */
+  fetchPage?: Fetcher;
+}
+
+/**
+ * contestId → page prefix from `--prefix` entries. An entry keyed by the group id applies to
+ * every contest of the group (2026 uses one code, TC, for both 直轄市長 and 縣市長, while the
+ * contest ids keep votedata's c1/c2); an entry keyed by a contest id wins over it.
+ */
+export function resolvePrefixes(groupId: string, contestIds: string[], entries: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  const group = entries[groupId];
+  if (group) for (const id of contestIds) out[id] = group;
+  for (const id of contestIds) if (entries[id]) out[id] = entries[id]!;
+  return out;
 }
 
 export type Fetcher = (path: string) => Promise<{ status: number; body: string }>;
@@ -515,7 +542,7 @@ export async function runCecPoller(o: PollOptions): Promise<"final" | "stopped" 
     let total = 0;
     for (const plan of o.plans) {
       const prev = readLatest(plan.metadata.group.id);
-      const r = await pollGroupOnce(plan, o.fetchPage, prev, { feedId: o.feedId, concurrency: o.concurrency });
+      const r = await pollGroupOnce(plan, plan.fetchPage ?? o.fetchPage, prev,{ feedId: o.feedId, concurrency: o.concurrency });
       writeAtomic(join(o.feedDir, livePaths.snapshot(plan.metadata.group.id, r.snapshot.seq)), JSON.stringify(r.snapshot));
       writeAtomic(join(o.feedDir, livePaths.latest(plan.metadata.group.id)), JSON.stringify(r.snapshot));
       failed += r.failed;

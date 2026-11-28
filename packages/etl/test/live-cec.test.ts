@@ -13,6 +13,7 @@ import {
   parseResultPage,
   pollGroupOnce,
   prefixFor,
+  resolvePrefixes,
   runCecPoller,
   type Fetcher,
   type GroupPlan,
@@ -355,5 +356,76 @@ describe("shared feed manifest", () => {
     const m = LiveManifestFile.parse(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
     expect(m.groups.map((g) => g.groupId)).toEqual(["2026-11-28-referendum.case-22", `${E}.mayor`]);
     expect(m.election.id).toBe("2026-11-28-local");
+  });
+});
+
+// --- 2026 site: pages saved before counting (stage "prior"), see fixtures/cec-live-2026 ---
+
+const F26 = join(import.meta.dirname, "fixtures/cec-live-2026");
+const F1_PRIOR = readFileSync(join(F26, "F1-00000000000000000.html"), "utf8");
+const withProgress = (html: string, reported: number, total: number) =>
+  html.replace('<div class="vote-table-header-subtitle">', `<div class="vote-table-header-subtitle">\n<div class="emph-right bullet"> <img src="x" />已送投票所數/總投票所數: ${reported}/${total} </div>`);
+
+describe("2026 site", () => {
+  it("says counting has not started when the referendum page has no station count yet", () => {
+    expect(() => parseResultPage(F1_PRIOR)).toThrow(/subtitle empty: counting not started/);
+  });
+
+  it("reads the 2026 referendum labels, taking electors of reported stations only", () => {
+    const html = withProgress(F1_PRIOR, 3, 17860).replace(/(已完成投票所投票權人數[\s\S]*?<td class="numeric width-50">\s*)0/, "$11,234");
+    const p = parseResultPage(html);
+    expect([p.reported, p.total, p.dataTime]).toEqual([3, 17860, "11/28 00:10"]);
+    // 投票權人總數 (20,003,835) is the fixed total, not the reported-stations figure.
+    expect(p.referendum).toEqual({ agree: 0, disagree: 0, valid: 0, invalid: 0, ballotsCast: 0, electors: 1234 });
+  });
+
+  it("finds the name column when the header says 姓名", () => {
+    const html = page(1, 2, [[1, "甲", 5]]).replace("<th>候選人姓名</th>", "<th>姓名</th>");
+    expect(parseResultPage(html).choices).toEqual([{ ballotNumber: 1, names: ["甲"], votes: 5, elected: false }]);
+  });
+
+  // 金門縣金湖鎮: 號次 2 was struck off and keeps an empty row on the roster page (CD fixture).
+  const T = `${E}.d1-09020030`;
+  const town = { id: T, electionId: E, office: "township-mayor", cecTypeCode: "D1", nameZh: "金湖鎮長", choiceKind: "candidate", scope: { level: "town", code: "09020030" } } as unknown as Contest;
+  const roster: BallotChoice[] = ["蔡乃靖", "陳向鑫"].map((labelZh, i) => ({ id: `09020030.r${i + 1}`, contestId: T, kind: "candidate", ballotNumber: null, candidacyIds: [], partyId: null, labelZh }));
+  const vacant = (votes: string) =>
+    page(4, 9, [[1, "陳向鑫", 300], [3, "蔡乃靖", 200]]).replace("</tr><tr>", `</tr><tr><td class="electmark"></td><td>\n    2\n</td><td>\n</td><td class="numeric">${votes}</td></tr><tr>`);
+
+  it("has the empty row on the saved roster page", () => {
+    const cd = readFileSync(join(F26, "CD-09020000300000000.html"), "utf8");
+    expect(cd).toMatch(/<td>\s*2\s*<\/td>\s*<td>\s*<\/td>/);
+  });
+
+  it("skips a vacant ballot number with no votes", () => {
+    for (const v of ["", "0"]) {
+      const p = parseResultPage(vacant(v));
+      expect(p.choices.map((c) => c.ballotNumber)).toEqual([1, 3]);
+      const r = pageToRow(p, "town:09020030", "town", town, roster, "2026-11-28");
+      expect(r.row.votes).toEqual({ "09020030.r1": 200, "09020030.r2": 300 });
+      expect(r.warnings).toEqual([]);
+    }
+  });
+
+  it("does not skip a nameless row that has votes", () => {
+    expect(() => pageToRow(parseResultPage(vacant("12")), "town:09020030", "town", town, roster, "2026-11-28")).toThrow(NameMatchError);
+  });
+
+  it("applies a group-wide --prefix to every contest, a contest's own entry winning", () => {
+    expect(resolvePrefixes(`${E}.mayor`, [`${E}.c1-63000`, `${E}.c2-10002`], { [`${E}.mayor`]: "TC", [`${E}.c2-10002`]: "XX", other: "F1" })).toEqual({ [`${E}.c1-63000`]: "TC", [`${E}.c2-10002`]: "XX" });
+    expect(resolvePrefixes(`${E}.mayor`, [`${E}.c1-63000`], {})).toEqual({});
+  });
+
+  it("fetches each group from its own site", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cec-"));
+    const local = site({ "TC/63000000000000000.html": { status: 200, body: page(1, 2, [[1, "甲", 1], [2, "乙", 1]]) }, "TC/65000000000000000.html": { status: 200, body: page(1, 2, [[1, "丙", 1]]) } });
+    const refMeta = { ...metadata, election: { ...metadata.election, id: "2018-11-24-referendum", date: "2018-11-24" }, group: { ...metadata.group, id: R7, levels: ["national"] }, contests: [refContest], choices: refChoices } as unknown as GroupMetadataFile;
+    const ref = site({ "F1/00000000000000000.html": { status: 200, body: withProgress(F1_PRIOR, 0, 17860) } });
+    const plans = [
+      { ...plan, prefixes: resolvePrefixes(`${E}.mayor`, metadata.contests.map((c) => c.id), { [`${E}.mayor`]: "TC" }), metadataRef: { release: "r-test", path: "groups/m/metadata.json" } },
+      { metadata: refMeta, levels: ["national"] as const, prefixes: { [R7]: "F1" }, fetchPage: ref, results: { national: { units: [{ id: "nat", level: "national" as const, nameZh: "全國", parentId: null, contestIds: [R7] }] } }, metadataRef: { release: "r-test", path: "groups/r/metadata.json" } },
+    ];
+    await runCecPoller({ feedDir: dir, feedId: "cec-test", plans: plans as never, fetchPage: local, sourceUrl: "https://x.test/", intervalSeconds: 120, concurrency: 2, once: true, log: () => {} });
+    expect(local.calls.sort()).toEqual(["TC/63000000000000000.html", "TC/65000000000000000.html"]);
+    expect(ref.calls).toEqual(["F1/00000000000000000.html"]);
   });
 });

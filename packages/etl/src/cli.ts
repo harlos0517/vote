@@ -8,8 +8,8 @@
  * tw-etl live-replay --groups <id,id> [--release r] [--start iso] [--interval min] [--seed n] [--poll s]
  *                    write a simulated live-count feed from published results to data/out/live/
  * tw-etl live-play --feed <feedId> [--speed n]
- * tw-etl live-cec --groups <id,id> --base <url> [--release r] [--levels county,town] [--interval s] [--concurrency n]
- *                    [--prefix <contestId>=<code> ...] [--feed id] [--once] [--publish]
+ * tw-etl live-cec --groups <id,id> --base <url> [--base <groupId>=<url> ...] [--release r] [--levels county,town] [--interval s] [--concurrency n]
+ *                    [--prefix <contestId or groupId>=<code> ...] [--feed id] [--once] [--publish]
  *                    --levels may repeat as <groupId>=<levels> to set one group's levels
  * tw-etl live-publish --feed <feedId> [--watch seconds] [--dry-run]
  *                    upload data/out/live/<feedId>/ to R2 under live/<feedId>/ (changed files only)
@@ -28,7 +28,7 @@ import { DATA_PREFIX, PartiesFile, type ReportingLevel } from "@tw-election/sche
 import { parseArgs } from "node:util";
 import { build, fetchAll } from "./pipeline.ts";
 import { mirrorRaw, publishRelease } from "./publish/r2.ts";
-import { httpFetcher, runCecPoller } from "./live/cec-public.ts";
+import { httpFetcher, resolvePrefixes, runCecPoller } from "./live/cec-public.ts";
 import { announcePrelimGroup, buildPrelimGroup, buildPrelimReferendum, loadFeedGroup, readCandidateCsv, writePrelimGroup } from "./live/prelim.ts";
 import { loadReferendumQuestions } from "./lib/referendum-questions.ts";
 import { loadPartyNames } from "./lib/party-names.ts";
@@ -50,7 +50,7 @@ const { positionals, values } = parseArgs({
     poll: { type: "string" },
     feed: { type: "string" },
     speed: { type: "string" },
-    base: { type: "string" },
+    base: { type: "string", multiple: true },
     levels: { type: "string", multiple: true },
     referendum: { type: "string" },
     election: { type: "string" },
@@ -108,7 +108,22 @@ if (cmd === "fetch") {
   await playReplayFeed(livePaths.feed(opts.outDir, values.feed), Number(values.speed ?? 60));
 } else if (cmd === "live-cec") {
   const groupIds = (values.groups ?? "").split(",").filter(Boolean);
-  if (groupIds.length === 0 || !values.base) throw new Error("--groups and --base are required, e.g. --base https://vote.cec.gov.tw/zh-TW/");
+  // --base <url> (every group) and/or --base <groupId>=<url> (one group).
+  const baseArgs = values.base ?? [];
+  const ownBase = (g: string) => baseArgs.find((b) => b.startsWith(`${g}=`))?.slice(g.length + 1);
+  const defaultBases = baseArgs.filter((b) => /^(https?|file):\/\//.test(b));
+  for (const b of baseArgs) if (!defaultBases.includes(b) && !groupIds.some((g) => b.startsWith(`${g}=`))) throw new Error(`--base ${b}: not a URL, and not <groupId>=<url> for a group in --groups`);
+  if (defaultBases.length > 1) throw new Error(`--base: more than one default URL (${defaultBases.join(", ")})`);
+  const defaultBase = defaultBases[0] ?? (groupIds.length > 0 ? ownBase(groupIds[0]!) : undefined);
+  if (groupIds.length === 0 || !defaultBase || groupIds.some((g) => !ownBase(g) && !defaultBases[0])) {
+    throw new Error("--groups and --base are required, e.g. --base https://vote.cec.gov.tw/2026-local/zh-TW/ (or --base <groupId>=<url> for each group)");
+  }
+  // --prefix <contestId>=<code> or <groupId>=<code> (every contest of the group).
+  const prefixEntries = Object.fromEntries((values.prefix ?? []).map((p) => {
+    const [id, code] = p.split("=");
+    if (!id || !code) throw new Error(`--prefix expects <contestId or groupId>=<code>, got "${p}"`);
+    return [id, code];
+  }));
   const release = values.release ?? currentRelease(opts.outDir);
   const electionOf = (g: string) => g.split(".")[0]!;
   // One feed can carry groups of several elections held the same day (--feed).
@@ -131,22 +146,25 @@ if (cmd === "fetch") {
       return { ...r, metadataRef: { release, path: r.metadataPath } };
     })();
     const levels = levelsFor(g) ?? loaded.metadata.group.levels.filter((l) => l !== "village" && l !== "station");
-    const prefixes = Object.fromEntries((values.prefix ?? []).map((p) => {
-      const [id, code] = p.split("=");
-      if (!id || !code) throw new Error(`--prefix expects <contestId>=<code>, got "${p}"`);
-      return [id, code];
-    }));
-    return { ...loaded, levels, prefixes };
+    const prefixes = resolvePrefixes(g, loaded.metadata.contests.map((c) => c.id), prefixEntries);
+    const base = ownBase(g);
+    return { ...loaded, levels, prefixes, ...(base ? { fetchPage: httpFetcher(base), base } : { base: defaultBase }) };
   });
-  for (const p of plans) console.log(`${p.metadata.group.id}: levels ${p.levels.join(",")}`);
+  // A typo in --prefix would otherwise silently fall back to the contest's own code.
+  const known = new Set(plans.flatMap((p) => [p.metadata.group.id, ...p.metadata.contests.map((c) => c.id)]));
+  for (const id of Object.keys(prefixEntries)) if (!known.has(id)) throw new Error(`--prefix ${id}=…: no such group or contest in --groups`);
+  for (const p of plans) {
+    const codes = [...new Set(p.metadata.contests.map((c) => p.prefixes[c.id] ?? c.cecTypeCode ?? "?"))];
+    console.log(`${p.metadata.group.id}: levels ${p.levels.join(",")}; pages ${p.base}${codes.join("|")}/…`);
+  }
   // Fail before polling if --publish lacks credentials.
   const bucket = values.publish ? r2Bucket() : null;
   const r = await runCecPoller({
     feedDir,
     feedId,
     plans,
-    fetchPage: httpFetcher(values.base),
-    sourceUrl: values.base,
+    fetchPage: httpFetcher(defaultBase),
+    sourceUrl: defaultBase,
     intervalSeconds: Number(values.interval ?? 120),
     concurrency: Number(values.concurrency ?? 3),
     once: !!values.once,
